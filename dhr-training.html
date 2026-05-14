@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DHR Scanner — Training Guide Supplement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Playfair+Display:wght@700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink: #1a1a2e;
+  --slate: #64748b;
+  --accent: #2563eb;
+  --accent-light: #dbeafe;
+  --fire: #dc2626;
+  --fire-light: #fef2f2;
+  --gold: #d97706;
+  --gold-light: #fffbeb;
+  --green: #059669;
+  --green-light: #ecfdf5;
+  --purple: #7c3aed;
+  --purple-light: #f5f3ff;
+  --bg: #0a0a0f;
+  --card-bg: rgba(255,255,255,0.04);
+  --card-border: rgba(255,255,255,0.08);
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --text-bright: #f8fafc;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  font-size: 17px;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: 
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(37,99,235,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(124,58,237,0.04) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--purple));
+  z-index: 1000;
+  width: 0%;
+  transition: width 0.1s linear;
+}
+
+.nav-dots {
+  position: fixed;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 100;
+}
+.nav-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  border: 1.5px solid rgba(255,255,255,0.2);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+.nav-dot:hover, .nav-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(37,99,235,0.5);
+  transform: scale(1.3);
+}
+.nav-dot .tooltip {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(15,23,42,0.95);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.nav-dot:hover .tooltip { opacity: 1; }
+
+@media (max-width: 768px) {
+  .nav-dots { display: none; }
+}
+
+.content {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.fade-in {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fade-in.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.fade-in.delay-1 { transition-delay: 0.1s; }
+.fade-in.delay-2 { transition-delay: 0.2s; }
+.fade-in.delay-3 { transition-delay: 0.3s; }
+.fade-in.delay-4 { transition-delay: 0.4s; }
+
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 24px;
+  position: relative;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0; right: 0;
+  height: 200px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+.hero-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 50px;
+  padding: 8px 28px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 40px;
+}
+.hero-title {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(40px, 8vw, 72px);
+  font-weight: 900;
+  color: var(--text-bright);
+  line-height: 1.05;
+  margin-bottom: 16px;
+}
+.hero-title .highlight {
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero-subtitle {
+  font-size: clamp(16px, 3vw, 22px);
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-bottom: 60px;
+}
+.hero-meta {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 2.2;
+}
+.hero-meta strong { color: var(--text); }
+.scroll-indicator {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  animation: float 2s ease-in-out infinite;
+}
+@keyframes float {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-8px); }
+}
+
+.section {
+  padding: 80px 0;
+}
+.section-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px; height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  color: white;
+  font-weight: 900;
+  font-size: 20px;
+  margin-bottom: 20px;
+}
+.section-title {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(32px, 6vw, 48px);
+  font-weight: 900;
+  color: var(--text-bright);
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+.section-tagline {
+  font-size: 17px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-bottom: 40px;
+}
+
+h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-bright);
+  margin-top: 48px;
+  margin-bottom: 16px;
+}
+
+p { margin-bottom: 16px; }
+
+ul, ol {
+  margin-bottom: 20px;
+  padding-left: 24px;
+}
+li {
+  margin-bottom: 8px;
+}
+
+strong { color: var(--text-bright); font-weight: 700; }
+em { color: var(--text-dim); }
+kbd {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+code {
+  background: rgba(255,255,255,0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 24px;
+  font-size: 15px;
+}
+thead th {
+  text-align: left;
+  padding: 12px 16px;
+  font-weight: 700;
+  color: var(--text-bright);
+  border-bottom: 2px solid rgba(255,255,255,0.12);
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+}
+tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  vertical-align: top;
+}
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.box {
+  border-left: 4px solid;
+  border-radius: 0 12px 12px 0;
+  padding: 20px 24px;
+  margin: 24px 0;
+}
+.box-title {
+  font-weight: 800;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.box-error { background: rgba(220,38,38,0.08); border-color: var(--fire); }
+.box-error .box-title { color: var(--fire); }
+.box-tip { background: rgba(217,119,6,0.08); border-color: var(--gold); }
+.box-tip .box-title { color: var(--gold); }
+.box-green { background: rgba(5,150,105,0.08); border-color: var(--green); }
+.box-green .box-title { color: var(--green); }
+
+.exercise {
+  background: rgba(37,99,235,0.06);
+  border: 1px solid rgba(37,99,235,0.2);
+  border-radius: 16px;
+  padding: 24px;
+  margin: 32px 0;
+}
+.exercise-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.exercise-badge {
+  background: var(--accent);
+  color: white;
+  padding: 4px 14px;
+  border-radius: 50px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.exercise-title {
+  font-weight: 800;
+  color: var(--text-bright);
+  font-size: 16px;
+}
+
+.flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 24px 0;
+  flex-wrap: wrap;
+}
+.flow-step {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.4;
+  min-width: 100px;
+}
+.flow-arrow {
+  color: var(--accent);
+  font-size: 20px;
+  padding: 0 8px;
+  font-weight: 700;
+}
+
+.scenario {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.scenario-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+.scenario h3 {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-bright);
+  margin-bottom: 8px;
+}
+.fix {
+  background: rgba(5,150,105,0.08);
+  border-left: 3px solid var(--green);
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  margin-top: 12px;
+  font-size: 15px;
+}
+
+.mantra-banner {
+  background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.12));
+  border: 1px solid rgba(37,99,235,0.3);
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+  margin: 40px 0;
+}
+.mantra-text {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--text-bright);
+  margin-bottom: 8px;
+}
+.mantra-sub {
+  color: var(--text-dim);
+  font-size: 16px;
+}
+
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.supplement-badge {
+  display: inline-block;
+  background: rgba(124,58,237,0.15);
+  border: 1px solid rgba(124,58,237,0.3);
+  color: var(--purple);
+  padding: 6px 18px;
+  border-radius: 50px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.ref-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.ref-card-title {
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--text-bright);
+  margin-bottom: 16px;
+}
+
+.cat-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.cat-req { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.cat-opt { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
+.cat-tool { background: rgba(245,158,15,0.15); color: #f59e0f; border: 1px solid rgba(245,158,15,0.3); }
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 768px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
+.footer {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 2;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.checklist { list-style: none; padding-left: 0; }
+.checklist li { padding-left: 28px; position: relative; margin-bottom: 12px; }
+.checklist li::before {
+  content: '☐';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-size: 18px;
+}
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progressBar"></div>
+<div class="nav-dots" id="navDots"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     HERO
+     ═══════════════════════════════════════════════════════════════ -->
+<section class="hero" id="sec-hero" data-nav="Welcome">
+  <div class="fade-in"><div class="supplement-badge">Training Supplement</div></div>
+  <h1 class="fade-in hero-title">DHR <span class="highlight">Scanner</span></h1>
+  <p class="fade-in hero-subtitle">Checklist-Based Build Tracking &amp; Real-Time Stock Deduction</p>
+  <div class="fade-in hero-meta">
+    <strong>Supplement to:</strong> VITROS Inventory Dashboard — Engineer Training Guide<br>
+    <strong>Covers:</strong> DHR Scanner v2.0 — Session-Based Checklist System<br>
+    <strong>Audience:</strong> Service Engineers · Superusers<br>
+    <strong>Author:</strong> Joe Willis · Lead Service Engineer<br>
+    <strong>Version:</strong> 1.0 · May 2026
+  </div>
+  <div class="scroll-indicator">↓ Scroll to begin</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 1 — WHAT CHANGED
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-overview" data-nav="What Changed">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">1</div></div>
+    <h1 class="fade-in section-title">What Changed</h1>
+    <p class="fade-in section-tagline">"No more guessing what goes in the box. The checklist knows."</p>
+
+    <p class="fade-in">The DHR Scanner has been completely rebuilt. The old version used AI/OCR to read documents — point your camera, hope the AI gets it right, fix what it missed. That workflow is gone.</p>
+
+    <p class="fade-in">The new DHR Scanner is a <strong>pre-loaded checklist system</strong>. Every part that belongs in a VITROS 5600 rebuild is already in the system — organized by section, with expected quantities, categories, and real-time stock levels. You don't scan documents. You fill a checklist.</p>
+
+    <div class="fade-in mantra-banner">
+      <div class="mantra-text">"The checklist already knows what's needed. You confirm what you pulled."</div>
+      <div class="mantra-sub">Every part. Every quantity. Every stock update. In real time.</div>
+    </div>
+
+    <h2 class="fade-in">Old vs. New — At a Glance</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Feature</th><th>Old DHR Scanner</th><th>New DHR Scanner</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Input Method</td><td>📸 Camera / Upload / Manual</td><td>📋 Pre-loaded checklist</td></tr>
+        <tr><td>Part Recognition</td><td>AI OCR with fuzzy matching</td><td>Pre-populated from database</td></tr>
+        <tr><td>Part List</td><td>Whatever the AI extracted</td><td>All 144 parts across 22 sections</td></tr>
+        <tr><td>Stock Updates</td><td>Manual after scan</td><td>Real-time on quantity entry</td></tr>
+        <tr><td>Tracking</td><td>One-off scan results</td><td>Session-based with progress tracking</td></tr>
+        <tr><td>BOM Quantities</td><td>Not available</td><td>Pre-loaded per part — click to fill</td></tr>
+        <tr><td>Corrections</td><td>Re-scan or manual edit</td><td>Edit any qty — delta auto-adjusts stock</td></tr>
+        <tr><td>Export</td><td>Not available</td><td>Excel export of full session</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Why This Matters</div>
+      <p style="margin:0">The old scanner depended on document quality and AI accuracy. The new system starts with a complete, accurate parts list. Nothing gets missed because it's already there waiting for you. Zero guessing.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 2 — THE WORKFLOW
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-workflow" data-nav="Workflow">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">2</div></div>
+    <h1 class="fade-in section-title">The Workflow</h1>
+    <p class="fade-in section-tagline">"Create a session. Fill the checklist. Complete the build. That's it."</p>
+
+    <div class="fade-in flow">
+      <div class="flow-step">➕ Create<br>Session</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">📋 Fill<br>Checklist</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">📊 Track<br>Progress</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">📥 Export<br>(Optional)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">✅ Complete<br>Session</div>
+    </div>
+
+    <h2 class="fade-in">Step 1 — Create a Session</h2>
+    <p class="fade-in">Click <strong>+ New Session</strong> in the top-right corner. You'll see three fields:</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Field</th><th>Required?</th><th>What to Enter</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Instrument S/N</strong></td><td>✅ Yes</td><td>The serial number of the analyzer being rebuilt (e.g., <kbd>08001234</kbd>)</td></tr>
+        <tr><td><strong>W/O Number</strong></td><td>Optional</td><td>Work order number if you have one</td></tr>
+        <tr><td><strong>Model</strong></td><td>✅ Yes</td><td>Select from dropdown: <strong>VITROS 5600</strong>, 3600, or XT 7600</td></tr>
+      </tbody>
+    </table>
+
+    <p class="fade-in">Click <strong>Create Session</strong>. The system loads the full parts checklist for that analyzer model. For the VITROS 5600, that's <strong>22 sections</strong> and <strong>144 parts</strong>.</p>
+
+    <h2 class="fade-in">Step 2 — Fill the Checklist</h2>
+    <p class="fade-in">The session opens with every section expanded. Each section shows its parts in a table with these columns:</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Column</th><th>What It Shows</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>PART</strong></td><td>Part number and description. Cross-reference notes appear in green italic below.</td></tr>
+        <tr><td><strong>CATEGORY</strong></td><td><span class="cat-badge cat-req">REQ</span> Required · <span class="cat-badge cat-opt">OPT</span> Optional · <span class="cat-badge cat-tool">TOOL</span> Tool</td></tr>
+        <tr><td><strong>BOM</strong></td><td>Bill of Materials quantity — how many the spec calls for. <strong>Click to quick-fill.</strong></td></tr>
+        <tr><td><strong>QTY</strong></td><td>Your entered quantity. Click the field, type the number, press Enter or click away.</td></tr>
+        <tr><td><strong>QOH</strong></td><td>Quantity On Hand — live from stock. <span style="color:#ef4444;">Red = zero stock.</span></td></tr>
+        <tr><td><strong>STATUS</strong></td><td>Shows ✅ when a quantity has been entered.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">Step 3 — Track Progress</h2>
+    <p class="fade-in">The <strong>Overall Progress</strong> bar at the top shows two numbers:</p>
+    <ul class="fade-in">
+      <li><strong>X/62 required</strong> — How many required parts you've filled vs. total required</li>
+      <li><strong>X/144 total</strong> — How many parts (of all types) you've filled vs. total</li>
+    </ul>
+    <p class="fade-in">Each section header also shows its own progress: <strong>X/Y required · X/Z total</strong> with a mini progress bar.</p>
+
+    <h2 class="fade-in">Step 4 — Export (Optional)</h2>
+    <p class="fade-in">Click <strong>Export</strong> at any time to download the session as an Excel file. The export includes every part, section, BOM qty, scanned qty, QOH, and status.</p>
+
+    <h2 class="fade-in">Step 5 — Complete Session</h2>
+    <p class="fade-in">When the build is done, click the green <strong>✅ Complete</strong> button. This locks the session — no more edits. The session moves to a "completed" state and is visible in the session history.</p>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ Complete Is Final</div>
+      <p style="margin:0">Once you click Complete, the session is locked. All quantity fields become read-only. Make sure you've verified everything before completing. If you need to make a correction after completing, contact Joe.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 3 — SECTIONS & PARTS
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-sections" data-nav="Sections & Parts">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">3</div></div>
+    <h1 class="fade-in section-title">Sections &amp; Parts</h1>
+    <p class="fade-in section-tagline">"Every module. Every part. Nothing falls through the cracks."</p>
+
+    <p class="fade-in">The VITROS 5600 DHR checklist follows the official Device History Record structure — sections 5.1 through 5.23. Each section maps to a physical module or assembly stage in the analyzer rebuild.</p>
+
+    <h2 class="fade-in">All 22 Sections</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Section</th><th>Module</th><th>Parts</th><th>Required</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>5.1</td><td>MOD Status Verification</td><td>—</td><td>—</td></tr>
+        <tr><td>5.2</td><td>VersaTip Supply</td><td>5</td><td>2</td></tr>
+        <tr><td>5.3</td><td>µS/µIA/µWR Metering Parts</td><td>13</td><td>6</td></tr>
+        <tr><td>5.4</td><td>Reagent Supply Parts</td><td>13</td><td>7</td></tr>
+        <tr><td>5.5</td><td>Reagent Cooler</td><td>1</td><td>1</td></tr>
+        <tr><td>5.7</td><td>Microwell Incubator Parts</td><td>17</td><td>7</td></tr>
+        <tr><td>5.8</td><td>Luminometer</td><td>1</td><td>1</td></tr>
+        <tr><td>5.9</td><td>Master Computer</td><td>3</td><td>3</td></tr>
+        <tr><td>5.10</td><td>Signal Reagent Metering</td><td>8</td><td>3</td></tr>
+        <tr><td>5.11</td><td>Well Wash Modules Parts</td><td>11</td><td>3</td></tr>
+        <tr><td>5.12</td><td>Fluidics Supply Center Parts</td><td>15</td><td>9</td></tr>
+        <tr><td>5.13</td><td>Cuvette Incubator &amp; Supply / MicroTip</td><td>2</td><td>0</td></tr>
+        <tr><td>5.14</td><td>MicroSensor</td><td>4</td><td>1</td></tr>
+        <tr><td>5.15</td><td>MicroSlide Incubator Parts</td><td>10</td><td>6</td></tr>
+        <tr><td>5.16</td><td>Reflectometer</td><td>5</td><td>2</td></tr>
+        <tr><td>5.17</td><td>Slide Supply</td><td>11</td><td>1</td></tr>
+        <tr><td>5.18</td><td>ERF Metering Assembly</td><td>7</td><td>2</td></tr>
+        <tr><td>5.19</td><td>WF Metering</td><td>3</td><td>1</td></tr>
+        <tr><td>5.20</td><td>Power Supply</td><td>2</td><td>0</td></tr>
+        <tr><td>5.21</td><td>Waste</td><td>6</td><td>4</td></tr>
+        <tr><td>5.22</td><td>Preparing for Final Line</td><td>7</td><td>3</td></tr>
+        <tr><td>5.23</td><td>Label</td><td>—</td><td>—</td></tr>
+      </tbody>
+    </table>
+
+    <p class="fade-in"><em>Note: Section 5.6 does not exist in the original DHR document (numbering skips from 5.5 to 5.7).</em></p>
+
+    <h2 class="fade-in">Part Categories</h2>
+    <p class="fade-in">Every part is tagged with one of three categories:</p>
+
+    <div class="fade-in two-col">
+      <div class="ref-card">
+        <div class="ref-card-title"><span class="cat-badge cat-req">REQ</span> Required — 62 parts</div>
+        <p style="margin:0; font-size:15px;">Must be installed for the build to pass QA. These parts are tracked in the required progress counter. If you skip a required part, the progress bar will show it.</p>
+      </div>
+      <div class="ref-card">
+        <div class="ref-card-title"><span class="cat-badge cat-opt">OPT</span> Optional — 77 parts</div>
+        <p style="margin:0; font-size:15px;">Installed as-needed based on the specific analyzer's condition. Not counted toward "required" progress, but still tracked in the total count.</p>
+      </div>
+    </div>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title"><span class="cat-badge cat-tool">TOOL</span> Tools — 5 parts</div>
+      <p style="margin:0; font-size:15px;">Reusable tools needed during the build (torque wrenches, alignment tools, etc.). Tool entries <strong>do not deduct from stock</strong> — entering a qty for a tool records it in the session but doesn't change QOH or create audit/SAP entries.</p>
+    </div>
+
+    <h2 class="fade-in">Cross-Reference Notes</h2>
+    <p class="fade-in">Some parts appear in one section but are physically installed during another section's work. These show <em style="color:#22c55e;">green italic notes</em> below the description — for example:</p>
+    <ul class="fade-in">
+      <li><em style="color:#22c55e;">"Parts installed in section 6.2..."</em></li>
+      <li><em style="color:#22c55e;">"J30135 Assembly Waste Aux Bottle..."</em></li>
+      <li><em style="color:#22c55e;">"Will be installed as..."</em></li>
+    </ul>
+    <p class="fade-in">These notes are informational — they help you understand where and how the part fits in the overall build.</p>
+
+    <h2 class="fade-in">Collapsible Sections</h2>
+    <p class="fade-in">Each section can be <strong>collapsed or expanded</strong> by clicking the section header. Collapse sections you've finished to reduce visual clutter. The progress indicator on each header stays visible even when collapsed.</p>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Service Activities (No Parts)</div>
+      <p style="margin:0">Sections 5.1 (MOD Status Verification) and 5.23 (Label) are service activities with no parts. They show the message <em>"Service activity — verify and proceed"</em> instead of a parts table. These exist as checkpoints in the workflow.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 4 — ENTERING QUANTITIES
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-qty" data-nav="Entering Qty">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">4</div></div>
+    <h1 class="fade-in section-title">Entering Quantities</h1>
+    <p class="fade-in section-tagline">"Type the number. Stock updates instantly. No extra steps."</p>
+
+    <h2 class="fade-in">Two Ways to Enter</h2>
+
+    <div class="fade-in two-col">
+      <div class="ref-card">
+        <div class="ref-card-title">1. Click the QTY Field</div>
+        <p style="margin:0; font-size:15px;">Click the <strong>—</strong> in the QTY column. A number input appears. Type your quantity and press <kbd>Enter</kbd> or click outside the field. The quantity saves immediately.</p>
+      </div>
+      <div class="ref-card">
+        <div class="ref-card-title">2. Quick-Fill from BOM</div>
+        <p style="margin:0; font-size:15px;">Click the <strong>BOM number</strong> (the bold number in the BOM column). The QTY field instantly fills with the BOM quantity. One click — done. Use this when you're pulling exactly what the spec calls for.</p>
+      </div>
+    </div>
+
+    <h2 class="fade-in">What Happens When You Enter a Qty</h2>
+    <p class="fade-in">The moment you enter or change a quantity, three things happen simultaneously:</p>
+
+    <div class="fade-in flow">
+      <div class="flow-step">Enter<br>Qty</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Stock<br>Updated</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Audit<br>Logged</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">SAP<br>Staged</div>
+    </div>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Action</th><th>What Happens</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Stock Updated</strong></td><td>QOH in the <code>stock</code> table decreases by the quantity you entered. The QOH column in the checklist updates immediately.</td></tr>
+        <tr><td><strong>Audit Logged</strong></td><td>An entry is created in <code>audit_log</code> with action = OUT, the part number, quantity, analyzer serial, and timestamp.</td></tr>
+        <tr><td><strong>SAP Staged</strong></td><td>A record is created in <code>sap_staging</code> with movement type 261 (goods issue), ready for the next SAP push.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ Stock Updates Are Immediate</div>
+      <p style="margin:0">There is no "commit" button for individual entries. The moment you enter a number and move to the next field, stock is deducted. This is by design — it keeps inventory accurate in real-time. If you make a mistake, see the Corrections section below.</p>
+    </div>
+
+    <h2 class="fade-in">Delta Corrections</h2>
+    <p class="fade-in">Made a mistake? Just change the number. The system calculates the <strong>delta</strong> (difference) and adjusts accordingly:</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Scenario</th><th>What You Do</th><th>What Happens to Stock</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Entered 2, should be 3</td><td>Change QTY from 2 → 3</td><td>1 more OUT from stock (delta = +1)</td></tr>
+        <tr><td>Entered 3, should be 1</td><td>Change QTY from 3 → 1</td><td>2 returned IN to stock (delta = −2)</td></tr>
+        <tr><td>Entered 2, should be 0</td><td>Clear the QTY field</td><td>2 returned IN to stock (delta = −2)</td></tr>
+        <tr><td>Entered 2, should be 2</td><td>No change needed</td><td>Nothing — delta is zero</td></tr>
+      </tbody>
+    </table>
+
+    <p class="fade-in">Every correction creates its own audit log and SAP staging entry. The audit trail shows exactly what happened: <code>📤 J09974: 1 OUT → QOH 14</code> or <code>📥 J09974: 2 IN → QOH 17</code>.</p>
+
+    <div class="fade-in box box-green">
+      <div class="box-title">✅ Corrections Are Safe</div>
+      <p style="margin:0">You don't need to undo or delete anything. Just change the number to what it should be. The system handles the math. This is the same delta logic used in the Scan Kiosk ADJUST mode — it works both directions.</p>
+    </div>
+
+    <h2 class="fade-in">Tools — No Stock Impact</h2>
+    <p class="fade-in">Parts tagged as <span class="cat-badge cat-tool">TOOL</span> are handled differently. When you enter a quantity for a tool:</p>
+    <ul class="fade-in">
+      <li>The quantity is recorded in the session ✅</li>
+      <li>No stock deduction occurs ❌</li>
+      <li>No audit log entry is created ❌</li>
+      <li>No SAP staging record is created ❌</li>
+    </ul>
+    <p class="fade-in">Tools are reusable — they get used during the build but go back on the shelf. The checklist tracks that they were present, not consumed.</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 4.1 — Enter and Correct Quantities</span>
+      </div>
+      <ol>
+        <li>Open a DHR session (or create one with a test serial number).</li>
+        <li>Find section <strong>5.10 Signal Reagent Metering</strong>.</li>
+        <li>Click the BOM number for <strong>1H4534</strong> (PROBE, SIGNAL REAGENT) — it should show <strong>2</strong>. Watch the QTY fill to 2 instantly.</li>
+        <li>Check the QOH column — did it decrease by 2?</li>
+        <li>Now change the QTY from 2 → 1. Check QOH — it should increase by 1 (delta correction).</li>
+        <li>Clear the QTY field entirely. QOH should return to its original value.</li>
+        <li>Note: Use the <strong>training dashboard</strong> for this exercise — not production.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 5 — STOCK INTEGRATION
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-stock" data-nav="Stock Integration">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">5</div></div>
+    <h1 class="fade-in section-title">Stock Integration</h1>
+    <p class="fade-in section-tagline">"The DHR doesn't just track what you pulled — it moves the numbers."</p>
+
+    <p class="fade-in">The DHR Scanner is directly connected to your live inventory. Every quantity you enter flows through the same pipeline as the Scan Kiosk. This means:</p>
+
+    <ul class="fade-in">
+      <li><strong>Stock Summary</strong> reflects DHR pulls immediately — no delay, no batch processing</li>
+      <li><strong>Transaction Search</strong> shows every DHR entry with the analyzer serial number</li>
+      <li><strong>SAP Push</strong> includes DHR entries — they stage with movement type 261 (OUT) or 101 (IN for corrections)</li>
+      <li><strong>Cycle Count</strong> will show accurate numbers because DHR deductions happened in real-time</li>
+    </ul>
+
+    <h2 class="fade-in">QOH Column — Your Live Stock Indicator</h2>
+    <p class="fade-in">The QOH column in the checklist shows the current quantity on hand for each part, pulled live from the <code>stock</code> table. Key visual cues:</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>QOH Display</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Normal number (white)</td><td>Part is in stock. Good to go.</td></tr>
+        <tr><td><span style="color:#ef4444; font-weight:700;">0</span> (red)</td><td>Zero stock. You're pulling from an empty bin.</td></tr>
+        <tr><td><span style="color:#94a3b8;">—</span> (dash)</td><td>Part not found in stock table. May be a tool or a new part not yet added.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ Pulling from Zero Stock</div>
+      <p style="margin:0">The system allows you to enter a quantity even when QOH is zero — it won't block you. But the stock will go negative, which flags an issue. If QOH shows <span style="color:#ef4444; font-weight:700;">0</span>, physically verify the part is available before entering a quantity. If you pull a part that isn't in the system, the stock deduction is skipped (no crash, no error — it just records the session entry without affecting stock).</p>
+    </div>
+
+    <h2 class="fade-in">How It Connects to Everything Else</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">DHR<br>Scanner</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Stock<br>Summary</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Transaction<br>Search</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">SAP<br>Staging</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Analyzer<br>Analysis</div>
+    </div>
+
+    <p class="fade-in">DHR entries tie into <strong>Analyzer Analysis</strong> because every OUT is tagged with the instrument serial number from the session. This means when you look up an analyzer in Analyzer Analysis, you'll see all the parts that were consumed during its rebuild — both from the Scan Kiosk <em>and</em> from the DHR Scanner.</p>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Two Systems, One Inventory</div>
+      <p style="margin:0">The Scan Kiosk and DHR Scanner both update the same stock table. Don't double-count. If you already scanned a part OUT through the Kiosk during a build, don't enter it again in the DHR. One source of truth. Pick the tool that fits the moment — Kiosk for individual scans, DHR for the full build checklist.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 6 — MANAGING SESSIONS
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-sessions" data-nav="Sessions">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">6</div></div>
+    <h1 class="fade-in section-title">Managing Sessions</h1>
+    <p class="fade-in section-tagline">"One session per analyzer. One record per rebuild."</p>
+
+    <h2 class="fade-in">Session Lifecycle</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">📝 Created<br>(In Progress)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">📋 Filling<br>Checklist</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">✅ Completed<br>(Locked)</div>
+    </div>
+
+    <p class="fade-in">Sessions persist in the database. You can close the browser, come back tomorrow, and pick up exactly where you left off. Every entry you've made is saved.</p>
+
+    <h2 class="fade-in">Session List</h2>
+    <p class="fade-in">The main DHR Scanner page shows all sessions — both active and completed. Each session card displays:</p>
+    <ul class="fade-in">
+      <li><strong>Instrument S/N</strong> and <strong>model</strong></li>
+      <li><strong>Status</strong> — In Progress or Completed</li>
+      <li><strong>Started date</strong></li>
+      <li><strong>Progress</strong> — parts filled vs. total</li>
+    </ul>
+    <p class="fade-in">Click any session to expand it and see the full checklist. Click again to collapse.</p>
+
+    <h2 class="fade-in">Multiple Sessions</h2>
+    <p class="fade-in">You can have multiple sessions active at once — one for each analyzer being rebuilt. Each session tracks its own instrument serial number and its own set of part quantities. Stock deductions are shared across all sessions (because it's the same inventory).</p>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 One Session Per S/N</div>
+      <p style="margin:0">Create one session per analyzer serial number. If you need to rebuild the same analyzer again (rework), complete the first session and create a new one. This preserves the history — you can always go back and see what was pulled the first time.</p>
+    </div>
+
+    <h2 class="fade-in">Excel Export</h2>
+    <p class="fade-in">The <strong>Export</strong> button generates an Excel file with every part in the session. The export includes:</p>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Column</th><th>Content</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Section</td><td>The DHR section (5.1, 5.2, etc.)</td></tr>
+        <tr><td>Part Number</td><td>The QuidelOrtho part number</td></tr>
+        <tr><td>Description</td><td>Part description</td></tr>
+        <tr><td>Category</td><td>REQ / OPT / TOOL</td></tr>
+        <tr><td>BOM Qty</td><td>Expected quantity from BOM</td></tr>
+        <tr><td>Scanned Qty</td><td>Quantity you entered</td></tr>
+        <tr><td>Status</td><td>filled / pending</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 6.1 — Create, Fill, Export, Complete</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>📋 DHR Scanner</strong> in the Inventory sidebar.</li>
+        <li>Click <strong>+ New Session</strong>.</li>
+        <li>Enter a test serial number (e.g., <kbd>TRAIN-001</kbd>), select <strong>VITROS 5600</strong>, and click Create.</li>
+        <li>Open section <strong>5.2 VersaTip Supply</strong>. Quick-fill all 5 parts using the BOM click.</li>
+        <li>Open section <strong>5.12 Fluidics Supply Center</strong>. Note the tool entries — enter a qty for a tool and verify QOH doesn't change.</li>
+        <li>Click <strong>Export</strong> — open the downloaded Excel file and verify the data.</li>
+        <li>Collapse all sections by clicking headers. Note progress counts on each.</li>
+        <li>Do <strong>NOT</strong> click Complete unless directed by Joe (this is training data, but good habits start here).</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 7 — TROUBLESHOOTING
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-trouble" data-nav="Troubleshooting">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">7</div></div>
+    <h1 class="fade-in section-title">When Things Go Sideways</h1>
+    <p class="fade-in section-tagline">"Most DHR issues are quantity mistakes — and they're all fixable."</p>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 1</div>
+      <h3>"I entered the wrong quantity"</h3>
+      <p>Typed 5 instead of 2. Stock went down by 5 instead of 2.</p>
+      <p><em>Why:</em> Fat fingers happen.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Change the QTY to the correct number (2). The system calculates the delta (−3) and returns 3 units to stock automatically. Check the QOH column — it should reflect the correction. No need to undo anything.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 2</div>
+      <h3>"I already scanned this part through the Kiosk"</h3>
+      <p>Part was scanned OUT via Scan Kiosk earlier. Now the DHR checklist shows it again.</p>
+      <p><em>Why:</em> The DHR checklist is pre-populated with all expected parts regardless of prior scans.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Don't enter it again in the DHR — that would double-deduct from stock. Leave the QTY as <strong>—</strong> (blank) for parts already handled through the Kiosk. Or enter the qty and immediately use the Kiosk IN mode to add it back. Best practice: choose one method per build — Kiosk or DHR, not both for the same part.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 3</div>
+      <h3>"QOH shows 0 but I have the part in my hand"</h3>
+      <p>The shelf has parts but the system says zero.</p>
+      <p><em>Why:</em> Previous transactions weren't logged, or incoming stock wasn't received into the system.</p>
+      <div class="fix"><strong>✅ Fix:</strong> (1) Check Transaction Search for recent activity on that part. (2) Check Incoming Stock — was a delivery received but not committed? (3) If the physical count is right, use Stock Summary to ADJUST the qty first. (4) Then enter the DHR quantity. Tell Joe.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 4</div>
+      <h3>"A part I need isn't on the checklist"</h3>
+      <p>You're installing a part that doesn't appear in any section.</p>
+      <p><em>Why:</em> The checklist covers the standard 144-part BOM. Non-standard parts, field modifications, or special replacements may not be listed.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Scan the part through the <strong>Scan Kiosk</strong> using OUT mode with the analyzer's serial number. This ensures it's tracked in Transaction Search and Analyzer Analysis even though it's not on the DHR checklist. Tell Joe — the part may need to be added to the BOM for future builds.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 5</div>
+      <h3>"I completed the session by accident"</h3>
+      <p>Clicked the green Complete button too early. Now everything is locked.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Contact Joe immediately. A completed session can only be reopened with admin intervention. The stock changes from the session are already recorded — they don't need to be reversed unless quantities were wrong. If corrections are needed, use the Scan Kiosk ADJUST mode for individual parts.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 6</div>
+      <h3>"The session won't load or shows an error"</h3>
+      <p>Clicked on a session but the checklist is blank or shows a loading error.</p>
+      <div class="fix"><strong>✅ Fix:</strong> (1) Hard refresh: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> (Win) or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> (Mac). (2) Check WiFi — the system needs a live connection to Supabase. (3) Try a different browser or incognito mode. (4) If it persists, screenshot the error and text Joe.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 8 — QUICK REFERENCE
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-ref" data-nav="Quick Ref">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">8</div></div>
+    <h1 class="fade-in section-title">Quick Reference</h1>
+    <p class="fade-in section-tagline">Tear this page out and tape it to your bench.</p>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">📋 DHR Scanner — Cheat Sheet</div>
+      <table>
+        <tbody>
+          <tr><td><strong>Navigate to</strong></td><td>Inventory sidebar → 📋 DHR Scanner</td></tr>
+          <tr><td><strong>New Session</strong></td><td>Click <strong>+ New Session</strong> → enter S/N → select model → Create</td></tr>
+          <tr><td><strong>Quick-Fill</strong></td><td>Click the <strong>BOM number</strong> to auto-fill QTY with BOM quantity</td></tr>
+          <tr><td><strong>Manual Entry</strong></td><td>Click QTY field → type number → Enter or click away</td></tr>
+          <tr><td><strong>Correction</strong></td><td>Change QTY to correct number — delta auto-adjusts stock</td></tr>
+          <tr><td><strong>Export</strong></td><td>Click <strong>Export</strong> button → downloads .xlsx file</td></tr>
+          <tr><td><strong>Complete</strong></td><td>Click <strong>✅ Complete</strong> → locks session permanently</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="fade-in two-col">
+      <div class="ref-card">
+        <div class="ref-card-title">🏷️ Part Categories</div>
+        <table>
+          <tbody>
+            <tr><td><span class="cat-badge cat-req">REQ</span></td><td>Required — must install (62 parts)</td></tr>
+            <tr><td><span class="cat-badge cat-opt">OPT</span></td><td>Optional — as needed (77 parts)</td></tr>
+            <tr><td><span class="cat-badge cat-tool">TOOL</span></td><td>Reusable — no stock impact (5 parts)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="ref-card">
+        <div class="ref-card-title">📊 Progress Tracking</div>
+        <table>
+          <tbody>
+            <tr><td><strong>Overall Bar</strong></td><td>X/62 required · X/144 total</td></tr>
+            <tr><td><strong>Section Bar</strong></td><td>X/Y required · X/Z total per section</td></tr>
+            <tr><td><strong>Red QOH</strong></td><td>Zero stock — verify before pulling</td></tr>
+            <tr><td><strong>Green Notes</strong></td><td>Cross-reference info</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">⚡ Stock Impact Summary</div>
+      <table>
+        <thead><tr><th>Action</th><th>Stock Effect</th><th>Audit Log</th><th>SAP Staging</th></tr></thead>
+        <tbody>
+          <tr><td>Enter QTY (first time)</td><td>📤 OUT by qty</td><td>✅ Created</td><td>✅ 261</td></tr>
+          <tr><td>Increase QTY</td><td>📤 OUT by delta</td><td>✅ Created</td><td>✅ 261</td></tr>
+          <tr><td>Decrease QTY</td><td>📥 IN by delta</td><td>✅ Created</td><td>✅ 101</td></tr>
+          <tr><td>Clear QTY</td><td>📥 IN (full return)</td><td>✅ Created</td><td>✅ 101</td></tr>
+          <tr><td>Enter QTY for TOOL</td><td>No change</td><td>❌ None</td><td>❌ None</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">📞 Contact</div>
+      <p><strong>Joe Willis</strong> — Lead Service Engineer<br>
+      📱 607.742.9951 · ✉️ Joe.willis@quidelortho.com</p>
+    </div>
+
+    <div class="fade-in mantra-banner">
+      <div class="mantra-text">"Every part on the checklist. Every quantity verified. Every build documented."</div>
+      <div class="mantra-sub">The DHR Scanner is the proof that you built it right.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════════ -->
+<footer class="footer">
+  <strong>CONFIDENTIAL</strong> — QuidelOrtho Internal Use Only<br>
+  <strong>Joe Willis</strong> · Lead Service Engineer · 607.742.9951 · Joe.willis@quidelortho.com<br>
+  DHR Scanner Training Supplement · Version 1.0 · May 2026
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+// Progress bar
+window.addEventListener('scroll', () => {
+  const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+  const scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  const progress = (scrollTop / scrollHeight) * 100;
+  document.getElementById('progressBar').style.width = progress + '%';
+});
+
+// Nav dots
+const sections = document.querySelectorAll('[data-nav]');
+const navDots = document.getElementById('navDots');
+
+sections.forEach((section, i) => {
+  const dot = document.createElement('div');
+  dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+  dot.innerHTML = `<span class="tooltip">${section.dataset.nav}</span>`;
+  dot.addEventListener('click', () => {
+    section.scrollIntoView({ behavior: 'smooth' });
+  });
+  navDots.appendChild(dot);
+});
+
+// Active dot tracking
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const idx = Array.from(sections).indexOf(entry.target);
+      document.querySelectorAll('.nav-dot').forEach((d, i) => {
+        d.classList.toggle('active', i === idx);
+      });
+    }
+  });
+}, { rootMargin: '-40% 0px -40% 0px' });
+
+sections.forEach(s => observer.observe(s));
+
+// Fade-in on scroll
+const fadeObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.fade-in').forEach(el => fadeObserver.observe(el));
+</script>
+
+</body>
+</html>
