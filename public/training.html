@@ -1,0 +1,1907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VITROS Inventory Dashboard — Engineer Training</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=Playfair+Display:wght@700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink: #1a1a2e;
+  --slate: #64748b;
+  --accent: #2563eb;
+  --accent-light: #dbeafe;
+  --fire: #dc2626;
+  --fire-light: #fef2f2;
+  --gold: #d97706;
+  --gold-light: #fffbeb;
+  --green: #059669;
+  --green-light: #ecfdf5;
+  --purple: #7c3aed;
+  --purple-light: #f5f3ff;
+  --bg: #0a0a0f;
+  --card-bg: rgba(255,255,255,0.04);
+  --card-border: rgba(255,255,255,0.08);
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --text-bright: #f8fafc;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  font-size: 17px;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: 
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(37,99,235,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(124,58,237,0.04) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--purple));
+  z-index: 1000;
+  width: 0%;
+  transition: width 0.1s linear;
+}
+
+.nav-dots {
+  position: fixed;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 100;
+}
+.nav-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  border: 1.5px solid rgba(255,255,255,0.2);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+.nav-dot:hover, .nav-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(37,99,235,0.5);
+  transform: scale(1.3);
+}
+.nav-dot .tooltip {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(15,23,42,0.95);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.nav-dot:hover .tooltip { opacity: 1; }
+
+@media (max-width: 768px) {
+  .nav-dots { display: none; }
+}
+
+.content {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.fade-in {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.fade-in.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.fade-in.delay-1 { transition-delay: 0.1s; }
+.fade-in.delay-2 { transition-delay: 0.2s; }
+.fade-in.delay-3 { transition-delay: 0.3s; }
+.fade-in.delay-4 { transition-delay: 0.4s; }
+
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 24px;
+  position: relative;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0; right: 0;
+  height: 200px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+.hero-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 50px;
+  padding: 8px 28px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 40px;
+}
+.hero-title {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(40px, 8vw, 72px);
+  font-weight: 900;
+  color: var(--text-bright);
+  line-height: 1.05;
+  margin-bottom: 16px;
+}
+.hero-title .highlight {
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero-subtitle {
+  font-size: clamp(16px, 3vw, 22px);
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-bottom: 60px;
+}
+.hero-meta {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 2.2;
+}
+.hero-meta strong { color: var(--text); }
+.scroll-indicator {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  animation: pulse-down 2s ease-in-out infinite;
+}
+.scroll-indicator span {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.scroll-arrow {
+  width: 20px; height: 20px;
+  border-right: 2px solid var(--text-dim);
+  border-bottom: 2px solid var(--text-dim);
+  transform: rotate(45deg);
+}
+@keyframes pulse-down {
+  0%, 100% { opacity: 0.4; transform: translateX(-50%) translateY(0); }
+  50% { opacity: 1; transform: translateX(-50%) translateY(8px); }
+}
+
+.section {
+  padding: 120px 0 80px;
+  position: relative;
+}
+.section-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px; height: 40px;
+  background: var(--accent);
+  color: white;
+  font-weight: 800;
+  font-size: 16px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+.section-title {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(28px, 5vw, 42px);
+  font-weight: 800;
+  color: var(--text-bright);
+  margin-bottom: 8px;
+  line-height: 1.15;
+}
+.section-tagline {
+  font-size: 16px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-bright);
+  margin: 48px 0 16px;
+}
+h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 24px 0 10px;
+}
+p { margin-bottom: 16px; color: var(--text); }
+strong { color: var(--text-bright); }
+em { color: var(--text-dim); font-style: italic; }
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(37,99,235,0.3);
+  transition: border-color 0.2s;
+}
+a:hover { border-color: var(--accent); }
+ul, ol { padding-left: 24px; margin: 12px 0 20px; }
+li { margin: 6px 0; color: var(--text); }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px 28px;
+  margin: 24px 0;
+  backdrop-filter: blur(10px);
+}
+
+.box {
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin: 24px 0;
+  border-left: 4px solid;
+}
+.box-title {
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.box-action { background: rgba(37,99,235,0.08); border-color: var(--accent); }
+.box-action .box-title { color: var(--accent); }
+.box-error { background: rgba(220,38,38,0.08); border-color: var(--fire); }
+.box-error .box-title { color: var(--fire); }
+.box-tip { background: rgba(217,119,6,0.08); border-color: var(--gold); }
+.box-tip .box-title { color: var(--gold); }
+.box-success { background: rgba(5,150,105,0.08); border-color: var(--green); }
+.box-success .box-title { color: var(--green); }
+.box-quote {
+  background: rgba(124,58,237,0.08);
+  border-color: var(--purple);
+  font-style: italic;
+}
+.box-quote .box-title { color: var(--purple); font-style: normal; }
+
+.exercise {
+  background: rgba(37,99,235,0.04);
+  border: 2px solid rgba(37,99,235,0.2);
+  border-radius: 16px;
+  padding: 24px 28px;
+  margin: 28px 0;
+}
+.exercise-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.exercise-badge {
+  background: var(--accent);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+.exercise-title {
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--accent);
+}
+.exercise ol, .exercise ul { padding-left: 22px; margin: 8px 0; }
+.exercise li { margin: 5px 0; font-size: 15px; }
+
+.scenario {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px 28px;
+  margin: 28px 0;
+}
+.scenario-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--fire);
+  margin-bottom: 8px;
+}
+.scenario h3 {
+  margin-top: 0;
+  color: var(--text-bright);
+  font-size: 18px;
+}
+.fix {
+  background: rgba(5,150,105,0.08);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-top: 12px;
+  font-size: 15px;
+}
+.fix strong { color: var(--green); }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 14px;
+}
+th {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-bright);
+  font-weight: 700;
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 1px solid var(--card-border);
+}
+td {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: var(--text);
+}
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+.flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin: 28px 0;
+  flex-wrap: wrap;
+}
+.flow-step {
+  background: rgba(37,99,235,0.08);
+  border: 1.5px solid rgba(37,99,235,0.25);
+  border-radius: 12px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--accent);
+  min-width: 90px;
+}
+.flow-arrow {
+  font-size: 20px;
+  color: var(--accent);
+  padding: 0 8px;
+  font-weight: 800;
+}
+@media (max-width: 600px) {
+  .flow { flex-direction: column; gap: 0; }
+  .flow-arrow { transform: rotate(90deg); padding: 4px 0; }
+}
+
+.mantra-banner {
+  background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.12));
+  border: 1px solid rgba(124,58,237,0.2);
+  border-radius: 20px;
+  padding: 40px 36px;
+  text-align: center;
+  margin: 40px 0;
+}
+.mantra-text {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(20px, 4vw, 28px);
+  font-weight: 800;
+  color: var(--text-bright);
+  margin-bottom: 8px;
+}
+.mantra-sub {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.checklist { list-style: none; padding-left: 0; }
+.checklist li {
+  padding: 10px 0 10px 36px;
+  position: relative;
+  font-size: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.checklist li::before {
+  content: '☐';
+  position: absolute;
+  left: 0;
+  font-size: 20px;
+  color: var(--accent);
+}
+
+.ref-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin: 16px 0;
+}
+.ref-card-title {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text-bright);
+  margin-bottom: 10px;
+}
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 600px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
+kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 2px 8px;
+  border-radius: 5px;
+  color: var(--text-bright);
+}
+
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--card-border), transparent);
+  margin: 0;
+}
+
+.footer {
+  text-align: center;
+  padding: 80px 24px 60px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.footer strong { color: var(--text); }
+
+.open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 12px 28px;
+  border-radius: 10px;
+  text-decoration: none;
+  border: none;
+  transition: all 0.2s;
+  margin: 8px 0;
+}
+.open-btn:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(37,99,235,0.3);
+  border: none;
+}
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progressBar"></div>
+
+<nav class="nav-dots" id="navDots"></nav>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     HERO
+     ═══════════════════════════════════════════════════════════════ -->
+<section class="hero" id="sec-hero" data-nav="Welcome">
+  <div class="fade-in hero-badge">Interactive Training</div>
+  <h1 class="fade-in delay-1 hero-title">VITROS <span class="highlight">Inventory</span><br>Dashboard</h1>
+  <p class="fade-in delay-2 hero-subtitle">Engineer Shop Floor Training Guide</p>
+  <div class="fade-in delay-3 hero-meta">
+    <strong>Joe Willis</strong> — Lead Service Engineer<br>
+    607.742.9951 · Joe.willis@quidelortho.com<br>
+    Version 3.0 · May 2026 · QuidelOrtho Internal
+  </div>
+  <div class="scroll-indicator">
+    <span>Scroll</span>
+    <div class="scroll-arrow"></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     OPEN THE DASHBOARD
+     ═══════════════════════════════════════════════════════════════ -->
+<section class="section" style="padding-top: 40px;">
+  <div class="content">
+    <div class="fade-in box box-tip">
+      <div class="box-title">📱 Open the Dashboard Now</div>
+      <p style="margin-bottom: 12px;">This is a <strong>follow-along</strong> session. Open the dashboard on your laptop or phone right now. Keep it open. We're doing this together. No spectators.</p>
+      <a href="/" class="open-btn">Open Production Dashboard ↗</a>
+      <br>
+      <a href="https://preview-vitros-inv-dash-45fdfd70.viktor.space" class="open-btn" style="background:#dc2626;">Open Training Dashboard ↗</a>
+      <p style="margin-top:8px; font-size:13px; color:var(--text-dim);">Use the <strong style="color:#ef4444;">Training Dashboard</strong> for exercises. It uses a separate database — nothing you do there affects production.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 1 — OWNERSHIP
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-ownership" data-nav="Ownership">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">1</div></div>
+    <h1 class="fade-in section-title">Why This Matters</h1>
+    <p class="fade-in section-tagline">"Run it like you own it — because you do."</p>
+
+    <p class="fade-in">Let's get something straight before we touch a single button.</p>
+
+    <p class="fade-in">This dashboard isn't some corporate IT project that got dumped on your desktop. This is <strong>your inventory system</strong>. Built for the shop floor. Built for the way <em>you</em> actually work — not how someone in a conference room <em>thinks</em> you work.</p>
+
+    <p class="fade-in">Every scan you make, every count you submit, every receiving batch you log — that's <strong>live data</strong> that the whole team sees in real time. There's no nightly sync. No "it'll update tomorrow." It's instant. Which means your accuracy matters <em>right now</em>, not eventually.</p>
+
+    <div class="fade-in mantra-banner">
+      <div class="mantra-text">"Over-communicate. Own it like it's your business."</div>
+      <div class="mantra-sub">That's not a suggestion. That's the standard.</div>
+    </div>
+
+    <h2 class="fade-in">What "Ownership" Actually Looks Like</h2>
+
+    <ul class="fade-in">
+      <li><strong>You scan every part, every time.</strong> No mental notes. No "I'll do it later." Later doesn't exist.</li>
+      <li><strong>You flag discrepancies immediately.</strong> See something off? Say something. Text Joe. Ping the group. Don't sit on it.</li>
+      <li><strong>You treat the data like your reputation</strong> — because it is. When leadership pulls a report, your name is on those transactions.</li>
+      <li><strong>You communicate laterally.</strong> Your teammates need to know what you pulled, what's running low, what's on its way. Don't assume they'll figure it out.</li>
+    </ul>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">Real Talk</div>
+      <p style="margin:0">If a part goes to zero and nobody scanned it out, we don't have an inventory problem — we have an <strong>accountability problem</strong>. This dashboard fixes the system. You fix the culture.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 2 — GETTING IN
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-login" data-nav="Getting In">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">2</div></div>
+    <h1 class="fade-in section-title">Getting In</h1>
+    <p class="fade-in section-tagline">"Less drama than your Netflix password. Let's log in."</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 2.1 — Log In Right Now</span>
+      </div>
+      <ol>
+        <li>Open the dashboard on your device.</li>
+        <li>You'll land on the login screen. Select your role: <strong>Admin</strong> or <strong>Engineer</strong>.</li>
+        <li><strong>Admin</strong> requires the superuser password. <strong>Engineer</strong> — just tap and you're in.</li>
+        <li>You should now see the <strong>Executive Dashboard</strong> as your home screen.</li>
+      </ol>
+    </div>
+
+    <h2 class="fade-in">The Sidebar — Your Navigation Hub</h2>
+
+    <p class="fade-in">On the left you'll see the sidebar with all modules. Here's what matters for your day-to-day:</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Module</th><th>What It Does</th><th>When You Use It</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>📷 Scan Kiosk</td><td>Scan parts in/out, consume kits, stockout detection</td><td>Every. Single. Time. You touch a part.</td></tr>
+        <tr><td>👥 User Dashboard</td><td>Employee management, personal transaction history</td><td>Checking your activity, managing team</td></tr>
+        <tr><td>📊 Executive Dashboard</td><td>Real-time overview of everything</td><td>Start of shift, gut-check any time</td></tr>
+        <tr><td>📦 Stock Summary</td><td>Full inventory list with status, inline editing</td><td>Looking up a specific part, editing quantities</td></tr>
+        <tr><td>📥 Incoming Stock</td><td>Log received shipments via OCR, CSV, or manual</td><td>When a box hits the dock</td></tr>
+        <tr><td>🔔 Reorder / Stock-Out</td><td>Parts at or below reorder point</td><td>Identifying what needs ordering</td></tr>
+        <tr><td>🔍 Transaction Search</td><td>Search all scan history</td><td>Investigating discrepancies, audits</td></tr>
+        <tr><td>✅ Cycle Count</td><td>Scheduled counts with WIP columns & Excel export</td><td>When a count is assigned to you</td></tr>
+        <tr><td>📋 DHR Scanner</td><td>AI-powered Device History Record scanning</td><td>Scanning DHR packing lists for part matching</td></tr>
+        <tr><td>📈 Analyzer Analysis</td><td>Parts consumed per analyzer</td><td>Build tracking, cost visibility</td></tr>
+        <tr><td>📊 ABC / Kit / Health</td><td>Pareto ranking, kit breakdowns, health heatmap</td><td>Prioritizing inventory, spotting trouble</td></tr>
+        <tr><td>📋 SAP Staging & Analytics</td><td>Stage transactions, analytics dashboard</td><td>SAP integration workflow</td></tr>
+        <tr><td>📄 Reports</td><td>Executive Report, Preview, Mobile Quick View</td><td>Generating reports for leadership</td></tr>
+        <tr><td>🌐 e-Connectivity</td><td>Interactive system diagram & health check</td><td>Module lookup, part mapping, system monitoring</td></tr>
+        <tr><td>🏭 REM Dashboard</td><td>Remanufacturing tracking — Kanban, Gantt, LVCC</td><td>Analyzer rebuild workflow</td></tr>
+        <tr><td>⚙️ Settings</td><td>Theme, SAP config, employee management</td><td>Personalizing your experience</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Pro Tip: Bookmark It</div>
+      <p style="margin:0">Add the dashboard to your phone's home screen. On iPhone: Safari → Share → "Add to Home Screen." On Android: Chrome → ⋮ → "Add to Home screen." Now it launches like a native app.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 3 — SCAN KIOSK
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-kiosk" data-nav="Scan Kiosk">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">3</div></div>
+    <h1 class="fade-in section-title">The Scan Kiosk</h1>
+    <p class="fade-in section-tagline">"If you touched it, scan it. No exceptions. No excuses."</p>
+
+    <p class="fade-in">This is the heartbeat of the system. The Scan Kiosk is where every part movement gets recorded — <strong>OUT</strong> when you pull from stock, <strong>IN</strong> when you return unused parts, <strong>ADJUST</strong> for corrections, and <strong>RECEIVE</strong> for new deliveries.</p>
+
+    <p class="fade-in">Think of it like this: if the dashboard is the scoreboard, the Kiosk is how you put points on the board. No scans = no data = we're flying blind.</p>
+
+    <h2 class="fade-in">The Four Modes</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Mode</th><th>Color</th><th>What It Does</th><th>Example</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>OUT</td><td>🔴 Red</td><td>Decreases stock</td><td>Pulling a reagent for a VITROS run</td></tr>
+        <tr><td>IN</td><td>🟢 Green</td><td>Increases stock</td><td>Returning unused sample cup pack</td></tr>
+        <tr><td>ADJUST</td><td>🟡 Yellow</td><td>Sets to exact qty</td><td>Count found 12, system says 10</td></tr>
+        <tr><td>RECEIVE</td><td>🟣 Purple</td><td>Adds new stock</td><td>Logging a warehouse delivery</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">The Workflow</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">Select<br>Employee</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Choose<br>Mode</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Scan or<br>Type Part #</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Set<br>Quantity</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Commit<br>Batch</div>
+    </div>
+
+    <p class="fade-in"><strong>Step 1: Select Your Name.</strong> Always. The system tracks who did what. If your name isn't on it, it didn't happen — at least not in a way that helps anyone.</p>
+
+    <p class="fade-in"><strong>Step 2: Pick Your Mode.</strong> OUT is the default (most common). Switch modes before scanning — don't batch OUT and IN parts together.</p>
+
+    <p class="fade-in"><strong>Step 3: Scan or Search.</strong> Use the camera to scan a barcode, or type the part number manually. The system does fuzzy matching — if you type "6800" it'll find part numbers containing that string.</p>
+
+    <p class="fade-in"><strong>Step 4: Adjust Quantity.</strong> Default is 1. Use the +/− buttons or type a number. Pulling 3 of the same part? Set qty to 3 — don't scan it three times.</p>
+
+    <p class="fade-in"><strong>Step 5: Commit.</strong> Hit the green Commit Batch button. Quantities update instantly across all users' screens.</p>
+
+    <h2 class="fade-in">Analyzer Serial — When It's Required</h2>
+
+    <p class="fade-in">The <strong>Analyzer Serial #</strong> field ties every part you scan to a specific instrument. This is what powers the Analyzer Analysis page — without it, parts vanish into a black hole.</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Mode</th><th>Serial Required?</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>OUT</td><td><strong>Always required</strong></td><td>Every part pulled must be traced to an analyzer. The system will block you from committing without one.</td></tr>
+        <tr><td>IN</td><td>Depends</td><td>The system asks: "Is this a new part?" → Yes (new stock): Serial not required. → No (correction/return): Serial required.</td></tr>
+        <tr><td>ADJUST</td><td>Optional</td><td>Corrections to quantity — not typically tied to a specific analyzer.</td></tr>
+        <tr><td>RECEIVE</td><td>Optional</td><td>New stock arriving — not yet assigned to an analyzer.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ OUT Without a Serial = Blocked</div>
+      <p style="margin:0">If you try to commit an OUT batch without entering an Analyzer Serial, the system will stop you with a red error. This is intentional. Every part pulled needs a home. No serial, no commit.</p>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 The IN Mode Prompt</div>
+      <p style="margin:0">When you commit an IN batch without a serial, a popup will ask: "Is this a new part?" If it's brand-new stock, tap Yes and proceed. If you're returning a part that was previously pulled from an analyzer, tap No — you'll need to enter that analyzer's serial number first.</p>
+    </div>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 3.1 — Your First Scan (OUT)</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>📷 Scan Kiosk</strong> in the sidebar.</li>
+        <li>Select your name from the employee dropdown.</li>
+        <li>Ensure mode is set to <strong>OUT</strong> (red).</li>
+        <li>Enter the <strong>Analyzer Serial #</strong> — this is required for OUT. Notice the red border reminding you.</li>
+        <li>In the search bar, type a part number you recognize — or scan a barcode from a part nearby.</li>
+        <li>Verify the part description matches what you're holding.</li>
+        <li>Set quantity to 1.</li>
+        <li>Hit <strong>Commit Batch</strong>.</li>
+      </ol>
+      <p>✅ <strong>Verify:</strong> Open Transaction Search in a new tab. Filter by your name. See your scan? That's real-time.</p>
+      <p>✅ <strong>Bonus:</strong> Try committing an OUT batch without a serial number. The system should block you. That's by design.</p>
+    </div>
+
+    <h2 class="fade-in">Kit Consumption — The Power Move</h2>
+
+    <p class="fade-in">Kits are pre-built groups of parts that go together (think: a full reagent set for a VITROS run). Instead of scanning 8 individual parts, you select a kit and the system pulls all components at once.</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 3.2 — Consume a Kit</span>
+      </div>
+      <ol>
+        <li>In the Scan Kiosk, look for the <strong>Kit selector</strong>.</li>
+        <li>Select a kit from the dropdown.</li>
+        <li>The batch auto-populates with all kit components and quantities.</li>
+        <li>Enter the <strong>Analyzer Serial #</strong> — required for OUT mode, even for kits.</li>
+        <li>Review the batch list — every component should be there.</li>
+        <li>Hit <strong>Commit Batch</strong>.</li>
+      </ol>
+      <p>✅ <strong>Check:</strong> Go to Stock Summary. Are those components' quantities reduced? They should be.</p>
+    </div>
+
+    <h2 class="fade-in">Stockout Detection — Automatic Alerts</h2>
+
+    <p class="fade-in">When you scan OUT and the system detects you're pulling more than what's available — meaning you've just caused a stockout — three things happen automatically:</p>
+
+    <ol class="fade-in">
+      <li><strong>Flags</strong> the part as stockout in the dashboard (red status).</li>
+      <li><strong>Shows</strong> you a stockout report right on screen — which parts are short and by how much.</li>
+      <li><strong>Sends</strong> an email alert to you, Joe, and Max with the stockout details — automatically, in real time.</li>
+    </ol>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ Stockout Emails Are Triggered by You</div>
+      <p style="margin:0">The email only fires when a part actually goes to zero during an OUT scan. This isn't a daily report — it's an event-driven alert tied to your action. If you skip the scan and just grab the part, nobody finds out until it's too late. Scan it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 4 — EXECUTIVE DASHBOARD
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-dashboard" data-nav="Dashboard">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">4</div></div>
+    <h1 class="fade-in section-title">Executive Dashboard</h1>
+    <p class="fade-in section-tagline">"Know your numbers. Numbers don't lie — people do."</p>
+
+    <p class="fade-in">This is the command center. One screen, everything that matters. Treat this like your car dashboard — glance at it before you drive, check it when something feels off.</p>
+
+    <h2 class="fade-in">Top Stats Bar</h2>
+    <p class="fade-in">Twelve stat cards across the top give you the full picture at a glance:</p>
+    <ul class="fade-in">
+      <li><strong>Total SKUs</strong> — Unique part numbers we track</li>
+      <li><strong>Total Units</strong> — Sum of all quantities on hand</li>
+      <li><strong>Stockouts</strong> — Parts at zero. Red = bad.</li>
+      <li><strong>Low Stock</strong> — Above zero but below min.</li>
+      <li><strong>Health %</strong> — Parts in the sweet spot (between min and max)</li>
+      <li><strong>Overstock</strong> — Above max. Money sitting on the shelf.</li>
+      <li><strong>Avg Days on Hand</strong> — How fast we turn inventory</li>
+      <li><strong>SAP Pending</strong> — Transactions waiting to be posted</li>
+    </ul>
+
+    <h2 class="fade-in">Scope Toggle</h2>
+    <p class="fade-in">Use the toggle at the top to filter between <strong>All Parts</strong>, <strong>Required</strong>, <strong>Recommended</strong>, and <strong>Ancillary</strong>. The entire dashboard updates instantly — all stat cards, charts, and tables reflect the filtered scope.</p>
+
+    <h2 class="fade-in">Action Buttons & Alert Banner</h2>
+    <p class="fade-in">Quick-action buttons at the top let you jump to key actions: <strong>Export Report</strong>, <strong>Run Cycle Count</strong>, <strong>View SAP Queue</strong>. If there are critical stockouts, a red alert banner appears at the top urging immediate action.</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 4.1 — Dashboard Speed Read</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>📊 Executive Dashboard</strong>.</li>
+        <li>Find the <strong>Health %</strong> stat. What's our current number? Write it down: _______</li>
+        <li>How many stockouts do we have right now? _______</li>
+        <li>Look at <strong>Recent Transactions</strong>. See the scan you just made in Exercise 3.1? 👀</li>
+        <li>Use the scope toggle at the top. Switch to "Required" only — how does the health % change?</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-quote">
+      <div class="box-title">Think Like an Owner</div>
+      <p style="margin:0">If someone asked you "How's our inventory health right now?" — you should be able to answer in under 5 seconds by looking at this dashboard. That's the standard.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 5 — STOCK SUMMARY
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-stock" data-nav="Stock Summary">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">5</div></div>
+    <h1 class="fade-in section-title">Stock Summary</h1>
+    <p class="fade-in section-tagline">"The truth lives here. Every part. Every count. No hiding."</p>
+
+    <p class="fade-in">Stock Summary is the master inventory list. Every part number, its current quantity, min/max levels, bin location, and status — all in one searchable, sortable, exportable table.</p>
+
+    <h2 class="fade-in">Two Views</h2>
+    <p class="fade-in">Toggle between <strong>All Parts</strong> and <strong>Stocking Plan</strong> views at the top. All Parts shows the full table. Stocking Plan shows a focused view of min/max levels, reorder points, and recommended actions.</p>
+
+    <h2 class="fade-in">Key Features</h2>
+    <ul class="fade-in">
+      <li><strong>Search bar</strong> — Type any part number, description, or bin location to filter instantly.</li>
+      <li><strong>Four summary cards</strong> at the top — Total Parts, In Stock, Low Stock, Stockout counts with color indicators.</li>
+      <li><strong>Type badges</strong> — Each part shows Required, Recommended, or Ancillary as a colored badge.</li>
+      <li><strong>Column sorting</strong> — Click any header to sort ascending/descending.</li>
+      <li><strong>Status indicators:</strong> 🟢 OK (between min & max) · 🟡 LOW (above zero, below min) · 🔴 STOCKOUT (zero or below)</li>
+      <li><strong>Edit ✏️</strong> — (Admin only) Update part details, quantities, min/max. Changes are instant.</li>
+      <li><strong>Delete 🗑️</strong> — (Admin only) Removes the part permanently. Prompts <strong>"Are you sure?"</strong> before deleting.</li>
+      <li><strong>Add Part +</strong> — (Admin only) Create a new part number with all required fields.</li>
+      <li><strong>Export XLSX</strong> — Download the full inventory as .xlsx.</li>
+    </ul>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Admin vs Engineer Access</div>
+      <p style="margin:0">Engineers can view Stock Summary and search/sort/export, but <strong>cannot edit, delete, or add parts</strong>. Only Admin users see the edit pencil, trash, and Add Part buttons. This prevents accidental data changes on the shop floor.</p>
+    </div>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 5.1 — Find, Filter, and Export</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>📦 Stock Summary</strong>.</li>
+        <li>Look at the four summary cards at the top — how many total parts? How many stockouts?</li>
+        <li>Search for a part number you use frequently.</li>
+        <li>Toggle between <strong>All Parts</strong> and <strong>Stocking Plan</strong> views.</li>
+        <li>Click <strong>Export XLSX</strong>. Open the downloaded file.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 5.2 — Edit a Part (Admin Only)</span>
+      </div>
+      <ol>
+        <li>Log in as Admin if you aren't already.</li>
+        <li>Find any part and click the pencil icon ✏️.</li>
+        <li>Change the Min Qty (note the original value first!).</li>
+        <li>Click <strong>Save</strong>. Watch the status indicator — did it change?</li>
+        <li>Now change it back to the original value. We don't want phantom data in production. 😉</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ Delete = Gone</div>
+      <p style="margin:0">If you hit the trash icon and confirm "Are you sure?" — that part is permanently removed. No undo. No recycle bin. If you're unsure, don't touch the trash icon. Talk to Joe first.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 6 — INCOMING STOCK
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-incoming" data-nav="Incoming Stock">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">6</div></div>
+    <h1 class="fade-in section-title">Incoming Stock Intake</h1>
+    <p class="fade-in section-tagline">"If it's not in the system, it's not in stock. Period."</p>
+
+    <p class="fade-in">Packages arrive. Great. But until someone logs them, those parts are ghosts — they exist physically but not digitally. And ghost inventory helps exactly nobody.</p>
+
+    <h2 class="fade-in">AI-Powered OCR</h2>
+    <p class="fade-in">The system uses <strong>GPT-4o Vision AI</strong> to read packing lists. It's been trained specifically on <strong>QuidelOrtho packing list formats</strong> — both Container Packing Lists and Order Packing Lists. It knows the exact table layout, handles rotated/sideways documents, recognizes all our part number formats (J#####, J#####P, 1H####, 1C####, 142###, 354###), and auto-matches against all 400+ known parts in the system.</p>
+
+    <h2 class="fade-in">Three Ways to Log a Shipment</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Method</th><th>Best For</th><th>How It Works</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>📸 Camera</td><td>Packing slips, printed manifests</td><td>Snap a photo → AI reads it → auto-fills parts & qtys</td></tr>
+        <tr><td>📁 Upload</td><td>Digital packing lists, PDFs</td><td>Upload file → AI extracts data → review & confirm</td></tr>
+        <tr><td>⌨️ Manual</td><td>Small orders, corrections</td><td>Type part numbers and quantities by hand</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">The Intake Workflow</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">Create<br>New Batch</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Add Lines<br>(Scan/Upload/Manual)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Review<br>& Match</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Commit<br>to Inventory</div>
+    </div>
+
+    <p class="fade-in"><strong>Match Status</strong> is key:</p>
+    <ul class="fade-in">
+      <li><strong>✅ MATCHED</strong> — Exact match found. Will update on commit.</li>
+      <li><strong>⚠️ FUZZY</strong> — Close match (OCR misread a digit). Review and correct.</li>
+      <li><strong>❌ NOT FOUND</strong> — No match. Add to Stock Summary first, or fix the typo.</li>
+    </ul>
+
+    <h2 class="fade-in">What the AI Extracts</h2>
+    <p class="fade-in">For each packing list photo or upload, the OCR automatically pulls:</p>
+    <ul class="fade-in">
+      <li><strong>PO Number</strong> — Purchase Order number from the header</li>
+      <li><strong>Delivery Number</strong> — Delivery # from the header</li>
+      <li><strong>Tracking Number</strong> — Carrier tracking number</li>
+      <li><strong>Line Items</strong> — Every part number, description, and quantity from the table</li>
+    </ul>
+    <p class="fade-in">It then fuzzy-matches each extracted part number against all known parts using Levenshtein distance, substring matching, and common OCR misread corrections (I→1, O→0, S→5, B→8).</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 6.1 — OCR a Packing List</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>📥 Incoming Stock</strong> in the sidebar.</li>
+        <li>Click <strong>Camera</strong> or <strong>Upload</strong> to start a new batch.</li>
+        <li>Take a photo of a QuidelOrtho packing list (or upload one).</li>
+        <li>Watch the AI process the image — it should extract PO, tracking, and all line items.</li>
+        <li>Review match status for each line. ✅ = good. ⚠️ = verify. ❌ = fix or add.</li>
+        <li>Correct any fuzzy matches by clicking the part number.</li>
+        <li>Click <strong>Commit</strong> to add to inventory.</li>
+      </ol>
+      <p>✅ <strong>Verify:</strong> Check Stock Summary — quantities should have increased for committed parts.</p>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 OCR Isn't Perfect — And That's OK</div>
+      <p style="margin:0">The AI is trained on QuidelOrtho formats and handles rotated documents, but sometimes a "1" becomes an "I" or a "J" gets dropped. The system auto-corrects common mistakes, but <strong>always review match status before committing</strong>. A 30-second review beats a 30-minute investigation later.</p>
+    </div>
+
+    <div class="fade-in box box-quote">
+      <div class="box-title">Ownership Moment</div>
+      <p style="margin:0">A shipment sitting on the dock unlogged is the same as a shipment that never arrived. The system can't count what it doesn't know about. Log it. Every time. Same day.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 7 — TRANSACTION SEARCH
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-search" data-nav="Transaction Search">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">7</div></div>
+    <h1 class="fade-in section-title">Transaction Search</h1>
+    <p class="fade-in section-tagline">"Trust, but verify. Then verify again."</p>
+
+    <p class="fade-in">Every scan, every receive, every adjustment — it all lives here. Transaction Search is your audit trail, your investigation tool, and your receipts when someone says "I definitely scanned that."</p>
+
+    <h2 class="fade-in">What You Can Search</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Filter</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Part Number / Keyword</td><td>Free text search across parts and descriptions</td></tr>
+        <tr><td>Mode</td><td>OUT, IN, ADJUST, or RECEIVE</td></tr>
+        <tr><td>User</td><td>Filter by who made the scan</td></tr>
+        <tr><td>Part Type</td><td>Required, Recommended, Ancillary</td></tr>
+        <tr><td>Analyzer Serial</td><td>All parts consumed by a specific instrument</td></tr>
+        <tr><td>Date Range</td><td>From/To date pickers</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 7.1 — Investigate Yourself</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>🔍 Transaction Search</strong>.</li>
+        <li>Set the <strong>User</strong> filter to your name.</li>
+        <li>You should see every transaction you've made — including today's exercises.</li>
+        <li>Clear user filter and set <strong>Mode</strong> to "OUT." How many total OUT transactions? _______</li>
+        <li>Try the <strong>Analyzer Serial</strong> filter — see what parts were consumed on a specific instrument.</li>
+        <li>Click <strong>Export</strong> to download filtered results as .xlsx.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 7.2 — The Missing Part Mystery</span>
+      </div>
+      <p><strong>Scenario:</strong> A colleague says "I'm sure we had 5 of part 6800154 yesterday, but now the system says 2." Let's investigate.</p>
+      <ol>
+        <li>Search for <strong>6800154</strong> in Transaction Search.</li>
+        <li>Who scanned it? When? What mode?</li>
+        <li>Add up the quantities. Does the math check out?</li>
+        <li>If there are 3 OUT scans of qty 1, then 5 → 2 is correct. Mystery solved.</li>
+        <li>If the math doesn't add up — that's an unscanned pull. Flag it immediately.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 The Batch ID Connection</div>
+      <p style="margin:0">Every scan includes a Batch ID. Parts scanned together share the same ID. Especially useful for kit consumptions — see all components tied to a single commit.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 8 — CYCLE COUNT
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-cycle" data-nav="Cycle Count">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">8</div></div>
+    <h1 class="fade-in section-title">Cycle Count</h1>
+    <p class="fade-in section-tagline">"Counting isn't punishment — it's proof that you care."</p>
+
+    <p class="fade-in">Cycle counts are scheduled physical counts of selected parts. Not the whole warehouse — just targeted sections on a rotating basis.</p>
+
+    <h2 class="fade-in">Three Tabs</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Tab</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Schedules</td><td>View all scheduled counts. Create new schedules. Calendar view with schedule dots.</td></tr>
+        <tr><td>Active Count</td><td>The live counting workspace — enter physical counts here.</td></tr>
+        <tr><td>History</td><td>Past count results with variance analysis.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">Counting Workflow</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">Schedule<br>Created</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Start<br>Count</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Enter<br>Quantities</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Auto-Save<br>(5s)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Submit<br>Count</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Confirm<br>& Close</div>
+    </div>
+
+    <h2 class="fade-in">Key Features</h2>
+    <ul class="fade-in">
+      <li><strong>Calendar View</strong> — Schedules tab shows a calendar with colored dots on scheduled dates. Click a date to see its schedules.</li>
+      <li><strong>Auto-Save</strong> — Entries save every 5 seconds after a change. If your browser crashes, data is safe.</li>
+      <li><strong>Save & Exit</strong> — Manually save and return later. Resume picks up where you left off (green-highlighted rows preserved).</li>
+      <li><strong>Submit Count</strong> — Pushes counted quantities into Stock Summary, updating official QOH. Permanent.</li>
+      <li><strong>Confirm & Close</strong> — Locks the schedule. No more edits. The red button. "Are you sure?" confirmation required.</li>
+      <li><strong>Reopen Closed Count</strong> — Admin can reopen a previously closed count if corrections are needed.</li>
+      <li><strong>Green highlighting</strong> — Counted parts show green so you see what's done at a glance. A row turns green only when <em>all</em> fields are filled (Counted + all WIP serials + Incoming).</li>
+      <li><strong>Red highlighting</strong> — Parts with variance (counted ≠ system) show red for immediate attention.</li>
+      <li><strong>Fullscreen mode</strong> — Expand for focused counting with a sticky header that stays visible as you scroll.</li>
+      <li><strong>Number fields clearable</strong> — You can clear any field to zero by erasing it completely.</li>
+      <li><strong>Schedules stay active until confirmed</strong> — they don't expire after the due date.</li>
+    </ul>
+
+    <h2 class="fade-in">WIP Columns — Counting Work-In-Progress</h2>
+    <p class="fade-in">When analyzers are being rebuilt on the floor, parts sitting on the bench aren't in stock — they're WIP. The cycle count grid now has <strong>dynamic WIP columns</strong> for each analyzer serial number.</p>
+
+    <ul class="fade-in">
+      <li><strong>Add WIP Serial</strong> — Click "Add WIP Serial" and enter the analyzer serial number (e.g., <kbd>ABC-1234</kbd>). A new column appears in the grid.</li>
+      <li><strong>Per-Part WIP Qty</strong> — For each part, enter how many are at that analyzer's bench. The system tracks WIP per serial number.</li>
+      <li><strong>Remove WIP Serial</strong> — Click the ✕ next to a serial number to remove it. Confirmation required — "Are you sure?"</li>
+      <li><strong>Grid scales dynamically</strong> — Each WIP column adds 80px to the row width. Base columns + N × 80px for WIP serials.</li>
+      <li><strong>Saved & Resumed</strong> — WIP entries persist when you Save & Exit and resume later. Stored as <code>wipEntries: [{sn, qty}]</code>.</li>
+    </ul>
+
+    <h2 class="fade-in">Incoming Column</h2>
+    <p class="fade-in">A separate <strong>Incoming</strong> column lets you record parts that are on order or in transit. This gives the full picture: <em>Counted + WIP + Incoming = Total Expected.</em></p>
+
+    <h2 class="fade-in">Excel Export & Schedule Editing</h2>
+    <ul class="fade-in">
+      <li><strong>Export to Excel</strong> — Any completed count can be exported as an .xlsx file with all columns (Part #, Description, System Qty, Counted, WIP, Incoming, Variance).</li>
+      <li><strong>Edit Schedule</strong> — Modify the due date or part list of an existing schedule before it's confirmed.</li>
+      <li><strong>Archive with Delete</strong> — Closed count history can be archived. Delete buttons include "Are you sure?" confirmation.</li>
+    </ul>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 The 📦 Counted Ticker</div>
+      <p style="margin:0">At the top of the active count, you'll see a <strong>📦 Counted</strong> ticker showing how many parts you've counted out of the total. This is your progress indicator — watch it grow as you work through the list.</p>
+    </div>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 8.1 — Walk Through a Count</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>✅ Cycle Count</strong>.</li>
+        <li>Check the <strong>Schedules</strong> tab. Look at the calendar — any dots on upcoming dates?</li>
+        <li>If there's an active schedule, click ▶ Play to start counting.</li>
+        <li>Enter counts for the first 2–3 parts. Watch: rows turn green once counted.</li>
+        <li>Wait 5 seconds — look for the "Auto-saved" timestamp. Your data is safe.</li>
+        <li>Click <strong>Save & Exit</strong>.</li>
+        <li>Re-enter the count — your entries are still there. That's auto-save at work.</li>
+        <li>Do <strong>NOT</strong> click Submit or Confirm & Close unless directed by Joe.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ Submit vs. Confirm & Close</div>
+      <p style="margin:0"><strong>Submit Count</strong> pushes your numbers to live Stock Summary — changes official QOH. <strong>Confirm & Close</strong> locks the schedule permanently. Two separate steps. Don't click Confirm & Close until all counters are done and Joe gives the green light.</p>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Multiple Counters, One Schedule</div>
+      <p style="margin:0">Multiple engineers can work on the same count simultaneously. Green rows show what's been counted. Over-communicate — tell each other which sections you're covering.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 9 — ANALYZER ANALYSIS
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-analyzer" data-nav="Analyzer Analysis">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">9</div></div>
+    <h1 class="fade-in section-title">Analyzer Analysis</h1>
+    <p class="fade-in section-tagline">"Every part you pull tells a story. This page reads it by analyzer."</p>
+
+    <p class="fade-in">You've learned to scan parts, view stock, track transactions, and count inventory. Now let's see the bigger picture — which parts are being consumed by which analyzers? Analyzer Analysis connects every OUT scan (where you entered a serial number) to that specific analyzer, giving you a complete build profile.</p>
+
+    <h2 class="fade-in">What This Page Shows</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Column</th><th>What It Means</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Serial</td><td>The analyzer serial number captured during scanning.</td></tr>
+        <tr><td>Total Transactions</td><td>Every scan tied to this analyzer — INs, OUTs, adjustments.</td></tr>
+        <tr><td>Parts OUT</td><td>How many parts were pulled for this build.</td></tr>
+        <tr><td>Unique Parts</td><td>How many different part numbers were used — shows build complexity.</td></tr>
+        <tr><td>Build Days</td><td>Time between first and last transaction — how long the build took.</td></tr>
+        <tr><td>Kits</td><td>Whether kit consumption was used for this analyzer.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">How It Works</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">Scan OUT<br>+ Serial</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Transaction<br>Logged</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Grouped by<br>Serial #</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Analyzer<br>Profile</div>
+    </div>
+
+    <p class="fade-in">This is why entering the analyzer serial during OUT scans is so important. Skip the serial and the part disappears into a black hole — consumed but untracked. Enter the serial and it becomes part of a complete build record.</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 9.1 — Trace an Analyzer Build</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>📈 Analyzer Analysis</strong>.</li>
+        <li>Review the KPI cards at the top — how many analyzers are being tracked?</li>
+        <li>Click on any analyzer row to expand its transaction detail.</li>
+        <li>Look at the parts that were consumed — do the quantities and part numbers make sense for that build?</li>
+        <li>Check the Build Days column — which analyzer took the longest?</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 The Serial Number Is the Key</div>
+      <p style="margin:0">Every time you scan a part OUT, the system asks for an analyzer serial. That single field is what makes Analyzer Analysis possible. No serial = no analyzer profile. Make it a habit — always enter the serial, every time.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 10 — DHR SCANNER
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-dhr" data-nav="DHR Scanner">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">10</div></div>
+    <h1 class="fade-in section-title">DHR Scanner</h1>
+    <p class="fade-in section-tagline">"Point. Shoot. Let the AI do the reading."</p>
+
+    <p class="fade-in">The DHR (Device History Record) Scanner uses <strong>AI-powered Vision</strong> to read packing lists, manifests, and DHR documents. Same gpt-4o Vision engine as Incoming Stock — but focused on device history matching.</p>
+
+    <h2 class="fade-in">How It Works</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">📸 Snap<br>Photo</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">🤖 AI<br>Reads It</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">🔍 Smart<br>Matching</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">✏️ Inline<br>Edit</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">✅ Confirm<br>& Save</div>
+    </div>
+
+    <h2 class="fade-in">Three Input Methods</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Method</th><th>How</th><th>When to Use</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>📸 Camera</td><td>Point your device camera at the document</td><td>On the floor with a packing list in hand</td></tr>
+        <tr><td>📤 Upload</td><td>Select an image or PDF file from your device</td><td>When you have a scanned copy</td></tr>
+        <tr><td>✏️ Manual</td><td>Type part numbers directly</td><td>When you know the parts already</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">Smart Part Matching</h2>
+    <p class="fade-in">The AI doesn't just read text — it <strong>matches</strong> what it reads against your actual inventory. It uses a 6-step matching cascade:</p>
+    <ol class="fade-in">
+      <li><strong>Exact match</strong> — The OCR text matches a known part number perfectly</li>
+      <li><strong>Stripped match</strong> — Remove dashes, spaces, special chars and compare</li>
+      <li><strong>Prefix match</strong> — Try common QuidelOrtho prefixes (J, 1H, 0)</li>
+      <li><strong>OCR fix</strong> — Correct common misreads: I→1, O→0, S→5, B→8</li>
+      <li><strong>Substring match</strong> — If 4+ characters are contained in a known part</li>
+      <li><strong>Fuzzy match</strong> — Levenshtein distance ≤ 2 for close matches</li>
+    </ol>
+
+    <p class="fade-in">Each line shows a confidence badge: <strong style="color:#22c55e;">MATCHED</strong> (green) or <strong style="color:#ef4444;">UNMATCHED</strong> (red). Unmatched items have an inline edit button — click the pencil icon, type the correct part number, and hit Enter.</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 10.1 — Scan a DHR Document</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>📋 DHR Scanner</strong>.</li>
+        <li>Take a photo of any QuidelOrtho packing list or shipping document.</li>
+        <li>Watch the AI process it — it should extract part numbers and quantities within seconds.</li>
+        <li>Check the results: are the part numbers matched correctly? Confidence badges green?</li>
+        <li>If anything is UNMATCHED, click the ✏️ pencil icon and correct it.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Multi-Page Documents</div>
+      <p style="margin:0">Snap multiple photos of a multi-page document. Lines accumulate — each new scan adds to the list. Take as many photos as needed; the system handles it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 11 — ANALYTICS SUITE
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-analytics" data-nav="Analytics">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">11</div></div>
+    <h1 class="fade-in section-title">Analytics Suite</h1>
+    <p class="fade-in section-tagline">"Data without action is just noise. These tools turn numbers into decisions."</p>
+
+    <p class="fade-in">Beyond the core inventory workflow, the dashboard includes a suite of analytics pages. These are your strategic tools — use them for planning, optimization, and reporting.</p>
+
+    <h2 class="fade-in">ABC Analysis</h2>
+    <p class="fade-in">Pareto-style ranking of all parts into A (top 80% of value), B (next 15%), and C (bottom 5%). Includes a Pareto chart, donut breakdown, and a 9-column table with search, type dropdown filter, and XLSX export. Use this to prioritize: A-class parts get the most counting attention and tightest min/max ranges.</p>
+
+    <h2 class="fade-in">Health Heatmap</h2>
+    <p class="fade-in">A visual health score gauge with 5 stat cards, status distribution bar, and a color-coded heatmap grid. Click any cell for a detail popup. Use this for a quick visual scan — green is healthy, red needs attention, and the gauge tells you the overall score.</p>
+
+    <h2 class="fade-in">SAP Staging & Analytics</h2>
+    <p class="fade-in"><strong>SAP Staging</strong> has 3 tabs: Queue, Posted, and Errors. Pipeline progress bar shows how transactions flow from pending → posted. Bulk-select and export CSV for SAP uploads.</p>
+    <p class="fade-in"><strong>SAP Analytics</strong> shows 4 stat cards, post rate percentage, movement breakdown by type, and daily volume chart. Use this to monitor SAP posting health and catch errors early.</p>
+
+    <h2 class="fade-in">Reports</h2>
+    <ul class="fade-in">
+      <li><strong>Executive Report</strong> — Health gauge, stat cards, stock-out and low-stock tables. Built for leadership presentations.</li>
+      <li><strong>Report Preview</strong> — Dark header, stats strip, accordion sections (Action Items, Inventory Overview, Kit Status). Print-friendly.</li>
+      <li><strong>Mobile Quick View</strong> — Optimized for phone-sized screens. Key numbers at a glance.</li>
+    </ul>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Export Everything</div>
+      <p style="margin:0">Almost every analytics page has an Export button — XLSX for inventory data, CSV for SAP staging. If leadership asks for numbers, you're one click away from a professional spreadsheet.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 12 — e-CONNECTIVITY
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-econn" data-nav="e-Connectivity">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">12</div></div>
+    <h1 class="fade-in section-title">e-Connectivity</h1>
+    <p class="fade-in section-tagline">"Know your machine inside and out — literally."</p>
+
+    <p class="fade-in">The e-Connectivity module gives you two powerful tools in one place: an interactive system diagram of the VITROS 5600 Integrated System, and a direct link to the QuidelOrtho Health Check portal for real-time system monitoring.</p>
+
+    <h2 class="fade-in">System Diagram — Interactive Module Explorer</h2>
+    <p class="fade-in">This is a fully interactive diagram of the VITROS 5600 with <strong>21 clickable module hotspots</strong> — each one mapped to parts in your inventory. It turns a static engineering reference into a live inventory tool.</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Feature</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>🔵 Module Hotspots</td><td>Pulsing blue dots on the diagram — tap any one to see its module info and associated parts.</td></tr>
+        <tr><td>📦 Parts Panel</td><td>Slide-up panel shows module name, description, and every matching part with QOH, stock-out, and low-stock badges.</td></tr>
+        <tr><td>🔍 Zoom Controls</td><td>Pinch-to-zoom on mobile. Scroll-wheel zoom on desktop. Zoom in/out buttons and reset in the toolbar.</td></tr>
+        <tr><td>🖐 Pan</td><td>When zoomed in, drag to pan around the diagram. Works on touch and mouse.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">Module Codes at a Glance</h2>
+    <p class="fade-in">Each module on the VITROS 5600 is identified by a two-letter code. Here are the key ones you'll interact with most:</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Code</th><th>Module</th><th>What It Handles</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>MB</strong></td><td>Immunoassay Reagent Supply</td><td>Stores and dispenses reagent packs for MicroWell testing</td></tr>
+        <tr><td><strong>TM</strong></td><td>MicroWell Incubator</td><td>Temperature-controlled incubation of MicroWell plates</td></tr>
+        <tr><td><strong>TK</strong></td><td>MicroTip / Cuvette Supply</td><td>Loads disposable MicroTips and cuvettes</td></tr>
+        <tr><td><strong>TL</strong></td><td>Cuvette Incubator</td><td>Temperature-controlled incubation for cuvette reactions</td></tr>
+        <tr><td><strong>MH</strong></td><td>Signal Reagent</td><td>Dispenses signal reagent for chemiluminescent detection</td></tr>
+        <tr><td><strong>MK</strong></td><td>Luminometer</td><td>Measures chemiluminescent light output</td></tr>
+        <tr><td><strong>TP</strong></td><td>Photometer</td><td>Measures absorbance for colorimetric assays</td></tr>
+        <tr><td><strong>TJ</strong></td><td>MicroSlide Incubator</td><td>Heated incubation wheel for dry-chemistry slides</td></tr>
+        <tr><td><strong>TY</strong></td><td>Electrometer</td><td>ISE assays — measures electrical potential</td></tr>
+        <tr><td><strong>TD</strong></td><td>Sample Supply</td><td>Sample racks, cups, and barcode reading</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Why This Matters</div>
+      <p style="margin:0">When a module goes down, you need to know which parts are associated with it — instantly. Instead of flipping through manuals, tap the module on the diagram and see your inventory for that subsystem: what you have, what's low, and what's stocked out. It's situational awareness for field service.</p>
+    </div>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 11.1 — Explore the System Diagram</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>🌐 e-Connectivity</strong> in the sidebar.</li>
+        <li>You should land on the <strong>System Diagram</strong> tab by default.</li>
+        <li>Zoom in using the <strong>+</strong> button or scroll wheel (pinch on mobile).</li>
+        <li>Tap the <strong>MH</strong> (Signal Reagent) hotspot.</li>
+        <li>Review the parts panel — you should see SR pump, SR probe, and related tubing parts with their QOH.</li>
+        <li>Close the panel and try <strong>TK</strong> (MicroTip / Cuvette Supply) — this one should have the most associated parts.</li>
+        <li>Reset zoom using the reset button in the toolbar.</li>
+      </ol>
+    </div>
+
+    <h2 class="fade-in">Health Check — System Monitoring Portal</h2>
+    <p class="fade-in">The second tab is <strong>Health Check</strong> — a launch page for the QuidelOrtho e-Connectivity portal. This is the external monitoring system for your VITROS analyzers.</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Detail</th><th>Info</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Access</td><td>Opens in a new browser tab (requires QuidelOrtho SSO login)</td></tr>
+        <tr><td>What It Shows</td><td>Analyzer connectivity status, system health, error alerts</td></tr>
+        <tr><td>When to Use</td><td>Checking analyzer status remotely, verifying connectivity after service</td></tr>
+      </tbody>
+    </table>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 11.2 — Access Health Check</span>
+      </div>
+      <ol>
+        <li>Switch to the <strong>Health Check</strong> tab in e-Connectivity.</li>
+        <li>Click <strong>"Open Health Check"</strong> — it should open the QuidelOrtho portal in a new tab.</li>
+        <li>Log in with your QuidelOrtho SSO credentials.</li>
+        <li>Verify you can see your assigned analyzers and their current status.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ SSO Required</div>
+      <p style="margin:0">The Health Check portal requires QuidelOrtho single sign-on. If your credentials aren't working, contact your IT admin. The portal cannot be embedded directly in the dashboard due to SSO security requirements — that's why it opens in a new tab.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 13 — TROUBLESHOOTING
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-trouble" data-nav="Troubleshooting">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">13</div></div>
+    <h1 class="fade-in section-title">When Things Go Sideways</h1>
+    <p class="fade-in section-tagline">"Smooth seas don't make skilled sailors. Let's simulate some storms."</p>
+
+    <p class="fade-in">Things will go wrong. Not because the system is broken — usually because reality is messy. Here's what you'll actually encounter, and exactly how to handle it.</p>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 1</div>
+      <h3>"I scanned a part but the system says NOT FOUND"</h3>
+      <p>The barcode doesn't match any part in the system.</p>
+      <p><em>Why:</em> Part was never added to Stock Summary, or the barcode encodes a manufacturer code that differs from our internal number.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Type the part number manually. If it still doesn't match, the part needs to be added to Stock Summary first. Don't skip the scan — that creates a ghost pull. Ask Joe if you're stuck.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 2</div>
+      <h3>"The camera won't scan the barcode"</h3>
+      <p>Camera opens but can't read the label.</p>
+      <p><em>Why:</em> Browser permissions, low light, damaged label, or non-standard barcode format.</p>
+      <div class="fix"><strong>✅ Fix:</strong> (1) Allow camera permissions in browser. (2) Better lighting — barcodes need contrast. (3) If the label is damaged, type the part number manually. Don't waste 5 minutes fighting a scanner when you can type it in 5 seconds.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 3</div>
+      <h3>"I committed a batch with the wrong mode"</h3>
+      <p>Meant to scan IN (returning parts) but left it on OUT. Stock went down instead of up.</p>
+      <p><em>Why:</em> Mode defaults to OUT. Easy to forget to switch.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Use ADJUST mode to correct the quantity to what it should be. Or make a new IN scan for double the quantity to offset. Tell Joe what happened. Don't pretend it didn't happen.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 4</div>
+      <h3>"System says 10 but I'm looking at 3 on the shelf"</h3>
+      <p>Digital count doesn't match physical count.</p>
+      <p><em>Why:</em> Unscanned pulls. Someone took parts without scanning them out.</p>
+      <div class="fix"><strong>✅ Fix:</strong> (1) Transaction Search — filter by that part. Check the math. (2) If there's a gap, use ADJUST to set the correct quantity. (3) Tell Joe and the team. If parts are walking off without scans, we need to know.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 5</div>
+      <h3>"The OCR got everything wrong on my packing slip"</h3>
+      <p>Uploaded a photo and the AI misread part numbers and quantities.</p>
+      <p><em>Why:</em> Faded print, handwriting, glare, unusual fonts. The AI is trained on QuidelOrtho formats and auto-corrects common misreads, but can't fix everything.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Review every line before committing. ⚠️ FUZZY = close match, verify it. ❌ NOT FOUND = wrong number, fix manually. Never commit a batch you haven't reviewed line by line.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 6</div>
+      <h3>"My cycle count numbers don't match"</h3>
+      <p>Physically counted 8 but system expected 12. Variance = −4.</p>
+      <p><em>Why:</em> Unscanned pulls, misplaced parts, or receiving errors. Variance is information, not failure.</p>
+      <div class="fix"><strong>✅ Fix:</strong> (1) Recount to be sure. (2) Check adjacent bins for misplaced stock. (3) Review Transaction Search. (4) Enter the honest count. Do not fudge numbers to avoid variance. Variance data is how we fix systemic issues.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 7</div>
+      <h3>"I accidentally deleted a part from Stock Summary"</h3>
+      <p>Hit trash, confirmed "Are you sure?", and the part is gone.</p>
+      <div class="fix"><strong>✅ Fix:</strong> Contact Joe immediately. The part will need to be recreated manually. Transaction history for that part is gone. This is why the system asks "Are you sure?" — it means it.</div>
+    </div>
+
+    <div class="fade-in scenario">
+      <div class="scenario-label">🚨 Scenario 8</div>
+      <h3>"The dashboard seems frozen or shows stale data"</h3>
+      <p>Numbers aren't updating after a scan.</p>
+      <div class="fix"><strong>✅ Fix:</strong> (1) Hard refresh: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> (Win) or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> (Mac). (2) Close and reopen the tab. (3) Check WiFi. (4) Try incognito mode. If it persists, screenshot it and text Joe.</div>
+    </div>
+
+    <div class="fade-in mantra-banner">
+      <div class="mantra-text">The Golden Rule of Errors</div>
+      <div class="mantra-sub">Don't hide it. Don't ignore it. Don't "fix it quietly." Flag it, communicate it, fix it together. Errors caught early are minor inconveniences. Errors caught late are investigations. Over-communicate.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 14 — QUICK REFERENCE
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-ref" data-nav="Quick Ref">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">14</div></div>
+    <h1 class="fade-in section-title">Quick Reference</h1>
+    <p class="fade-in section-tagline">Bookmark this section. You'll come back to it.</p>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">🔗 Dashboard URLs</div>
+      <a href="/" class="open-btn">Production Dashboard ↗</a>
+      <a href="https://preview-vitros-inv-dash-45fdfd70.viktor.space" class="open-btn" style="background:#dc2626;">Training Dashboard ↗</a>
+    </div>
+
+    <div class="fade-in two-col">
+      <div class="ref-card">
+        <div class="ref-card-title">📷 Kiosk Modes</div>
+        <table>
+          <tbody>
+            <tr><td><strong>OUT</strong> (Red)</td><td>Pulling from stock</td></tr>
+            <tr><td><strong>IN</strong> (Green)</td><td>Returning to stock</td></tr>
+            <tr><td><strong>ADJUST</strong> (Yellow)</td><td>Correcting to exact #</td></tr>
+            <tr><td><strong>RECEIVE</strong> (Purple)</td><td>New deliveries</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="ref-card">
+        <div class="ref-card-title">📦 Stock Status</div>
+        <table>
+          <tbody>
+            <tr><td>🟢 OK</td><td>Between min & max</td></tr>
+            <tr><td>🟡 LOW</td><td>Below min, above zero</td></tr>
+            <tr><td>🔴 STOCKOUT</td><td>Zero or below</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">⌨️ Tips & Shortcuts</div>
+      <table>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></td><td>Hard refresh (fixes display issues)</td></tr>
+          <tr><td>Search bars</td><td>Fuzzy-match part numbers, descriptions, bins</td></tr>
+          <tr><td>Column headers</td><td>Click to sort ascending/descending</td></tr>
+          <tr><td>Export buttons</td><td>Downloads current view as .xlsx or .csv</td></tr>
+          <tr><td>Scope toggles</td><td>Filter by All / Required / Recommended / Ancillary</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">🔐 Role Permissions</div>
+      <table>
+        <thead><tr><th>Feature</th><th>Admin</th><th>Engineer</th></tr></thead>
+        <tbody>
+          <tr><td>Scan Kiosk</td><td>✅</td><td>✅</td></tr>
+          <tr><td>View Stock Summary</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Edit/Delete/Add Parts</td><td>✅</td><td>🔒 Locked</td></tr>
+          <tr><td>Incoming Stock</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Cycle Count</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Reopen Closed Count</td><td>✅</td><td>🔒 Locked</td></tr>
+          <tr><td>All Analytics</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Settings / Themes</td><td>✅</td><td>✅ (theme only)</td></tr>
+          <tr><td>DHR Scanner</td><td>✅</td><td>✅</td></tr>
+          <tr><td>REM Dashboard</td><td>✅</td><td>✅</td></tr>
+          <tr><td>Employee Add/Deactivate</td><td>✅</td><td>🔒 Locked</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">📞 Escalation Path</div>
+      <table>
+        <thead><tr><th>Issue</th><th>First Action</th><th>Escalate To</th></tr></thead>
+        <tbody>
+          <tr><td>Part not in system</td><td>Type manually / check spelling</td><td>Joe</td></tr>
+          <tr><td>Quantity discrepancy</td><td>Check Transaction Search</td><td>Joe + team</td></tr>
+          <tr><td>System error</td><td>Hard refresh → screenshot</td><td>Joe (w/ screenshot)</td></tr>
+          <tr><td>Stockout detected</td><td>Auto-emailed. Verify reorder.</td><td>Joe</td></tr>
+          <tr><td>Accidental delete</td><td>STOP. Don't try to fix it.</td><td>Joe — immediately</td></tr>
+          <tr><td>OCR misread</td><td>Review matches, fix manually</td><td>Joe if pattern repeats</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="fade-in ref-card">
+      <div class="ref-card-title">📞 Contact</div>
+      <p><strong>Joe Willis</strong> — Lead Service Engineer<br>
+      📱 607.742.9951 · ✉️ Joe.willis@quidelortho.com</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 15 — USER DASHBOARD
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-user" data-nav="User Dashboard">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">15</div></div>
+    <h1 class="fade-in section-title">User Dashboard</h1>
+    <p class="fade-in section-tagline">"Every scan has a name on it. This is where you see yours."</p>
+
+    <p class="fade-in">The User Dashboard is where everything comes full circle. Every transaction you've logged — every IN, OUT, ADJUST, and kit pull — is tied to your name. This page is your proof of work and your team's accountability hub.</p>
+
+    <h2 class="fade-in">What You'll See</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Section</th><th>What It Shows</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Employee List</td><td>All team members — name, initials, email, active/inactive status.</td></tr>
+        <tr><td>Transaction History</td><td>Every scan attributed to each employee, with timestamps and part details.</td></tr>
+        <tr><td>Activity Summary</td><td>At-a-glance counts of each person's contributions.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">Tying It All Together</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">Scan<br>Kiosk</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Transaction<br>Created</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Stock<br>Updated</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">SAP<br>Staged</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">User<br>Dashboard</div>
+    </div>
+
+    <p class="fade-in">Every scan you make flows through the entire system — updating quantities, staging SAP records, and landing here on your personal history. The User Dashboard is the proof that the process works, and that you are working the process.</p>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 15.1 — Review Your Transactions</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>👤 User Dashboard</strong>.</li>
+        <li>Find your name in the employee list.</li>
+        <li>Review your transactions from today's training — every scan you did should be there.</li>
+        <li>Check: Do the part numbers, quantities, and timestamps match what you remember doing?</li>
+        <li>If anything looks wrong or missing, flag it now.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Weekly Habit</div>
+      <p style="margin:0">Take 2 minutes every Friday to check your transactions on the User Dashboard. It keeps you honest, catches mistakes early, and shows you're engaged. If Joe asks "Did you log that?" — you'll know the answer before he finishes the question.</p>
+    </div>
+
+    <div class="fade-in box box-error">
+      <div class="box-title">⚠️ Adding & Deactivating Employees</div>
+      <p style="margin:0">Only admins should add or deactivate employees. Deactivating removes someone from scan dropdowns but preserves their full transaction history. Never delete an employee — deactivate them instead.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 16 — REM DASHBOARD
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-rem" data-nav="REM">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">16</div></div>
+    <h1 class="fade-in section-title">REM Dashboard</h1>
+    <p class="fade-in section-tagline">"Remanufacturing isn't repair — it's resurrection. Track every step."</p>
+
+    <p class="fade-in">The REM (Remanufacturing) section is a complete suite for tracking VITROS 5600/7600 analyzer rebuilds. From tear-down to shipping, every stage is visible.</p>
+
+    <h2 class="fade-in">REM Pages Overview</h2>
+    <table class="fade-in">
+      <thead>
+        <tr><th>Page</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>🏭 REM Dashboard</td><td>Overview of all active rebuilds — stage counts, completion rates, annual targets vs. actuals</td></tr>
+        <tr><td>🌅 Morning Snapshot</td><td>Daily standup view — what's in progress, what's blocked, who's on what</td></tr>
+        <tr><td>📋 Kanban Board</td><td>Drag-and-drop cards across stages: Tear-Down → Cleaning → Rebuild → Testing → QA → Shipping</td></tr>
+        <tr><td>📊 Gantt Timeline</td><td>Timeline view of all analyzers with stage durations and expected completion</td></tr>
+        <tr><td>📷 Engineer Kiosk</td><td>Scan-based stage transitions — engineers clock in/out of stages per analyzer</td></tr>
+        <tr><td>🔬 Analyzers</td><td>Master list of all analyzers with serial numbers, current status, and history</td></tr>
+        <tr><td>💻 LVCC Tracker</td><td>Low-Volume Chemical Container tracking — expiration dates, lot numbers, usage</td></tr>
+        <tr><td>📅 Production Plan</td><td>Weekly/monthly production plan with targets per stage</td></tr>
+        <tr><td>🌍 Field Status</td><td>Analyzers deployed in the field — location, install date, uptime tracking</td></tr>
+        <tr><td>👷 Staff & Training</td><td>Engineer certifications, training status, and competency tracking</td></tr>
+        <tr><td>📝 Weekly Notes</td><td>Team notes per week — issues, wins, blockers, observations</td></tr>
+        <tr><td>📄 REM Reports</td><td>Production summaries, throughput analysis, cycle time reports</td></tr>
+        <tr><td>📥 Bulk Import</td><td>Import analyzer data, LVCC items, and production records in bulk</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="fade-in">The REM Workflow</h2>
+    <div class="fade-in flow">
+      <div class="flow-step">Tear<br>Down</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Clean<br>& Prep</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Re-<br>build</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Test<br>& Cal</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">QA<br>Review</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Ship<br>Out</div>
+    </div>
+
+    <p class="fade-in">Each analyzer moves through these stages. The Kanban board shows all active rebuilds at a glance. The Gantt timeline shows the full schedule. The Morning Snapshot is your daily standup dashboard.</p>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Annual Targets</div>
+      <p style="margin:0">The REM Dashboard tracks annual rebuild targets vs. actual completions. This rolls up into executive reports and helps with capacity planning and resource allocation.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 17 — SETTINGS & THEMES
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-settings" data-nav="Settings">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">17</div></div>
+    <h1 class="fade-in section-title">Settings & Themes</h1>
+    <p class="fade-in section-tagline">"Make it yours. Because staring at a dashboard 8 hours a day should at least look good."</p>
+
+    <h2 class="fade-in">Theme System — 5 Palettes</h2>
+    <p class="fade-in">The dashboard supports <strong>5 visual themes</strong> you can switch between instantly. Open <strong>⚙️ Settings</strong> from the sidebar to change your theme:</p>
+
+    <table class="fade-in">
+      <thead>
+        <tr><th>Theme</th><th>Vibe</th><th>Best For</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>🌑 Dark</td><td>Deep blacks and soft grays</td><td>Default — easy on eyes in any lighting</td></tr>
+        <tr><td>☀️ Light</td><td>Bright whites and clean grays</td><td>Well-lit environments, presentations</td></tr>
+        <tr><td>🌌 Midnight</td><td>Rich navy blues with indigo accents</td><td>Night shift warriors</td></tr>
+        <tr><td>🌊 Ocean</td><td>Cool blue-green tones</td><td>Clean, calm feel — lab environments</td></tr>
+        <tr><td>🔬 VITROS</td><td>QuidelOrtho brand colors</td><td>On-brand presentations and demos</td></tr>
+      </tbody>
+    </table>
+
+    <p class="fade-in">Your theme selection persists across sessions — set it once, and it stays. The entire dashboard adapts: sidebar, cards, charts, modals, status badges, and all table rows.</p>
+
+    <h2 class="fade-in">Settings Page Features</h2>
+    <ul class="fade-in">
+      <li><strong>Theme Picker</strong> — Click any palette swatch to switch instantly. Preview shows live.</li>
+      <li><strong>SAP Configuration</strong> — Set plant code, storage location, and SAP movement type defaults.</li>
+      <li><strong>Employee Management</strong> — Add, edit, deactivate, or delete employees from the Settings page.</li>
+      <li><strong>About</strong> — Version info, system architecture notes.</li>
+    </ul>
+
+    <div class="fade-in exercise">
+      <div class="exercise-header">
+        <span class="exercise-badge">Hands-On</span>
+        <span class="exercise-title">Exercise 17.1 — Try All 5 Themes</span>
+      </div>
+      <ol>
+        <li>Navigate to <strong>⚙️ Settings</strong> in the sidebar.</li>
+        <li>Click each theme swatch: Dark → Light → Midnight → Ocean → VITROS.</li>
+        <li>Watch how the entire interface adapts — cards, backgrounds, text, status colors.</li>
+        <li>Pick the one you like best. It'll stay set for your future sessions.</li>
+      </ol>
+    </div>
+
+    <div class="fade-in box box-tip">
+      <div class="box-title">💡 Scrollable Settings</div>
+      <p style="margin:0">Settings, Theme, and Logout are at the bottom of the sidebar, separated by a divider — they scroll with the nav items. On mobile, they're in the bottom navigation drawer.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SECTION 18 — OWNERSHIP CONTRACT
+     ═══════════════════════════════════════════════════════════════ -->
+<div class="section-divider"></div>
+<section class="section" id="sec-contract" data-nav="Ownership">
+  <div class="content">
+    <div class="fade-in"><div class="section-num">18</div></div>
+    <h1 class="fade-in section-title">The Ownership Contract</h1>
+    <p class="fade-in section-tagline">"This isn't a checklist. It's a standard."</p>
+
+    <p class="fade-in">You've seen every feature. You've done the exercises. You've seen what goes wrong and how to fix it. Now it's about commitment.</p>
+
+    <div class="fade-in mantra-banner">
+      <div class="mantra-text">"Over-communicate. Own it like it's your business."</div>
+      <div class="mantra-sub">Because it is.</div>
+    </div>
+
+    <h2 class="fade-in">Your Daily Standards</h2>
+    <ul class="fade-in checklist">
+      <li><strong>Every part I touch gets scanned.</strong> No shortcuts. No "I'll do it later."</li>
+      <li><strong>Every shipment I receive gets logged the same day.</strong> Ghost inventory helps nobody.</li>
+      <li><strong>If something looks wrong, I say something immediately.</strong> To Joe. To the group. Out loud if needed.</li>
+      <li><strong>I review my transactions weekly.</strong> If I can't account for what I pulled, I investigate.</li>
+      <li><strong>I treat cycle counts with integrity.</strong> Honest numbers, even when they show variance.</li>
+      <li><strong>I don't delete anything unless I'm 100% certain.</strong> When in doubt, I ask first.</li>
+      <li><strong>I communicate with my teammates.</strong> "Hey, I just pulled the last of X" takes 5 seconds and saves hours.</li>
+      <li><strong>I treat this system like it's mine.</strong> Because the data represents my work, my team, and my integrity.</li>
+    </ul>
+
+    <div class="fade-in card" style="text-align: center; padding: 40px;">
+      <h2 style="margin-top:0; font-size: 26px;">✅ TRAINING COMPLETE</h2>
+      <p style="font-size: 18px; margin-bottom: 8px;">You have every tool you need to manage inventory like a professional.</p>
+      <p style="color: var(--text-dim); margin-bottom: 0;">The system is built. The process is clear. The only variable left is <strong>you</strong>.</p>
+      <br>
+      <p style="font-size: 20px; font-weight: 800; margin-bottom: 0;">Own it. Communicate it. Be proud of it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════════ -->
+<footer class="footer">
+  <strong>CONFIDENTIAL</strong> — QuidelOrtho Internal Use Only<br>
+  <strong>Joe Willis</strong> · Lead Service Engineer · 607.742.9951 · Joe.willis@quidelortho.com<br>
+  Version 3.0 · May 2026
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+// Progress bar
+window.addEventListener('scroll', () => {
+  const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+  const scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  const progress = (scrollTop / scrollHeight) * 100;
+  document.getElementById('progressBar').style.width = progress + '%';
+});
+
+// Nav dots
+const sections = document.querySelectorAll('[data-nav]');
+const navDots = document.getElementById('navDots');
+
+sections.forEach((section, i) => {
+  const dot = document.createElement('div');
+  dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+  dot.innerHTML = `<span class="tooltip">${section.dataset.nav}</span>`;
+  dot.addEventListener('click', () => {
+    section.scrollIntoView({ behavior: 'smooth' });
+  });
+  navDots.appendChild(dot);
+});
+
+// Active dot tracking
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const idx = Array.from(sections).indexOf(entry.target);
+      document.querySelectorAll('.nav-dot').forEach((d, i) => {
+        d.classList.toggle('active', i === idx);
+      });
+    }
+  });
+}, { rootMargin: '-40% 0px -40% 0px' });
+
+sections.forEach(s => observer.observe(s));
+
+// Fade-in on scroll
+const fadeObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.fade-in').forEach(el => fadeObserver.observe(el));
+</script>
+
+</body>
+</html>
