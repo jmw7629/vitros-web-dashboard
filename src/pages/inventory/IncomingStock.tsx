@@ -296,48 +296,45 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
   // ─── OCR Pipeline ───
   const runOCR = async (file: File) => {
     setScanning(true);
-    setScanStep(`📷 Compressing ${(file.size / 1024 / 1024).toFixed(1)}MB photo…`);
+    setScanStep(`📷 Compressing…`);
     const thumbUrl = URL.createObjectURL(file);
     setScanImages(prev => [...prev, thumbUrl]);
 
     try {
-      // 1. Compress
+      // 1. Compress (smaller = faster upload to OpenAI)
       let blob: Blob;
-      try { blob = await compressImage(file, 1400, 0.75); } catch { blob = file; }
+      try { blob = await compressImage(file, 1200, 0.6); } catch { blob = file; }
 
-      // 2. Upload to Supabase storage
-      setScanStep(`⬆️ Uploading ${(blob.size / 1024 / 1024).toFixed(1)}MB…`);
-      const filename = `incoming_${Date.now()}.jpg`;
-      const upRes = await fetch(`${SUPABASE_URL}/storage/v1/object/dhr-scans/${filename}`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "apikey": SERVICE_KEY, "Content-Type": "image/jpeg", "x-upsert": "true" },
-        body: blob,
+      // 2. Convert to base64 (skip Supabase upload — much faster)
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
       });
-      if (!upRes.ok) throw new Error(`Upload failed (${upRes.status})`);
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/dhr-scans/${filename}`;
 
-      // 3. OpenAI Vision with retry
-      setScanStep("🔍 AI is reading the packing list…");
+      // 3. OpenAI Vision — direct base64, gpt-4o-mini for speed
+      setScanStep("🔍 Reading packing list…");
       const prompt = buildPrompt();
 
       let response: Response | null = null;
       let lastErr = "";
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          if (attempt > 1) setScanStep(`🔍 Retry ${attempt}/3…`);
+          if (attempt > 1) setScanStep(`🔍 Retry ${attempt}/2…`);
           const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 90_000);
+          const timer = setTimeout(() => ctrl.abort(), 45_000);
           response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_KEY}` },
             body: JSON.stringify({
-              model: "gpt-4o",
-              max_tokens: 4096,
+              model: "gpt-4o-mini",
+              max_tokens: 2048,
               messages: [
                 { role: "system", content: prompt },
                 { role: "user", content: [
-                  { type: "text", text: "Read this QuidelOrtho packing list. Extract every line item with part number and quantity. The document may be rotated sideways. Remember: LINE number ≠ quantity. Use QTY/UNIT for Container lists or SHIP QTY for Order lists." },
-                  { type: "image_url", image_url: { url: publicUrl, detail: "high" } },
+                  { type: "text", text: "Read this packing list. Extract every line item. LINE # ≠ quantity. Use QTY/UNIT (Container) or SHIP QTY (Order)." },
+                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}`, detail: "low" } },
                 ]},
               ],
             }),
@@ -352,13 +349,13 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
           }
         } catch (e: any) {
           if (e.message?.includes("API key invalid")) throw e;
-          lastErr = e.name === "AbortError" ? "Timed out (90s)" : e.message;
+          lastErr = e.name === "AbortError" ? "Timed out (45s)" : e.message;
           response = null;
         }
-        if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
       }
 
-      if (!response || !response.ok) throw new Error(`AI failed after 3 attempts: ${lastErr}`);
+      if (!response || !response.ok) throw new Error(`AI failed: ${lastErr}`);
 
       // 4. Parse
       setScanStep("✅ Processing…");
