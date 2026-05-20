@@ -313,13 +313,6 @@ export function IncomingStock() {
     }
   }, []);
 
-  // Auto-save session on changes
-  useEffect(() => {
-    if (lines.length || employee || poNumber) {
-      saveSession({ lines, employee, poNumber, deliveryNumber, trackingNumber, result });
-    }
-  }, [lines, employee, poNumber, deliveryNumber, trackingNumber, result]);
-
   // OCR
   const [scanning, setScanning] = useState(false);
   const [scanStep, setScanStep] = useState("");
@@ -328,6 +321,13 @@ export function IncomingStock() {
   // Commit
   const [committing, setCommitting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+
+  // Auto-save session on changes (must be after all state declarations)
+  useEffect(() => {
+    if (lines.length || employee || poNumber) {
+      saveSession({ lines, employee, poNumber, deliveryNumber, trackingNumber, result });
+    }
+  }, [lines, employee, poNumber, deliveryNumber, trackingNumber, result]);
 
   // Edit / delete
   const [editIdx, setEditIdx] = useState<number | null>(null);
