@@ -625,14 +625,17 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       export_status: "pending",
     }).catch(() => {}); // SAP staging is optional
 
-    // Debounce loadAll — don't reload on every single call during batch receives
-    if ((scanPart as any)._refreshTimer) clearTimeout((scanPart as any)._refreshTimer);
-    (scanPart as any)._refreshTimer = setTimeout(() => loadAll(), 500);
+    debouncedLoadAll();
     return { success: true, partNumber, description: part.description, qtyBefore, qtyAfter, mode };
   };
 
+  // Debounced loadAll — coalesce rapid successive calls into one reload
+  const debouncedLoadAll = useCallback(() => {
+    if ((debouncedLoadAll as any)._t) clearTimeout((debouncedLoadAll as any)._t);
+    (debouncedLoadAll as any)._t = setTimeout(() => loadAll(), 300);
+  }, [loadAll]);
+
   const updatePart = async (id: string, updates: Record<string, unknown>) => {
-    // Map frontend field names to Supabase column names
     const mapped: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (updates.description !== undefined) mapped.description = updates.description;
     if (updates.type !== undefined) mapped.type = updates.type;
@@ -647,12 +650,12 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     mapped.last_activity = new Date().toISOString();
 
     await sbUpdate("stock", id, mapped);
-    await loadAll();
+    debouncedLoadAll();
   };
 
   const deletePart = async (id: string) => {
     await sbDelete("stock", id);
-    await loadAll();
+    debouncedLoadAll();
   };
 
   const createPart = async (data: Record<string, unknown>) => {
@@ -669,26 +672,27 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       unit_cost: Number(data.unitCost ?? data.unit_cost ?? 0),
       last_activity: new Date().toISOString(),
     });
-    await loadAll();
+    debouncedLoadAll();
   };
 
   const markAsReady = async (ids: string[]) => {
-    for (const id of ids) {
-      await sbUpdate("sap_staging", `id=eq.${id}`, { export_status: "ready" });
-    }
-    await loadAll();
+    await Promise.all(ids.map(id =>
+      sbUpdate("sap_staging", `id=eq.${id}`, { export_status: "ready" })
+    ));
+    debouncedLoadAll();
   };
 
   const markExported = async (ids: string[]) => {
-    for (const id of ids) {
-      await sbUpdate("sap_staging", `id=eq.${id}`, { export_status: "posted", exported_at: new Date().toISOString() });
-    }
-    await loadAll();
+    const now = new Date().toISOString();
+    await Promise.all(ids.map(id =>
+      sbUpdate("sap_staging", `id=eq.${id}`, { export_status: "posted", exported_at: now })
+    ));
+    debouncedLoadAll();
   };
 
   const updateSapStatus = async (id: string, status: string) => {
     await sbUpdate("sap_staging", `id=eq.${id}`, { export_status: status });
-    await loadAll();
+    debouncedLoadAll();
   };
 
   const addEmployee = async (name: string, initials: string) => {
@@ -698,7 +702,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       role: "engineer",
       is_active: true,
     });
-    await loadAll();
+    debouncedLoadAll();
   };
 
   const updateEmployee = async (id: string, updates: { name?: string; initials?: string; email?: string; role?: string }) => {
@@ -707,17 +711,17 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     if (updates.email !== undefined) mapped.username = updates.email;
     if (updates.role !== undefined) mapped.role = updates.role;
     await sbUpdate("users", id, mapped);
-    await loadAll();
+    debouncedLoadAll();
   };
 
   const toggleEmployeeActive = async (id: string, currentlyActive: boolean) => {
     await sbUpdate("users", id, { is_active: !currentlyActive });
-    await loadAll();
+    debouncedLoadAll();
   };
 
   const deleteEmployee = async (id: string) => {
     await sbDelete("users", id);
-    await loadAll();
+    debouncedLoadAll();
   };
 
   return (

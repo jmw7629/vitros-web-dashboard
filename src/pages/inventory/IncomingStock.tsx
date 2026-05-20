@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import {
@@ -10,6 +10,92 @@ import {
 const SUPABASE_URL = "https://oykqiiydpwngasvzdthh.supabase.co";
 const SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Nzk2MDUzMywiZXhwIjoyMDkzNTM2NTMzfQ.30U3H8Rol0XgoMFvaljZD2e8J0AYXlPUPdzlOe97RIw";
 const OPENAI_KEY = import.meta.env.VITE_OPENAI_KEY || "";
+
+// ─── Session persistence: survive navigation away ───
+// Global queue outside React — runs to completion even if component unmounts
+const _pendingReceives: Promise<any>[] = [];
+const SESSION_KEY = "vitros_incoming_session";
+const SESSION_TTL = 5 * 60 * 1000; // 5 minutes
+
+function saveSession(state: any) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ ...state, savedAt: Date.now() }));
+  } catch {}
+}
+
+function loadSession(): any | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (Date.now() - s.savedAt > SESSION_TTL) {
+      sessionStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return s;
+  } catch { return null; }
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+}
+
+// ─── Supabase helpers for OCR learnings ───
+const SB_HEADERS = { "apikey": SERVICE_KEY, "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json", "Prefer": "return=minimal" };
+
+interface OcrLearning {
+  ocr_raw: string;        // What OCR saw (e.g. "18244")
+  matched_part: string;   // What it actually is (e.g. "J18244")
+  user_corrected: boolean; // Was this a user correction or auto-match?
+  count: number;          // How many times this mapping has occurred
+}
+
+async function loadOcrLearnings(): Promise<OcrLearning[]> {
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/audit_log?action=eq.OCR_LEARNING&select=details&order=created_at.desc&limit=500`,
+      { headers: SB_HEADERS }
+    );
+    if (!r.ok) return [];
+    const rows: any[] = await r.json();
+    // Aggregate: group by ocr_raw → matched_part, count occurrences
+    const map = new Map<string, OcrLearning>();
+    for (const row of rows) {
+      const d = row.details || {};
+      const key = `${(d.ocr_raw || "").toUpperCase()}→${(d.matched_part || "").toUpperCase()}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count++;
+        if (d.user_corrected) existing.user_corrected = true;
+      } else {
+        map.set(key, {
+          ocr_raw: (d.ocr_raw || "").toUpperCase(),
+          matched_part: (d.matched_part || "").toUpperCase(),
+          user_corrected: !!d.user_corrected,
+          count: 1,
+        });
+      }
+    }
+    return Array.from(map.values());
+  } catch { return []; }
+}
+
+function saveOcrLearning(ocrRaw: string, matchedPart: string, userCorrected: boolean) {
+  // Fire-and-forget — don't block the UI
+  fetch(`${SUPABASE_URL}/rest/v1/audit_log`, {
+    method: "POST", headers: SB_HEADERS,
+    body: JSON.stringify({
+      action: "OCR_LEARNING",
+      entity_type: "ocr",
+      entity_id: `${ocrRaw}_${Date.now()}`,
+      part_number: matchedPart,
+      user_name: "system",
+      details: { ocr_raw: ocrRaw, matched_part: matchedPart, user_corrected: userCorrected, method: userCorrected ? "user_edit" : "auto_match" },
+      old_value: { ocr_text: ocrRaw },
+      new_value: { matched: matchedPart },
+    }),
+  }).catch(() => {});
+}
 
 // ─── Types ───
 interface ReceivingLine {
@@ -58,13 +144,27 @@ function compressImage(file: File, maxWidth = 1400, quality = 0.75): Promise<Blo
 
 // ─── Part number matching ───
 // Matches on PART NUMBER only — descriptions can differ.
-function matchPartNumber(raw: string, known: { partNumber: string; description: string }[]) {
+function matchPartNumber(raw: string, known: { partNumber: string; description: string }[], learnings?: OcrLearning[]) {
   if (!raw || !known.length) return null;
   const clean = raw.toUpperCase().trim().replace(/\s+/g, "");
   if (!clean) return null;
 
   // Helper: normalize for comparison
   const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+  // 0. Check learned corrections first — user corrections get priority
+  if (learnings?.length) {
+    // Sort: user-corrected first, then by count
+    const sorted = [...learnings].sort((a, b) => {
+      if (a.user_corrected !== b.user_corrected) return a.user_corrected ? -1 : 1;
+      return b.count - a.count;
+    });
+    const learned = sorted.find(l => norm(l.ocr_raw) === norm(clean));
+    if (learned) {
+      const match = known.find(p => norm(p.partNumber) === norm(learned.matched_part));
+      if (match) return match;
+    }
+  }
 
   // 1. Exact
   const exact = known.find(p => norm(p.partNumber) === clean);
@@ -194,6 +294,32 @@ export function IncomingStock() {
   // Lines
   const [lines, setLines] = useState<ReceivingLine[]>([]);
 
+  // OCR learnings — continuous learning from past scans
+  const [ocrLearnings, setOcrLearnings] = useState<OcrLearning[]>([]);
+  useEffect(() => { loadOcrLearnings().then(setOcrLearnings); }, []);
+
+  // Session restore — if user navigated away and came back within 5 min
+  const [sessionRestored, setSessionRestored] = useState(false);
+  useEffect(() => {
+    const saved = loadSession();
+    if (saved && !sessionRestored) {
+      if (saved.lines?.length) setLines(saved.lines);
+      if (saved.employee) setEmployee(saved.employee);
+      if (saved.poNumber) setPoNumber(saved.poNumber);
+      if (saved.deliveryNumber) setDeliveryNumber(saved.deliveryNumber);
+      if (saved.trackingNumber) setTrackingNumber(saved.trackingNumber);
+      if (saved.result) setResult(saved.result);
+      setSessionRestored(true);
+    }
+  }, []);
+
+  // Auto-save session on changes
+  useEffect(() => {
+    if (lines.length || employee || poNumber) {
+      saveSession({ lines, employee, poNumber, deliveryNumber, trackingNumber, result });
+    }
+  }, [lines, employee, poNumber, deliveryNumber, trackingNumber, result]);
+
   // OCR
   const [scanning, setScanning] = useState(false);
   const [scanStep, setScanStep] = useState("");
@@ -232,6 +358,13 @@ export function IncomingStock() {
   // ─── OCR Prompt ───
   const buildPrompt = () => {
     const partList = knownParts.map(p => p.partNumber).join(", ");
+    // Include learned OCR corrections in the prompt
+    const corrections = ocrLearnings
+      .filter(l => l.ocr_raw !== l.matched_part)
+      .sort((a, b) => (b.user_corrected ? 1 : 0) - (a.user_corrected ? 1 : 0) || b.count - a.count)
+      .slice(0, 30)  // Top 30 most relevant corrections
+      .map(l => `"${l.ocr_raw}" → "${l.matched_part}"${l.user_corrected ? " (confirmed)" : ""}`)
+      .join("\n");
     return `You are an expert OCR reader for QuidelOrtho warehouse packing list documents.
 
 THERE ARE TWO DOCUMENT FORMATS — identify which one you're reading:
@@ -275,6 +408,7 @@ PART NUMBER FORMATS — ALL part numbers are exactly 6 characters:
 ⚠️ If you see a 4-digit number like "0114", it is MISSING the "1H" or "1C" prefix — match against the known list.
 ⚠️ ALWAYS include the full prefix (J, 1H, 1C) in your output. Never return bare digits when a prefix applies.
 
+${corrections ? `LEARNED OCR CORRECTIONS (from past scans — apply these mappings):\n${corrections}\n` : ""}
 KNOWN INVENTORY PART NUMBERS:
 ${partList}
 
@@ -380,9 +514,11 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
       if (items.length > 0) {
         const newLines: ReceivingLine[] = items.map((item: any, i: number) => {
           const pn = (item.partNumber || "").trim();
-          const match = matchPartNumber(pn, knownParts);
+          const match = matchPartNumber(pn, knownParts, ocrLearnings);
           const shipQty = parseInt(item.qty) || parseInt(item.ship_qty) || 1;
           const orderedQty = parseInt(item.ordered_qty) || undefined;
+          // Save learning — auto-match result
+          if (match && pn) saveOcrLearning(pn, match.partNumber, false);
           return {
             id: uid(),
             lineNo: lines.length + i + 1,
@@ -405,11 +541,6 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
       } else {
         setScanStep("⚠ No items found. Try a clearer photo or enter manually.");
       }
-
-      // Cleanup temp image
-      fetch(`${SUPABASE_URL}/storage/v1/object/dhr-scans/${filename}`, {
-        method: "DELETE", headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "apikey": SERVICE_KEY },
-      }).catch(() => {});
 
     } catch (e: any) {
       console.error("OCR error:", e);
@@ -477,9 +608,17 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
   const startEdit = (i: number) => { setEditIdx(i); setEditPN(lines[i].partNumber); };
   const saveEdit = (i: number) => {
     const pn = editPN.trim(); if (!pn) { setEditIdx(null); return; }
-    const match = matchPartNumber(pn, knownParts);
+    const match = matchPartNumber(pn, knownParts, ocrLearnings);
+    const oldRaw = lines[i].partNumber_raw || lines[i].partNumber;
+    const newPart = match ? match.partNumber : pn.toUpperCase();
+    // Save user correction — highest confidence learning
+    if (oldRaw && newPart !== oldRaw.toUpperCase()) {
+      saveOcrLearning(oldRaw, newPart, true);
+      // Update local learnings cache immediately
+      setOcrLearnings(prev => [...prev, { ocr_raw: oldRaw.toUpperCase(), matched_part: newPart, user_corrected: true, count: 1 }]);
+    }
     setLines(prev => prev.map((l, j) => j === i ? {
-      ...l, partNumber: match ? match.partNumber : pn.toUpperCase(),
+      ...l, partNumber: newPart,
       description: match ? match.description : l.description, matched: !!match, selected: !!match,
     } : l));
     setEditIdx(null);
@@ -496,10 +635,15 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
     if (selectedLines.length === 0) return setResult("⚠️ No matched items selected");
     setCommitting(true); setResult(null);
     try {
-      // Fire all receives in parallel for speed
-      const results = await Promise.allSettled(
-        selectedLines.map(line => data.scanPart("RECEIVE", line.partNumber, line.qty, employee))
-      );
+      // Fire all receives in parallel — uses global queue so it survives unmount
+      const promises = selectedLines.map(line => data.scanPart("RECEIVE", line.partNumber, line.qty, employee));
+      _pendingReceives.push(...promises);
+      const results = await Promise.allSettled(promises);
+      // Clean up completed promises from global queue
+      for (const p of promises) {
+        const idx = _pendingReceives.indexOf(p);
+        if (idx >= 0) _pendingReceives.splice(idx, 1);
+      }
       const ok = results.filter(r => r.status === "fulfilled").length;
       const failed = results.length - ok;
       if (failed > 0) {
@@ -508,6 +652,7 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
         setResult(`✅ ${ok} item(s) received into inventory by ${employee}`);
         setLines([]); setScanImages([]); setScanStep("");
         setPoNumber(""); setDeliveryNumber(""); setTrackingNumber("");
+        clearSession();
       }
     } catch (e: any) { setResult(`❌ ${e.message || "Failed"}`); }
     setCommitting(false);
@@ -516,6 +661,7 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
   const clearAll = () => {
     setLines([]); setScanImages([]); setScanStep(""); setResult(null);
     setPoNumber(""); setDeliveryNumber(""); setTrackingNumber("");
+    clearSession();
   };
 
   // ═══ RENDER ═══
