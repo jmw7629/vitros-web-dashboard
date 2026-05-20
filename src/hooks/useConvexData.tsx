@@ -625,7 +625,9 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       export_status: "pending",
     }).catch(() => {}); // SAP staging is optional
 
-    await loadAll();
+    // Debounce loadAll — don't reload on every single call during batch receives
+    if ((scanPart as any)._refreshTimer) clearTimeout((scanPart as any)._refreshTimer);
+    (scanPart as any)._refreshTimer = setTimeout(() => loadAll(), 500);
     return { success: true, partNumber, description: part.description, qtyBefore, qtyAfter, mode };
   };
 

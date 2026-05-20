@@ -313,28 +313,28 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
         reader.readAsDataURL(blob);
       });
 
-      // 3. OpenAI Vision — direct base64, gpt-4o-mini for speed
+      // 3. OpenAI Vision — direct base64 (no Supabase upload needed)
       setScanStep("🔍 Reading packing list…");
       const prompt = buildPrompt();
 
       let response: Response | null = null;
       let lastErr = "";
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          if (attempt > 1) setScanStep(`🔍 Retry ${attempt}/2…`);
+          if (attempt > 1) setScanStep(`🔍 Retry ${attempt}/3…`);
           const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 45_000);
+          const timer = setTimeout(() => ctrl.abort(), 90_000);
           response = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_KEY}` },
             body: JSON.stringify({
-              model: "gpt-4o-mini",
-              max_tokens: 2048,
+              model: "gpt-4o",
+              max_tokens: 4096,
               messages: [
                 { role: "system", content: prompt },
                 { role: "user", content: [
-                  { type: "text", text: "Read this packing list. Extract every line item. LINE # ≠ quantity. Use QTY/UNIT (Container) or SHIP QTY (Order)." },
-                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}`, detail: "low" } },
+                  { type: "text", text: "Read this QuidelOrtho packing list. Extract every line item with part number and quantity. The document may be rotated sideways. Remember: LINE number ≠ quantity. Use QTY/UNIT for Container lists or SHIP QTY for Order lists." },
+                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}`, detail: "high" } },
                 ]},
               ],
             }),
@@ -349,13 +349,13 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
           }
         } catch (e: any) {
           if (e.message?.includes("API key invalid")) throw e;
-          lastErr = e.name === "AbortError" ? "Timed out (45s)" : e.message;
+          lastErr = e.name === "AbortError" ? "Timed out (90s)" : e.message;
           response = null;
         }
-        if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+        if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
       }
 
-      if (!response || !response.ok) throw new Error(`AI failed: ${lastErr}`);
+      if (!response || !response.ok) throw new Error(`AI failed after 3 attempts: ${lastErr}`);
 
       // 4. Parse
       setScanStep("✅ Processing…");
@@ -496,14 +496,19 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
     if (selectedLines.length === 0) return setResult("⚠️ No matched items selected");
     setCommitting(true); setResult(null);
     try {
-      let ok = 0;
-      for (const line of selectedLines) {
-        await data.scanPart("RECEIVE", line.partNumber, line.qty, employee);
-        ok++;
+      // Fire all receives in parallel for speed
+      const results = await Promise.allSettled(
+        selectedLines.map(line => data.scanPart("RECEIVE", line.partNumber, line.qty, employee))
+      );
+      const ok = results.filter(r => r.status === "fulfilled").length;
+      const failed = results.length - ok;
+      if (failed > 0) {
+        setResult(`⚠️ ${ok} received, ${failed} failed`);
+      } else {
+        setResult(`✅ ${ok} item(s) received into inventory by ${employee}`);
+        setLines([]); setScanImages([]); setScanStep("");
+        setPoNumber(""); setDeliveryNumber(""); setTrackingNumber("");
       }
-      setResult(`✅ ${ok} item(s) received into inventory by ${employee}`);
-      setLines([]); setScanImages([]); setScanStep("");
-      setPoNumber(""); setDeliveryNumber(""); setTrackingNumber("");
     } catch (e: any) { setResult(`❌ ${e.message || "Failed"}`); }
     setCommitting(false);
   };
