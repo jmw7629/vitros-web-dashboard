@@ -29,7 +29,7 @@ function parseDate(dateStr: string): number {
 }
 
 // Cycle count data lives on the deployment that has cycleCount functions
-const CYCLE_CONVEX_URL = "https://terrific-snail-972.convex.cloud";
+const CYCLE_CONVEX_URL = import.meta.env.VITE_CONVEX_URL || "";
 
 async function cycleQuery<T>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
   for (let attempt = 0; attempt < 3; attempt++) {

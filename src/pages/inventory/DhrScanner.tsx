@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useAction } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { useConvexData } from "../../hooks/useConvexData";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import {
@@ -9,51 +11,21 @@ import {
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 
-// ─── Supabase direct helpers (same config as useConvexData) ───
-const SUPABASE_URL = "https://oykqiiydpwngasvzdthh.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjA1MzMsImV4cCI6MjA5MzUzNjUzM30.h415RO8X7fpSKUqL--qQiErvYlO8etV1IHplmYbRwxY";
-const SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Nzk2MDUzMywiZXhwIjoyMDkzNTM2NTMzfQ.30U3H8Rol0XgoMFvaljZD2e8J0AYXlPUPdzlOe97RIw";
+// ─── Supabase anon key for read-only queries ───
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-const sbH = {
-  apikey: SERVICE_KEY,
-  Authorization: `Bearer ${SERVICE_KEY}`,
-  "Content-Type": "application/json",
-};
-
-async function sbQuery<T>(table: string, params = ""): Promise<T[]> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${params ? "&" + params : ""}`, { headers: sbH });
+async function sbAnonQuery<T>(table: string, params = ""): Promise<T[]> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${params ? "&" + params : ""}`, {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+  });
   if (!res.ok) return [];
   return (await res.json()) as T[];
-}
-async function sbInsert<T>(table: string, data: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: "POST", headers: { ...sbH, Prefer: "return=representation" }, body: JSON.stringify(data),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.message || "Insert failed");
-  return Array.isArray(json) ? json[0] : json;
-}
-async function sbUpdate(table: string, filter: string, data: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
-    method: "PATCH", headers: { ...sbH, Prefer: "return=minimal" }, body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error("Update failed");
-}
-async function sbDelete(table: string, filter: string): Promise<void> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
-    method: "DELETE", headers: { ...sbH, Prefer: "return=minimal" },
-  });
-  if (!res.ok) throw new Error("Delete failed");
-}
-async function sbUpsert<T>(table: string, data: Record<string, unknown>, onConflict: string): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: "POST",
-    headers: { ...sbH, Prefer: "return=representation,resolution=merge-duplicates" },
-    body: JSON.stringify(data),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.message || "Upsert failed");
-  return Array.isArray(json) ? json[0] : json;
 }
 
 // ─── Types ───
@@ -149,6 +121,19 @@ function statusIcon(status: string) {
 // ════════════════════════════════════════════════
 export function DhrScanner() {
   const data = useConvexData();
+
+  // Server-side Convex actions
+  const insertDhrSessionAction = useAction(api.supabaseGateway.insertDhrSession);
+  const updateDhrSessionAction = useAction(api.supabaseGateway.updateDhrSession);
+  const deleteDhrSessionAction = useAction(api.supabaseGateway.deleteDhrSession);
+  const upsertDhrScanResultAction = useAction(api.supabaseGateway.upsertDhrScanResult);
+  const updateStockAction = useAction(api.supabaseGateway.updateStock);
+  const insertAuditLogAction = useAction(api.supabaseGateway.insertAuditLog);
+  const insertSapStagingAction = useAction(api.supabaseGateway.insertSapStaging);
+  const uploadToStorageAction = useAction(api.supabaseGateway.uploadToStorage);
+  const deleteFromStorageAction = useAction(api.supabaseGateway.deleteFromStorage);
+  const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
+  const deleteDhrScanResultAction = useAction(api.supabaseGateway.deleteDhrScanResult);
 
   // ── Master data ──
   const [sections, setSections] = useState<DhrSection[]>([]);
@@ -279,10 +264,10 @@ export function DhrScanner() {
       setLoading(true);
       try {
         const [sec, parts, sess, emps] = await Promise.all([
-          sbQuery<DhrSection>("dhr_checklist_sections"),
-          sbQuery<DhrExpectedPart>("dhr_expected_parts"),
-          sbQuery<DhrSession>("dhr_scan_sessions", "order=created_at.desc"),
-          sbQuery<{id:string;name:string;initials:string;active:boolean}>("convex_employees", "active=eq.true&order=name"),
+          sbAnonQuery<DhrSection>("dhr_checklist_sections"),
+          sbAnonQuery<DhrExpectedPart>("dhr_expected_parts"),
+          sbAnonQuery<DhrSession>("dhr_scan_sessions", "order=created_at.desc"),
+          sbAnonQuery<{id:string;name:string;initials:string;active:boolean}>("convex_employees", "active=eq.true&order=name"),
         ]);
         setSections(sec);
         setExpectedParts(parts);
@@ -299,7 +284,7 @@ export function DhrScanner() {
   useEffect(() => {
     if (!activeSessionId) { setScanResults([]); return; }
     (async () => {
-      const results = await sbQuery<DhrScanResult>("dhr_scan_results", `session_id=eq.${activeSessionId}&order=created_at.asc`);
+      const results = await sbAnonQuery<DhrScanResult>("dhr_scan_results", `session_id=eq.${activeSessionId}&order=created_at.asc`);
       setScanResults(results);
     })();
   }, [activeSessionId]);
@@ -310,11 +295,13 @@ export function DhrScanner() {
   const createSession = async () => {
     if (!newSN.trim()) return;
     try {
-      const session = await sbInsert<DhrSession>("dhr_scan_sessions", {
-        instrument_sn: newSN.trim().toUpperCase(),
-        wo_number: newWO.trim() || null,
-        analyzer_model: newModel,
-        status: "in_progress",
+      const session: any = await insertDhrSessionAction({
+        data: {
+          instrument_sn: newSN.trim().toUpperCase(),
+          wo_number: newWO.trim() || null,
+          analyzer_model: newModel,
+          status: "in_progress",
+        },
       });
       setSessions(prev => [session, ...prev]);
       setActiveSessionId(session.id);
@@ -381,41 +368,48 @@ export function DhrScanner() {
       let stockAfter = stockBefore;
       if (stockPart && delta !== 0) {
         stockAfter = (stockBefore ?? 0) - delta; // +delta consumes, -delta returns
-        await sbUpdate("stock", `id=eq.${stockPart._id}`, {
-          qty_on_hand: stockAfter,
-          last_activity: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+        await updateStockAction({
+          id: stockPart._id,
+          data: {
+            qty_on_hand: stockAfter,
+            last_activity: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
         });
 
         // Audit log — real-time transaction
-        await sbInsert("audit_log", {
-          action: delta > 0 ? "OUT" : "IN",
-          entity_type: "stock",
-          entity_id: stockPart._id,
-          part_number: partNumber,
-          user_name: userName,
-          details: {
-            qty: Math.abs(delta),
-            analyzerSerial: activeSession?.instrument_sn,
-            source: "DHR Scanner (Auto)",
-            section: sectionId,
-            session_id: activeSessionId,
-            prev_qty: oldQty,
-            new_qty: newQty,
+        await insertAuditLogAction({
+          data: {
+            action: delta > 0 ? "OUT" : "IN",
+            entity_type: "stock",
+            entity_id: stockPart._id,
+            part_number: partNumber,
+            user_name: userName,
+            details: {
+              qty: Math.abs(delta),
+              analyzerSerial: activeSession?.instrument_sn,
+              source: "DHR Scanner (Auto)",
+              section: sectionId,
+              session_id: activeSessionId,
+              prev_qty: oldQty,
+              new_qty: newQty,
+            },
+            old_value: { qty_on_hand: stockBefore },
+            new_value: { qty_on_hand: stockAfter, qty: Math.abs(delta), description },
           },
-          old_value: { qty_on_hand: stockBefore },
-          new_value: { qty_on_hand: stockAfter, qty: Math.abs(delta), description },
         });
 
         // SAP staging
-        await sbInsert("sap_staging", {
-          part_number: partNumber,
-          description,
-          movement_type: delta > 0 ? "261" : "101",
-          plant_code: "US08",
-          storage_location: "MAIN",
-          qty_on_hand: Math.abs(delta),
-          export_status: "pending",
+        await insertSapStagingAction({
+          data: {
+            part_number: partNumber,
+            description,
+            movement_type: delta > 0 ? "261" : "101",
+            plant_code: "US08",
+            storage_location: "MAIN",
+            qty_on_hand: Math.abs(delta),
+            export_status: "pending",
+          },
         });
       }
 
@@ -437,10 +431,10 @@ export function DhrScanner() {
       };
 
       if (existing) {
-        await sbUpdate("dhr_scan_results", `id=eq.${existing.id}`, resultData);
+        await upsertDhrScanResultAction({ existingId: existing.id, data: resultData });
         setScanResults(prev => prev.map(r => r.id === existing.id ? { ...r, ...resultData } as DhrScanResult : r));
       } else {
-        const newResult = await sbInsert<DhrScanResult>("dhr_scan_results", resultData);
+        const newResult = await upsertDhrScanResultAction({ data: resultData });
         setScanResults(prev => [...prev, newResult]);
       }
 
@@ -475,10 +469,10 @@ export function DhrScanner() {
         scanned_at: new Date().toISOString(), updated_at: new Date().toISOString(),
       };
       if (existing) {
-        await sbUpdate("dhr_scan_results", `id=eq.${existing.id}`, resultData);
+        await upsertDhrScanResultAction({ existingId: existing.id, data: resultData });
         setScanResults(prev => prev.map(r => r.id === existing.id ? { ...r, ...resultData } as DhrScanResult : r));
       } else {
-        const newResult = await sbInsert<DhrScanResult>("dhr_scan_results", resultData);
+        const newResult = await upsertDhrScanResultAction({ data: resultData });
         setScanResults(prev => [...prev, newResult]);
       }
       showToast(`✅ ${partNumber}: qty set to ${newQty} (tool — no stock impact)`);
@@ -513,19 +507,24 @@ export function DhrScanner() {
       // Real-time stock update
       if (stockPart && delta !== 0) {
         stockAfter = (stockBefore ?? 0) - delta;
-        await sbUpdate("stock", `id=eq.${stockPart._id}`, {
-          qty_on_hand: stockAfter, last_activity: new Date().toISOString(), updated_at: new Date().toISOString(),
+        await updateStockAction({
+          id: stockPart._id,
+          data: { qty_on_hand: stockAfter, last_activity: new Date().toISOString(), updated_at: new Date().toISOString() },
         });
-        await sbInsert("audit_log", {
-          action: delta > 0 ? "OUT" : "IN", entity_type: "stock", entity_id: stockPart._id,
-          part_number: pn, user_name: userName,
-          details: { qty: Math.abs(delta), analyzerSerial: activeSession?.instrument_sn, source: "DHR Scanner 5.24 (Auto)", section: `5.24 ref §${secRef}`, session_id: activeSessionId },
-          old_value: { qty_on_hand: stockBefore }, new_value: { qty_on_hand: stockAfter, qty: Math.abs(delta), description: desc },
+        await insertAuditLogAction({
+          data: {
+            action: delta > 0 ? "OUT" : "IN", entity_type: "stock", entity_id: stockPart._id,
+            part_number: pn, user_name: userName,
+            details: { qty: Math.abs(delta), analyzerSerial: activeSession?.instrument_sn, source: "DHR Scanner 5.24 (Auto)", section: `5.24 ref §${secRef}`, session_id: activeSessionId },
+            old_value: { qty_on_hand: stockBefore }, new_value: { qty_on_hand: stockAfter, qty: Math.abs(delta), description: desc },
+          },
         });
-        await sbInsert("sap_staging", {
-          part_number: pn, description: desc,
-          movement_type: delta > 0 ? "261" : "101", plant_code: "US08", storage_location: "MAIN",
-          qty_on_hand: Math.abs(delta), export_status: "pending",
+        await insertSapStagingAction({
+          data: {
+            part_number: pn, description: desc,
+            movement_type: delta > 0 ? "261" : "101", plant_code: "US08", storage_location: "MAIN",
+            qty_on_hand: Math.abs(delta), export_status: "pending",
+          },
         });
       }
 
@@ -540,10 +539,10 @@ export function DhrScanner() {
       };
 
       if (existing) {
-        await sbUpdate("dhr_scan_results", `id=eq.${existing.id}`, resultData);
+        await upsertDhrScanResultAction({ existingId: existing.id, data: resultData });
         setScanResults(prev => prev.map(r => r.id === existing.id ? { ...r, ...resultData } as DhrScanResult : r));
       } else {
-        const newResult = await sbInsert<DhrScanResult>("dhr_scan_results", resultData);
+        const newResult = await upsertDhrScanResultAction({ data: resultData });
         setScanResults(prev => [...prev, newResult]);
       }
 
@@ -562,7 +561,7 @@ export function DhrScanner() {
   const deleteManualPart = useCallback(async (resultId: string, partNumber: string) => {
     if (!confirm(`Remove ${partNumber} from Additional Service?`)) return;
     try {
-      await sbDelete("dhr_scan_results", `id=eq.${resultId}`);
+      await deleteDhrScanResultAction({ id: resultId });
       setScanResults(prev => prev.filter(r => r.id !== resultId));
       showToast(`🗑 Removed ${partNumber}`);
     } catch (e: any) {
@@ -586,14 +585,7 @@ export function DhrScanner() {
     if (e) e.stopPropagation();
     if (!confirm("Delete this DHR session? Stock adjustments already saved will remain.")) return;
     try {
-      // Delete scan results first
-      await fetch(`${SUPABASE_URL}/rest/v1/dhr_scan_results?session_id=eq.${sessionId}`, {
-        method: "DELETE", headers: sbH,
-      });
-      // Delete session
-      await fetch(`${SUPABASE_URL}/rest/v1/dhr_scan_sessions?id=eq.${sessionId}`, {
-        method: "DELETE", headers: sbH,
-      });
+      await deleteDhrSessionAction({ sessionId });
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
@@ -612,9 +604,12 @@ export function DhrScanner() {
     if (e) e.stopPropagation();
     if (!confirm("Finalize this DHR? It will be archived. You can reopen it later if adjustments are needed.")) return;
     try {
-      await sbUpdate("dhr_scan_sessions", `id=eq.${sessionId}`, {
-        status: "finalized",
-        completed_at: new Date().toISOString(),
+      await updateDhrSessionAction({
+        id: sessionId,
+        data: {
+          status: "finalized",
+          completed_at: new Date().toISOString(),
+        },
       });
       setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: "finalized", completed_at: new Date().toISOString() } : s));
       if (activeSessionId === sessionId) {
@@ -630,9 +625,12 @@ export function DhrScanner() {
   const reopenSession = async (sessionId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     try {
-      await sbUpdate("dhr_scan_sessions", `id=eq.${sessionId}`, {
-        status: "in_progress",
-        completed_at: null,
+      await updateDhrSessionAction({
+        id: sessionId,
+        data: {
+          status: "in_progress",
+          completed_at: null,
+        },
       });
       setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: "in_progress", completed_at: null } : s));
       showToast("🔓 Session reopened");
@@ -713,8 +711,6 @@ export function DhrScanner() {
   };
 
   const handleImageCapture = async (file: File) => {
-    const apiKey = getApiKey();
-
     // Preview
     const url = URL.createObjectURL(file);
     setScanPreviewUrl(url);
@@ -733,40 +729,28 @@ export function DhrScanner() {
       const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
       setScanProgress(`⬆️ Uploading ${sizeMB}MB…`);
 
-      // Step 2: Upload to Supabase Storage (avoids Safari payload size limits)
+      // Step 2: Upload to Supabase Storage via server-side gateway
       const filename = `scan_${Date.now()}.jpg`;
-      let uploadResp: Response;
+      const arrayBuffer = await blob.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+
+      let publicUrl: string;
       try {
-        uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/dhr-scans/${filename}`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${SERVICE_KEY}`,
-            "apikey": SERVICE_KEY,
-            "Content-Type": "image/jpeg",
-            "x-upsert": "true",
-          },
-          body: blob,
+        publicUrl = await uploadToStorageAction({
+          bucket: "dhr-scans",
+          filename,
+          contentType: "image/jpeg",
+          data: base64,
         });
       } catch (ue: any) {
         throw new Error(`Step 2 upload: ${ue.message}`);
       }
-      if (!uploadResp.ok) {
-        const uerr = await uploadResp.text().catch(() => "");
-        throw new Error(`Step 2 upload ${uploadResp.status}: ${uerr}`);
-      }
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/dhr-scans/${filename}`;
 
-      // Step 3: Send lightweight URL to OpenAI Vision (with retry + timeout)
+      // Step 3: Send to server-side AI gateway
       setScanProgress("🔍 Analyzing with AI…");
       const partList = modelParts.map(p => `${p.part_number} (${p.description}, §${p.section_id})`).join("\n");
 
-      const aiBody = JSON.stringify({
-        model: "gpt-4o",
-        max_tokens: 4096,
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert OCR reader for QuidelOrtho VITROS Device History Record (DHR) pages.
+      const prompt = `You are an expert OCR reader for QuidelOrtho VITROS Device History Record (DHR) pages.
 
 CONTEXT: This is a photo of a DHR checklist page from a VITROS analyzer build. Each page belongs to a section (e.g., 5.1, 5.2, … 5.23) and lists parts that need to be installed.
 
@@ -795,65 +779,23 @@ Return ONLY valid JSON (no markdown, no code fences):
   ]
 }
 
-If you cannot read anything useful, return: {"section_hint":"","section_name":"","parts":[]}`
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Read this DHR page and extract all part numbers with quantities. The page may be rotated or at an angle." },
-              { type: "image_url", image_url: { url: publicUrl, detail: "high" } },
-            ],
-          },
-        ],
-      });
+If you cannot read anything useful, return: {"section_hint":"","section_name":"","parts":[]}`;
 
-      // Retry up to 3 attempts with timeout
-      let response: Response | null = null;
-      let lastError = "";
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          if (attempt > 1) setScanProgress(`🔍 Retry ${attempt}/3…`);
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 90000); // 90s timeout
-          response = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-            body: aiBody,
-            signal: controller.signal,
-          });
-          clearTimeout(timer);
-          if (response.ok) break; // success
-          const errBody = await response.json().catch(() => ({}));
-          lastError = `${response.status}: ${errBody.error?.message || "unknown"}`;
-          if (response.status === 401 || response.status === 403) break; // don't retry auth errors
-        } catch (ae: any) {
-          lastError = ae.name === "AbortError" ? "Request timed out (90s)" : ae.message;
-          response = null;
-        }
-        if (attempt < 3) await new Promise(r => setTimeout(r, 2000)); // wait 2s before retry
-      }
-
-      if (!response) {
-        throw new Error(`Step 3 AI call failed after 3 attempts: ${lastError}`);
-      }
-      if (!response.ok) {
-        throw new Error(`Step 3 AI ${lastError}`);
+      let parsed: any;
+      try {
+        parsed = await ocrDhrPageAction({
+          imageUrl: publicUrl,
+          prompt,
+          partList,
+        });
+      } catch (aiErr: any) {
+        throw new Error(`Step 3 AI call failed: ${aiErr.message}`);
       }
 
       // Cleanup: delete temp image from storage (fire and forget)
-      fetch(`${SUPABASE_URL}/storage/v1/object/dhr-scans/${filename}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "apikey": SERVICE_KEY },
-      }).catch(() => {});
+      deleteFromStorageAction({ bucket: "dhr-scans", filename }).catch(() => {});
 
       setScanProgress("🧠 Processing results…");
-
-      const json = await response.json();
-      const content = json.choices?.[0]?.message?.content || "";
-
-      // Parse JSON from response (strip markdown fences if present)
-      const cleaned = content.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
-      const parsed = JSON.parse(cleaned);
 
       // Match detected parts against expected parts
       const detected = (parsed.parts || []).map((p: any) => {

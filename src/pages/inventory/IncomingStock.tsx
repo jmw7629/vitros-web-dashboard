@@ -1,15 +1,12 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useAction } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { useConvexData } from "../../hooks/useConvexData";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import {
   Search, Plus, Upload, X, ChevronDown, AlertTriangle, Check,
   Trash2, Camera, Keyboard, Loader2, Pencil, RotateCcw,
 } from "lucide-react";
-
-// ─── Supabase storage for image uploads ───
-const SUPABASE_URL = "https://oykqiiydpwngasvzdthh.supabase.co";
-const SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Nzk2MDUzMywiZXhwIjoyMDkzNTM2NTMzfQ.30U3H8Rol0XgoMFvaljZD2e8J0AYXlPUPdzlOe97RIw";
-const OPENAI_KEY = import.meta.env.VITE_OPENAI_KEY || "";
 
 // ─── Session persistence: survive navigation away ───
 // Global queue outside React — runs to completion even if component unmounts
@@ -40,61 +37,12 @@ function clearSession() {
   try { sessionStorage.removeItem(SESSION_KEY); } catch {}
 }
 
-// ─── Supabase helpers for OCR learnings ───
-const SB_HEADERS = { "apikey": SERVICE_KEY, "Authorization": `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json", "Prefer": "return=minimal" };
-
+// ─── OCR learnings — loaded via server-side gateway ───
 interface OcrLearning {
-  ocr_raw: string;        // What OCR saw (e.g. "18244")
-  matched_part: string;   // What it actually is (e.g. "J18244")
-  user_corrected: boolean; // Was this a user correction or auto-match?
-  count: number;          // How many times this mapping has occurred
-}
-
-async function loadOcrLearnings(): Promise<OcrLearning[]> {
-  try {
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/audit_log?action=eq.OCR_LEARNING&select=details&order=created_at.desc&limit=500`,
-      { headers: SB_HEADERS }
-    );
-    if (!r.ok) return [];
-    const rows: any[] = await r.json();
-    // Aggregate: group by ocr_raw → matched_part, count occurrences
-    const map = new Map<string, OcrLearning>();
-    for (const row of rows) {
-      const d = row.details || {};
-      const key = `${(d.ocr_raw || "").toUpperCase()}→${(d.matched_part || "").toUpperCase()}`;
-      const existing = map.get(key);
-      if (existing) {
-        existing.count++;
-        if (d.user_corrected) existing.user_corrected = true;
-      } else {
-        map.set(key, {
-          ocr_raw: (d.ocr_raw || "").toUpperCase(),
-          matched_part: (d.matched_part || "").toUpperCase(),
-          user_corrected: !!d.user_corrected,
-          count: 1,
-        });
-      }
-    }
-    return Array.from(map.values());
-  } catch { return []; }
-}
-
-function saveOcrLearning(ocrRaw: string, matchedPart: string, userCorrected: boolean) {
-  // Fire-and-forget — don't block the UI
-  fetch(`${SUPABASE_URL}/rest/v1/audit_log`, {
-    method: "POST", headers: SB_HEADERS,
-    body: JSON.stringify({
-      action: "OCR_LEARNING",
-      entity_type: "ocr",
-      entity_id: `${ocrRaw}_${Date.now()}`,
-      part_number: matchedPart,
-      user_name: "system",
-      details: { ocr_raw: ocrRaw, matched_part: matchedPart, user_corrected: userCorrected, method: userCorrected ? "user_edit" : "auto_match" },
-      old_value: { ocr_text: ocrRaw },
-      new_value: { matched: matchedPart },
-    }),
-  }).catch(() => {});
+  ocr_raw: string;
+  matched_part: string;
+  user_corrected: boolean;
+  count: number;
 }
 
 // ─── Types ───
@@ -271,6 +219,11 @@ const uid = () => `line_${Date.now()}_${++_idCounter}`;
 export function IncomingStock() {
   const data = useConvexData();
 
+  // Convex server-side actions
+  const loadOcrLearningsAction = useAction(api.supabaseGateway.listOcrLearnings);
+  const saveOcrLearningAction = useAction(api.supabaseGateway.insertOcrLearning);
+  const ocrPackingListAction = useAction(api.aiGateway.ocrPackingList);
+
   const cameraRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -296,7 +249,28 @@ export function IncomingStock() {
 
   // OCR learnings — continuous learning from past scans
   const [ocrLearnings, setOcrLearnings] = useState<OcrLearning[]>([]);
-  useEffect(() => { loadOcrLearnings().then(setOcrLearnings); }, []);
+  useEffect(() => {
+    loadOcrLearningsAction({}).then((rows: any[]) => {
+      const map = new Map<string, OcrLearning>();
+      for (const row of rows) {
+        const d = row.details || {};
+        const key = `${(d.ocr_raw || "").toUpperCase()}→${(d.matched_part || "").toUpperCase()}`;
+        const existing = map.get(key);
+        if (existing) {
+          existing.count++;
+          if (d.user_corrected) existing.user_corrected = true;
+        } else {
+          map.set(key, {
+            ocr_raw: (d.ocr_raw || "").toUpperCase(),
+            matched_part: (d.matched_part || "").toUpperCase(),
+            user_corrected: !!d.user_corrected,
+            count: 1,
+          });
+        }
+      }
+      setOcrLearnings(Array.from(map.values()));
+    }).catch(() => {});
+  }, []);
 
   // Session restore — if user navigated away and came back within 5 min
   const [sessionRestored, setSessionRestored] = useState(false);
@@ -439,7 +413,7 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
       let blob: Blob;
       try { blob = await compressImage(file, 1200, 0.6); } catch { blob = file; }
 
-      // 2. Convert to base64 (skip Supabase upload — much faster)
+      // 2. Convert to base64
       const b64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve((reader.result as string).split(",")[1]);
@@ -447,63 +421,23 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
         reader.readAsDataURL(blob);
       });
 
-      // 3. OpenAI Vision — direct base64 (no Supabase upload needed)
+      // 3. Call server-side AI gateway (no API key in browser)
       setScanStep("🔍 Reading packing list…");
       const prompt = buildPrompt();
 
-      let response: Response | null = null;
-      let lastErr = "";
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          if (attempt > 1) setScanStep(`🔍 Retry ${attempt}/3…`);
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 90_000);
-          response = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_KEY}` },
-            body: JSON.stringify({
-              model: "gpt-4o",
-              max_tokens: 4096,
-              messages: [
-                { role: "system", content: prompt },
-                { role: "user", content: [
-                  { type: "text", text: "Read this QuidelOrtho packing list. Extract every line item with part number and quantity. The document may be rotated sideways. Remember: LINE number ≠ quantity. Use QTY/UNIT for Container lists or SHIP QTY for Order lists." },
-                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}`, detail: "high" } },
-                ]},
-              ],
-            }),
-            signal: ctrl.signal,
-          });
-          clearTimeout(timer);
-          if (response.ok) break;
-          const body = await response.json().catch(() => ({}));
-          lastErr = `${response.status}: ${body.error?.message || "unknown"}`;
-          if (response.status === 401 || response.status === 403) {
-            throw new Error(`OpenAI API key invalid (${response.status}). Go to Settings → enter a valid API key.`);
-          }
-        } catch (e: any) {
-          if (e.message?.includes("API key invalid")) throw e;
-          lastErr = e.name === "AbortError" ? "Timed out (90s)" : e.message;
-          response = null;
-        }
-        if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
-      }
-
-      if (!response || !response.ok) throw new Error(`AI failed after 3 attempts: ${lastErr}`);
-
-      // 4. Parse
-      setScanStep("✅ Processing…");
-      const json = await response.json();
-      const raw = json.choices?.[0]?.message?.content || "";
       let parsed: any;
       try {
-        const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-        parsed = JSON.parse(cleaned);
-      } catch {
-        const m = raw.match(/\{[\s\S]*\}/);
-        if (m) parsed = JSON.parse(m[0]);
-        else throw new Error("Could not parse AI response");
+        parsed = await ocrPackingListAction({
+          imageBase64: b64,
+          prompt,
+          partList: knownParts.map(p => p.partNumber).join(", "),
+        });
+      } catch (e: any) {
+        throw new Error(e.message || "AI OCR failed");
       }
+
+      // 4. Process results
+      setScanStep("✅ Processing…");
 
       // Auto-fill metadata
       if (parsed.poNumber && !poNumber) setPoNumber(parsed.poNumber);
@@ -518,7 +452,20 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
           const shipQty = parseInt(item.qty) || parseInt(item.ship_qty) || 1;
           const orderedQty = parseInt(item.ordered_qty) || undefined;
           // Save learning — auto-match result
-          if (match && pn) saveOcrLearning(pn, match.partNumber, false);
+          if (match && pn) {
+            saveOcrLearningAction({
+              data: {
+                action: "OCR_LEARNING",
+                entity_type: "ocr",
+                entity_id: `${pn}_${Date.now()}`,
+                part_number: match.partNumber,
+                user_name: "system",
+                details: { ocr_raw: pn, matched_part: match.partNumber, user_corrected: false, method: "auto_match" },
+                old_value: { ocr_text: pn },
+                new_value: { matched: match.partNumber },
+              },
+            }).catch(() => {});
+          }
           return {
             id: uid(),
             lineNo: lines.length + i + 1,
@@ -613,7 +560,18 @@ If unreadable, return: {"docType":"unknown","poNumber":"","deliveryNumber":"","t
     const newPart = match ? match.partNumber : pn.toUpperCase();
     // Save user correction — highest confidence learning
     if (oldRaw && newPart !== oldRaw.toUpperCase()) {
-      saveOcrLearning(oldRaw, newPart, true);
+      saveOcrLearningAction({
+        data: {
+          action: "OCR_LEARNING",
+          entity_type: "ocr",
+          entity_id: `${oldRaw}_${Date.now()}`,
+          part_number: newPart,
+          user_name: "system",
+          details: { ocr_raw: oldRaw, matched_part: newPart, user_corrected: true, method: "user_edit" },
+          old_value: { ocr_text: oldRaw },
+          new_value: { matched: newPart },
+        },
+      }).catch(() => {});
       // Update local learnings cache immediately
       setOcrLearnings(prev => [...prev, { ocr_raw: oldRaw.toUpperCase(), matched_part: newPart, user_corrected: true, count: 1 }]);
     }

@@ -9,7 +9,9 @@
  */
 
 import type * as ViktorSpacesEmail from "../ViktorSpacesEmail.js";
+import type * as aiGateway from "../aiGateway.js";
 import type * as auth from "../auth.js";
+import type * as authGuard from "../authGuard.js";
 import type * as bulkImport from "../bulkImport.js";
 import type * as constants from "../constants.js";
 import type * as cycleCount from "../cycleCount.js";
@@ -28,6 +30,7 @@ import type * as remTracker from "../remTracker.js";
 import type * as remWeeklyNotes from "../remWeeklyNotes.js";
 import type * as seed from "../seed.js";
 import type * as seedTestUser from "../seedTestUser.js";
+import type * as supabaseGateway from "../supabaseGateway.js";
 import type * as testAuth from "../testAuth.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
@@ -41,7 +44,9 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   ViktorSpacesEmail: typeof ViktorSpacesEmail;
+  aiGateway: typeof aiGateway;
   auth: typeof auth;
+  authGuard: typeof authGuard;
   bulkImport: typeof bulkImport;
   constants: typeof constants;
   cycleCount: typeof cycleCount;
@@ -60,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   remWeeklyNotes: typeof remWeeklyNotes;
   seed: typeof seed;
   seedTestUser: typeof seedTestUser;
+  supabaseGateway: typeof supabaseGateway;
   testAuth: typeof testAuth;
   transactions: typeof transactions;
   users: typeof users;
