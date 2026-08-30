@@ -10,6 +10,7 @@ export function useServerActions() {
   const updateSapStaging = useAction(api.supabaseGateway.updateSapStaging);
   const updateStock = useAction(api.supabaseGateway.updateStock);
   const insertStock = useAction(api.supabaseGateway.insertStock);
+  const insertDhrSession = useAction(api.supabaseGateway.insertDhrSession);
   const upsertDhrScanResult = useAction(api.supabaseGateway.upsertDhrScanResult);
   const deleteDhrScanResult = useAction(api.supabaseGateway.deleteDhrScanResult);
   const updateDhrSession = useAction(api.supabaseGateway.updateDhrSession);
@@ -22,11 +23,11 @@ export function useServerActions() {
       case "audit_log": return insertAuditLog({ data });
       case "sap_staging": return insertSapStaging({ data });
       case "stock": return insertStock({ data });
-      case "dhr_scan_sessions": return insertAuditLog({ data }); // fallback
+      case "dhr_scan_sessions": return insertDhrSession({ data });
       case "dhr_scan_results": return upsertDhrScanResult({ data });
       default: throw new Error(`Unsupported table: ${table}`);
     }
-  }, [insertAuditLog, insertSapStaging, insertStock, upsertDhrScanResult]);
+  }, [insertAuditLog, insertSapStaging, insertStock, insertDhrSession, upsertDhrScanResult]);
 
   const sbUpdate = useCallback(async (table: string, filter: string, data: Record<string, unknown>) => {
     const idMatch = filter.match(/id=eq\.(.+)/);
@@ -42,7 +43,7 @@ export function useServerActions() {
   }, [updateStock, updateDhrSession, upsertDhrScanResult, updateSapStaging]);
 
   const sbDelete = useCallback(async (table: string, filter: string) => {
-    if (table === "dhr_scan_sessions" && filter.includes("session_id=eq.")) {
+    if (table === "dhr_scan_results" && filter.includes("session_id=eq.")) {
       const sessionId = filter.split("session_id=eq.")[1];
       return deleteDhrSessionWithResults({ sessionId });
     }
