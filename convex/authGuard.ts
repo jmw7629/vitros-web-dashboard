@@ -1,5 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { DataModel } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 
 export type Capability =
   | "inventory.read"
@@ -30,36 +32,31 @@ export const ROLE_CAPABILITIES: Record<string, Capability[]> = {
 
 export const VALID_ROLES = Object.keys(ROLE_CAPABILITIES);
 
-// Works with any Convex context type (query, mutation, or action)
-export async function requireAuth(ctx: any) {
+type AuthCtx = QueryCtx | MutationCtx | ActionCtx;
+type DbCtx = QueryCtx | MutationCtx;
+
+export async function requireAuth(ctx: AuthCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Not authenticated");
   return userId;
 }
 
-export async function getUserRole(ctx: any, userId: string): Promise<string> {
-  if (!ctx.db) return "viewer";
+async function getUserRole(ctx: DbCtx, userId: Id<"users">): Promise<string> {
   const user = await ctx.db.get(userId);
-  if (!user) return "viewer";
-  return (user as any).role || "viewer";
+  return user?.role ?? "viewer";
 }
 
 export async function requireCapability(
-  ctx: any,
+  ctx: AuthCtx,
   capability: Capability,
-): Promise<string> {
+): Promise<Id<"users">> {
   const userId = await requireAuth(ctx);
-  // For actions, use runQuery to check role; for queries/mutations, use ctx.db directly
-  let role: string;
-  if (ctx.runQuery) {
-    // Action context — delegate to internal query
-    role = await ctx.runQuery(("users" as any).getUserRole, { userId });
-  } else if (ctx.db) {
-    role = await getUserRole(ctx, userId);
-  } else {
-    role = "viewer";
-  }
-  const caps = ROLE_CAPABILITIES[role] || ROLE_CAPABILITIES.viewer;
+
+  const role = "runQuery" in ctx
+    ? await ctx.runQuery(internal.users.getUserRole, { userId })
+    : await getUserRole(ctx, userId);
+
+  const caps = ROLE_CAPABILITIES[role] ?? ROLE_CAPABILITIES.viewer;
   if (!caps.includes(capability)) {
     throw new Error(`Missing capability: ${capability}`);
   }
