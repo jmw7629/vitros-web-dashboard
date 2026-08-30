@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
+import { useServerActions } from "../../hooks/useServerActions";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import {
   Camera, Upload, Loader2, Pencil, Check, Trash2, X, Plus,
@@ -9,51 +10,36 @@ import {
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 
-// ─── Supabase direct helpers (same config as useConvexData) ───
-const SUPABASE_URL = "https://oykqiiydpwngasvzdthh.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjA1MzMsImV4cCI6MjA5MzUzNjUzM30.h415RO8X7fpSKUqL--qQiErvYlO8etV1IHplmYbRwxY";
-const SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Nzk2MDUzMywiZXhwIjoyMDkzNTM2NTMzfQ.30U3H8Rol0XgoMFvaljZD2e8J0AYXlPUPdzlOe97RIw";
+// ─── Supabase anon read-only fallback ───
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-const sbH = {
-  apikey: SERVICE_KEY,
-  Authorization: `Bearer ${SERVICE_KEY}`,
+const sbAnonHeaders = {
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
   "Content-Type": "application/json",
 };
 
 async function sbQuery<T>(table: string, params = ""): Promise<T[]> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${params ? "&" + params : ""}`, { headers: sbH });
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${params ? "&" + params : ""}`, { headers: sbAnonHeaders });
   if (!res.ok) return [];
   return (await res.json()) as T[];
 }
-async function sbInsert<T>(table: string, data: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: "POST", headers: { ...sbH, Prefer: "return=representation" }, body: JSON.stringify(data),
+
+// Server-side mutations are routed through Convex actions (useServerActions hook).
+// Direct sbInsert/sbUpdate/sbDelete with service_role key have been removed.
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.message || "Insert failed");
-  return Array.isArray(json) ? json[0] : json;
-}
-async function sbUpdate(table: string, filter: string, data: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
-    method: "PATCH", headers: { ...sbH, Prefer: "return=minimal" }, body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error("Update failed");
-}
-async function sbDelete(table: string, filter: string): Promise<void> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
-    method: "DELETE", headers: { ...sbH, Prefer: "return=minimal" },
-  });
-  if (!res.ok) throw new Error("Delete failed");
-}
-async function sbUpsert<T>(table: string, data: Record<string, unknown>, onConflict: string): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: "POST",
-    headers: { ...sbH, Prefer: "return=representation,resolution=merge-duplicates" },
-    body: JSON.stringify(data),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.message || "Upsert failed");
-  return Array.isArray(json) ? json[0] : json;
 }
 
 // ─── Types ───
@@ -149,6 +135,7 @@ function statusIcon(status: string) {
 // ════════════════════════════════════════════════
 export function DhrScanner() {
   const data = useConvexData();
+  const { sbInsert, sbUpdate, sbDelete, sbUpload } = useServerActions();
 
   // ── Master data ──
   const [sections, setSections] = useState<DhrSection[]>([]);
@@ -310,7 +297,7 @@ export function DhrScanner() {
   const createSession = async () => {
     if (!newSN.trim()) return;
     try {
-      const session = await sbInsert<DhrSession>("dhr_scan_sessions", {
+        const session = await sbInsert("dhr_scan_sessions", {
         instrument_sn: newSN.trim().toUpperCase(),
         wo_number: newWO.trim() || null,
         analyzer_model: newModel,
@@ -440,7 +427,7 @@ export function DhrScanner() {
         await sbUpdate("dhr_scan_results", `id=eq.${existing.id}`, resultData);
         setScanResults(prev => prev.map(r => r.id === existing.id ? { ...r, ...resultData } as DhrScanResult : r));
       } else {
-        const newResult = await sbInsert<DhrScanResult>("dhr_scan_results", resultData);
+        const newResult = await sbInsert("dhr_scan_results", resultData);
         setScanResults(prev => [...prev, newResult]);
       }
 
@@ -478,7 +465,7 @@ export function DhrScanner() {
         await sbUpdate("dhr_scan_results", `id=eq.${existing.id}`, resultData);
         setScanResults(prev => prev.map(r => r.id === existing.id ? { ...r, ...resultData } as DhrScanResult : r));
       } else {
-        const newResult = await sbInsert<DhrScanResult>("dhr_scan_results", resultData);
+        const newResult = await sbInsert("dhr_scan_results", resultData);
         setScanResults(prev => [...prev, newResult]);
       }
       showToast(`✅ ${partNumber}: qty set to ${newQty} (tool — no stock impact)`);
@@ -543,7 +530,7 @@ export function DhrScanner() {
         await sbUpdate("dhr_scan_results", `id=eq.${existing.id}`, resultData);
         setScanResults(prev => prev.map(r => r.id === existing.id ? { ...r, ...resultData } as DhrScanResult : r));
       } else {
-        const newResult = await sbInsert<DhrScanResult>("dhr_scan_results", resultData);
+        const newResult = await sbInsert("dhr_scan_results", resultData);
         setScanResults(prev => [...prev, newResult]);
       }
 
@@ -586,14 +573,10 @@ export function DhrScanner() {
     if (e) e.stopPropagation();
     if (!confirm("Delete this DHR session? Stock adjustments already saved will remain.")) return;
     try {
-      // Delete scan results first
-      await fetch(`${SUPABASE_URL}/rest/v1/dhr_scan_results?session_id=eq.${sessionId}`, {
-        method: "DELETE", headers: sbH,
-      });
-      // Delete session
-      await fetch(`${SUPABASE_URL}/rest/v1/dhr_scan_sessions?id=eq.${sessionId}`, {
-        method: "DELETE", headers: sbH,
-      });
+      // Delete scan results first (via server action)
+      await sbDelete("dhr_scan_results", `session_id=eq.${sessionId}`);
+      // Delete session (via server action)
+      await sbDelete("dhr_scan_sessions", `id=eq.${sessionId}`);
       setSessions(prev => prev.filter(s => s.id !== sessionId));
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
@@ -733,27 +716,15 @@ export function DhrScanner() {
       const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
       setScanProgress(`⬆️ Uploading ${sizeMB}MB…`);
 
-      // Step 2: Upload to Supabase Storage (avoids Safari payload size limits)
+      // Step 2: Upload to Supabase Storage via Convex action (server-side)
       const filename = `scan_${Date.now()}.jpg`;
-      let uploadResp: Response;
       try {
-        uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/dhr-scans/${filename}`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${SERVICE_KEY}`,
-            "apikey": SERVICE_KEY,
-            "Content-Type": "image/jpeg",
-            "x-upsert": "true",
-          },
-          body: blob,
-        });
+        const base64 = await blobToBase64(blob);
+        await sbUpload("dhr-scans", filename, base64, "image/jpeg");
       } catch (ue: any) {
         throw new Error(`Step 2 upload: ${ue.message}`);
       }
-      if (!uploadResp.ok) {
-        const uerr = await uploadResp.text().catch(() => "");
-        throw new Error(`Step 2 upload ${uploadResp.status}: ${uerr}`);
-      }
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/dhr-scans/${filename}`;
 
       // Step 3: Send lightweight URL to OpenAI Vision (with retry + timeout)
@@ -840,11 +811,7 @@ If you cannot read anything useful, return: {"section_hint":"","section_name":""
         throw new Error(`Step 3 AI ${lastError}`);
       }
 
-      // Cleanup: delete temp image from storage (fire and forget)
-      fetch(`${SUPABASE_URL}/storage/v1/object/dhr-scans/${filename}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${SERVICE_KEY}`, "apikey": SERVICE_KEY },
-      }).catch(() => {});
+      // Cleanup: temp image deletion is handled server-side (Supabase storage TTL)
 
       setScanProgress("🧠 Processing results…");
 

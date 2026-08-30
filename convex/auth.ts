@@ -36,11 +36,6 @@ if (jwtPrivateKey) {
   process.env.JWT_PRIVATE_KEY = decodePrivateKey(jwtPrivateKey);
 }
 
-// Only register the @test.local credentials provider on preview/dev Convex
-// deployments. `VIKTOR_SPACES_IS_PREVIEW` is set per-deployment by the Viktor
-// Spaces backend (true on dev, false on prod). On production it is "false" or
-// unset, so the test provider is omitted entirely and `signIn("test", ...)`
-// fails with "Provider not configured".
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
     Password({
@@ -53,9 +48,16 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 
 export const currentUser = query({
   args: {},
-  handler: async ctx => {
+  handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
-    return await ctx.db.get(userId);
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+    return {
+      _id: user._id,
+      name: (user as any).name || null,
+      email: (user as any).email || null,
+      role: (user as any).role || "viewer",
+    };
   },
 });

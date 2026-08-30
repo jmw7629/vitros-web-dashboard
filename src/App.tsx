@@ -1,6 +1,9 @@
 import { Route, Routes, Navigate } from "react-router-dom";
+import { useConvexAuth } from "convex/react";
 import { VitrosLayout } from "./components/VitrosLayout";
 import { RoleLogin } from "./pages/RoleLogin";
+import { SignIn } from "./components/SignIn";
+import { SignUp } from "./components/SignUp";
 import { ExecutiveDashboard } from "./pages/inventory/ExecutiveDashboard";
 import { StockSummary } from "./pages/inventory/StockSummary";
 import { ScanKiosk } from "./pages/inventory/ScanKiosk";
@@ -42,20 +45,7 @@ import { EConnectivity } from "./pages/EConnectivity";
 import { useRole } from "./hooks/useRole";
 import { Toaster } from "./components/ui/sonner";
 
-function App() {
-  const { role } = useRole();
-
-  if (!role) {
-    return (
-      <>
-        <Toaster />
-        <Routes>
-          <Route path="*" element={<RoleLogin />} />
-        </Routes>
-      </>
-    );
-  }
-
+function AuthenticatedApp() {
   return (
     <>
       <Toaster />
@@ -109,6 +99,67 @@ function App() {
       </Routes>
     </>
   );
+}
+
+function UnauthenticatedApp() {
+  return (
+    <>
+      <Toaster />
+      <Routes>
+        <Route path="/login" element={<div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
+          <div className="w-full max-w-md space-y-6">
+            <div className="text-center mb-6">
+              <h1 className="text-3xl font-bold text-white">VITROS Inventory</h1>
+              <p className="text-blue-300 mt-1">Management System</p>
+            </div>
+            <SignIn />
+          </div>
+        </div>} />
+        <Route path="/signup" element={<div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
+          <div className="w-full max-w-md space-y-6">
+            <div className="text-center mb-6">
+              <h1 className="text-3xl font-bold text-white">VITROS Inventory</h1>
+              <p className="text-blue-300 mt-1">Create Account</p>
+            </div>
+            <SignUp />
+          </div>
+        </div>} />
+        <Route path="/role-select" element={<RoleLogin />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </>
+  );
+}
+
+function App() {
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const { role } = useRole();
+
+  // Show loading while Convex auth state is resolving
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center">
+        <div className="text-white text-lg">Loading...</div>
+      </div>
+    );
+  }
+
+  // Server-authoritative: Convex Auth determines access
+  if (!isAuthenticated) {
+    return <UnauthenticatedApp />;
+  }
+
+  // Authenticated users may also need the legacy role for UI compatibility
+  if (!role) {
+    return (
+      <>
+        <Toaster />
+        <RoleLogin />
+      </>
+    );
+  }
+
+  return <AuthenticatedApp />;
 }
 
 export default App;

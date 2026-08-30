@@ -15,7 +15,7 @@ export const seedTestUser = internalAction({
     success: v.boolean(),
     message: v.string(),
   }),
-  handler: async ctx => {
+  handler: async (ctx) => {
     try {
       await retrieveAccount(ctx, {
         provider: "test",

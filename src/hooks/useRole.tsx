@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 
-type Role = "superuser" | "engineer" | null;
+type Role = "superuser" | "engineer" | "viewer" | null;
 
 interface RoleContextType {
   role: Role;
@@ -17,7 +19,9 @@ const RoleContext = createContext<RoleContextType>({
 });
 
 export function RoleProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role>(() => {
+  // Server-authoritative role from Convex Auth user record
+  const user = useQuery(api.auth.currentUser);
+  const [localRole, setLocalRole] = useState<Role>(() => {
     const saved = localStorage.getItem("vitros-role");
     return (saved as Role) || null;
   });
@@ -26,8 +30,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return (saved as "inventory" | "rem") || "inventory";
   });
 
+  // Sync server role to local state for presentation compatibility
+  const serverRole = user?.role as Role;
+  const effectiveRole: Role = serverRole || localRole;
+
   const handleSetRole = (r: Role) => {
-    setRole(r);
+    setLocalRole(r);
     if (r) localStorage.setItem("vitros-role", r);
     else localStorage.removeItem("vitros-role");
   };
@@ -38,7 +46,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <RoleContext.Provider value={{ role, setRole: handleSetRole, activeTab, setActiveTab: handleSetTab }}>
+    <RoleContext.Provider value={{ role: effectiveRole, setRole: handleSetRole, activeTab, setActiveTab: handleSetTab }}>
       {children}
     </RoleContext.Provider>
   );
