@@ -1,13 +1,12 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
-export const getUserRole = query({
-  args: { userId: v.string() },
+export const getUserRole = internalQuery({
+  args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
-    const user = await ctx.db.get(userId as any);
-    if (!user) return "viewer";
-    return (user as any).role || "viewer";
+    const user = await ctx.db.get(userId);
+    return user?.role ?? "viewer";
   },
 });
 
@@ -29,12 +28,12 @@ export const updateMyProfile = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const updates: Record<string, unknown> = {};
+    const updates: { name?: string; email?: string } = {};
     if (args.name !== undefined) updates.name = args.name;
     if (args.email !== undefined) updates.email = args.email;
 
     if (Object.keys(updates).length > 0) {
-      await ctx.db.patch(userId as any, updates);
+      await ctx.db.patch(userId, updates);
     }
     return { success: true };
   },
