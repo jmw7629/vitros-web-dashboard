@@ -55,9 +55,9 @@ export const currentUser = query({
     if (!user) return null;
     return {
       _id: user._id,
-      name: (user as any).name || null,
-      email: (user as any).email || null,
-      role: (user as any).role || "viewer",
+      name: user.name ?? null,
+      email: user.email ?? null,
+      role: user.role ?? "viewer",
     };
   },
 });
