@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
@@ -19,7 +19,9 @@ const RoleContext = createContext<RoleContextType>({
 });
 
 export function RoleProvider({ children }: { children: ReactNode }) {
-  // Server-authoritative role from Convex Auth user record
+  // Server-authoritative role from Convex Auth user record.
+  // For authenticated sessions, never elevate from localStorage while the
+  // server role is unresolved or missing. Missing role fails closed to viewer.
   const user = useQuery(api.auth.currentUser);
   const [localRole, setLocalRole] = useState<Role>(() => {
     const saved = localStorage.getItem("vitros-role");
@@ -30,11 +32,16 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return (saved as "inventory" | "rem") || "inventory";
   });
 
-  // Sync server role to local state for presentation compatibility
-  const serverRole = user?.role as Role;
-  const effectiveRole: Role = serverRole || localRole;
+  const serverRole = user?.role as Role | undefined;
+  const effectiveRole: Role = user === undefined
+    ? "viewer"
+    : user === null
+      ? localRole
+      : serverRole ?? "viewer";
 
   const handleSetRole = (r: Role) => {
+    // Legacy role selection remains presentation-only. Authorization is enforced
+    // on the server by Convex capabilities.
     setLocalRole(r);
     if (r) localStorage.setItem("vitros-role", r);
     else localStorage.removeItem("vitros-role");
