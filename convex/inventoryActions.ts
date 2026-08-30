@@ -73,6 +73,8 @@ export const scanStockTransition = action({
       v.literal("STOCKOUT"),
     ),
     qty: v.number(),
+    // Retained for backwards-compatible UI payloads only. This value is never
+    // authoritative for ledger attribution; the authenticated Convex user ID is.
     user: v.string(),
     correlationId: v.string(),
     analyzerSerial: v.optional(v.string()),
@@ -83,18 +85,27 @@ export const scanStockTransition = action({
     if (!args.partNumber.trim()) throw new Error("Part number is required");
     if (!args.correlationId.trim()) throw new Error("correlationId is required");
 
+    let actorId;
     if (args.mode === "ADJUST") {
-      await requireCapability(ctx, "inventory.admin");
+      actorId = await requireCapability(ctx, "inventory.admin");
       if (args.qty < 0) throw new Error("Adjusted quantity cannot be negative");
     } else {
-      await requireCapability(ctx, "inventory.write");
+      actorId = await requireCapability(ctx, "inventory.write");
       if (args.mode !== "STOCKOUT" && args.qty <= 0) {
         throw new Error("Quantity must be greater than zero");
       }
     }
 
     const { url, serviceKey } = getSupabaseConfig();
-    return applyTransition(serviceKey, url, args);
+    return applyTransition(serviceKey, url, {
+      partNumber: args.partNumber,
+      mode: args.mode,
+      qty: args.qty,
+      user: String(actorId),
+      correlationId: args.correlationId,
+      analyzerSerial: args.analyzerSerial,
+      batchId: args.batchId,
+    });
   },
 });
 
