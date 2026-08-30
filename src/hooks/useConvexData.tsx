@@ -1,63 +1,29 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useAction, useConvexAuth } from "convex/react";
+import { api } from "../../convex/_generated/api";
 
-// ─── Supabase Configuration ───
-const SUPABASE_URL = "https://oykqiiydpwngasvzdthh.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NjA1MzMsImV4cCI6MjA5MzUzNjUzM30.h415RO8X7fpSKUqL--qQiErvYlO8etV1IHplmYbRwxY";
-const SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95a3FpaXlkcHduZ2FzdnpkdGhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Nzk2MDUzMywiZXhwIjoyMDkzNTM2NTMzfQ.30U3H8Rol0XgoMFvaljZD2e8J0AYXlPUPdzlOe97RIw";
+// ─── Supabase anon read-only fallback (for reads when actions are unavailable) ───
+// SECURITY: Only the anon key is used here for reads. The service_role key is NEVER in the browser.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-// Convex backend for REM tracker + employees + kits + cycle count
-const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
-// Same backend for cycle count (consolidated)
-const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
-
-const sbHeaders = {
-  "apikey": SERVICE_KEY,
-  "Authorization": `Bearer ${SERVICE_KEY}`,
-  "Content-Type": "application/json",
-};
-
-// ─── Supabase REST helpers ───
-
-async function sbQuery<T>(table: string, params: string = ""): Promise<T[]> {
+async function sbAnonQuery<T>(table: string, params: string = ""): Promise<T[]> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${params ? "&" + params : ""}`, {
-    headers: sbHeaders,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
   });
   if (!res.ok) return [];
   return (await res.json()) as T[];
 }
 
-async function sbInsert<T>(table: string, data: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-    method: "POST",
-    headers: { ...sbHeaders, "Prefer": "return=representation" },
-    body: JSON.stringify(data),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.message || json.error || "Insert failed");
-  return Array.isArray(json) ? json[0] : json;
-}
+// ─── Convex HTTP helpers (for REM data still on Convex production backend) ───
+const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
+const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
 
-async function sbUpdate(table: string, id: string, data: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
-    method: "PATCH",
-    headers: { ...sbHeaders, "Prefer": "return=minimal" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json.message || json.error || "Update failed");
-  }
-}
-
-async function sbDelete(table: string, id: string): Promise<void> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
-    method: "DELETE",
-    headers: sbHeaders,
-  });
-  if (!res.ok) throw new Error("Delete failed");
-}
-
-// Convex read-only helper (for REM data still on Convex)
 async function convexQuery<T>(url: string, fn: string, args: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch(`${url}/api/query`, {
     method: "POST",
@@ -71,17 +37,6 @@ async function convexQuery<T>(url: string, fn: string, args: Record<string, unkn
 
 async function safeConvexQuery<T>(url: string, fn: string, fallback: T): Promise<T> {
   try { return await convexQuery<T>(url, fn); } catch { return fallback; }
-}
-
-async function convexMutation<T = unknown>(url: string, fn: string, args: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${url}/api/mutation`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: fn, args, format: "json" }),
-  });
-  const json = await res.json();
-  if (json.status === "success") return json.value as T;
-  throw new Error(json.errorMessage || "Mutation failed");
 }
 
 // ─── Types ───
@@ -439,18 +394,43 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
 
+  // Convex action hooks for server-side data access
+  const convexListStock = useAction(api.supabaseGateway.listStock);
+  const convexListAuditLog = useAction(api.supabaseGateway.listAuditLog);
+  const convexListSapStaging = useAction(api.supabaseGateway.listSapStaging);
+  const convexListUsers = useAction(api.supabaseGateway.listUsers);
+  const convexListSettings = useAction(api.supabaseGateway.listSettings);
+
   const loadAll = useCallback(async () => {
     if (!hasLoadedOnce.current) setIsLoading(true);
     setError(null);
     try {
-      // ─── Supabase queries (inventory data) ───
-      const [stockRows, auditRows, sapRows, userRows, settingsRows] = await Promise.all([
-        sbQuery<any>("stock", "order=part_number.asc"),
-        sbQuery<any>("audit_log", "order=created_at.desc&limit=500"),
-        sbQuery<any>("sap_staging", "order=created_at.desc"),
-        sbQuery<any>("users", "order=display_name.asc"),
-        sbQuery<any>("settings").catch(() => [] as any[]),
-      ]);
+      // ─── Inventory reads: prefer Convex actions (server-side, authenticated) ───
+      // Falls back to anon Supabase reads if actions fail (e.g., not authenticated yet)
+      let stockRows: any[] = [];
+      let auditRows: any[] = [];
+      let sapRows: any[] = [];
+      let userRows: any[] = [];
+      let settingsRows: any[] = [];
+
+      try {
+        [stockRows, auditRows, sapRows, userRows, settingsRows] = await Promise.all([
+          convexListStock(),
+          convexListAuditLog(),
+          convexListSapStaging(),
+          convexListUsers(),
+          convexListSettings(),
+        ]);
+      } catch {
+        // Auth may not be ready yet — fall back to anon reads
+        [stockRows, auditRows, sapRows, userRows, settingsRows] = await Promise.all([
+          sbAnonQuery<any>("stock", "order=part_number.asc"),
+          sbAnonQuery<any>("audit_log", "order=created_at.desc&limit=500"),
+          sbAnonQuery<any>("sap_staging", "order=created_at.desc"),
+          sbAnonQuery<any>("users", "order=display_name.asc"),
+          sbAnonQuery<any>("settings").catch(() => [] as any[]),
+        ]);
+      }
 
       const mappedParts = stockRows.map(mapStockToPart);
       const mappedTx = auditRows.map(mapAuditToTransaction);
@@ -488,7 +468,6 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         safeConvexQuery<any[]>(CONVEX_URL, "kits:list", []),
       ]);
 
-      // Use Convex employees (production source of truth), fall back to Supabase
       if (convexEmployees.length > 0) {
         const mapped: Employee[] = convexEmployees.map((e: any) => ({
           _id: e._id,
@@ -504,7 +483,6 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         setEmployees(mappedEmployees);
       }
 
-      // Map kits from Convex
       const mappedKits: Kit[] = convexKits.map((k: any) => ({
         _id: k._id,
         kitId: k.basePartNumber || k._id,
@@ -536,7 +514,6 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       setAnalyzers(an); setLvccItems(lv); setAnnualTargets(at2); setStaffMembers(sm);
       setWeeklyNotes(wn); setWeeklyBuildPlan(wb); setTrackerWeekly(tw);
 
-      // Cycle count from dev Convex
       const [cs, cr] = await Promise.all([
         safeConvexQuery<CycleSchedule[]>(CYCLE_CONVEX_URL, "cycleCount:listSchedules", []),
         safeConvexQuery<CycleResult[]>(CYCLE_CONVEX_URL, "cycleCount:listResults", []),
@@ -550,7 +527,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       hasLoadedOnce.current = true;
       setIsLoading(false);
     }
-  }, []);
+  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListSettings]);
 
   useEffect(() => {
     loadAll();
@@ -568,139 +545,100 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
 
   const refresh = loadAll;
 
-  // ─── Mutations: all go to Supabase ───
+  // ─── Mutations: route through Convex server-side actions ───
+  const convexScanStock = useAction(api.inventoryActions.scanStockTransition);
+  const convexCreateStock = useAction(api.inventoryActions.createStockItem);
+  const convexUpdateStock = useAction(api.inventoryActions.updateStockItem);
+  const convexDeleteStock = useAction(api.inventoryActions.deleteStockItem);
+  const convexUpdateSapStatus = useAction(api.inventoryActions.updateSapStatus);
+  const convexMarkSapReady = useAction(api.inventoryActions.markSapBatchReady);
+  const convexMarkSapExported = useAction(api.inventoryActions.markSapBatchExported);
+  const convexInsertUser = useAction(api.supabaseGateway.insertUser);
+  const convexUpdateUser = useAction(api.supabaseGateway.updateUser);
+  const convexDeleteUser = useAction(api.supabaseGateway.deleteUser);
 
   const scanPart = async (mode: string, partNumber: string, qty: number, user: string, _analyzerSerial?: string, _batchId?: string) => {
-    // Find the part
-    const part = parts.find(p => p.partNumber.toLowerCase() === partNumber.toLowerCase());
-    if (!part) return { success: false, error: "Part not found" };
-
-    const qtyBefore = part.qoh;
-    let qtyAfter: number;
-    if (mode === "RECEIVE" || mode === "IN") {
-      qtyAfter = qtyBefore + qty;
-    } else if (mode === "OUT") {
-      // Only subtract what we actually have — never go negative
-      const actualOut = Math.min(Math.abs(qty), qtyBefore);
-      qtyAfter = qtyBefore - actualOut;
-    } else if (mode === "STOCKOUT") {
-      // STOCKOUT = traceability record only, NO inventory impact
-      qtyAfter = qtyBefore;
-    } else if (mode === "ADJUST") {
-      qtyAfter = qty;
-    } else {
-      qtyAfter = qtyBefore + qty;
-    }
-
-    // Update stock QOH (skip for STOCKOUT — no inventory impact)
-    if (mode !== "STOCKOUT") {
-      await sbUpdate("stock", part._id, {
-        qty_on_hand: qtyAfter,
-        last_activity: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-    }
-
-    // Create audit log entry
-    await sbInsert("audit_log", {
-      action: mode,
-      entity_type: "stock",
-      entity_id: part._id,
-      part_number: partNumber,
-      user_name: user,
-      details: { qty, analyzerSerial: _analyzerSerial, batchId: _batchId },
-      old_value: { qty_on_hand: qtyBefore },
-      new_value: { qty_on_hand: qtyAfter, qty, qty_before: qtyBefore, qty_after: qtyAfter, description: part.description },
+    const correlationId = `scan-${partNumber}-${mode}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const result = await convexScanStock({
+      partNumber,
+      mode: mode as any,
+      qty,
+      user,
+      correlationId,
+      analyzerSerial: _analyzerSerial,
+      batchId: _batchId,
     });
-
-    // Create SAP staging record
-    const settingsMap = Object.fromEntries(settings.map(s => [s.key, s.value]));
-    await sbInsert("sap_staging", {
-      part_number: partNumber,
-      description: part.description,
-      movement_type: mode === "STOCKOUT" ? "STOCKOUT" : mode === "OUT" ? "261" : "101",
-      plant_code: settingsMap.sapPlantCode || "US08",
-      storage_location: settingsMap.sapStorageLocation || "MAIN",
-      qty_on_hand: qty,
-      export_status: "pending",
-    }).catch(() => {}); // SAP staging is optional
-
     debouncedLoadAll();
-    return { success: true, partNumber, description: part.description, qtyBefore, qtyAfter, mode };
+    return result;
   };
 
-  // Debounced loadAll — coalesce rapid successive calls into one reload
+  // Debounced loadAll
   const debouncedLoadAll = useCallback(() => {
     if ((debouncedLoadAll as any)._t) clearTimeout((debouncedLoadAll as any)._t);
     (debouncedLoadAll as any)._t = setTimeout(() => loadAll(), 300);
   }, [loadAll]);
 
   const updatePart = async (id: string, updates: Record<string, unknown>) => {
-    const mapped: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (updates.description !== undefined) mapped.description = updates.description;
-    if (updates.type !== undefined) mapped.type = updates.type;
-    if (updates.qoh !== undefined) mapped.qty_on_hand = updates.qoh;
-    if (updates.minQty !== undefined) mapped.min_qty = updates.minQty;
-    if (updates.maxQty !== undefined) mapped.max_qty = updates.maxQty;
-    if (updates.onPlan !== undefined) mapped.on_plan = updates.onPlan;
-    if (updates.binLocation !== undefined) mapped.bin_location = updates.binLocation;
-    if (updates.module !== undefined) mapped.module = updates.module;
-    if (updates.partNumber !== undefined) mapped.part_number = updates.partNumber;
-    if (updates.unitCost !== undefined) mapped.unit_cost = updates.unitCost;
-    mapped.last_activity = new Date().toISOString();
-
-    await sbUpdate("stock", id, mapped);
+    await convexUpdateStock({
+      id,
+      partNumber: updates.partNumber as string | undefined,
+      description: updates.description as string | undefined,
+      type: updates.type as string | undefined,
+      qtyOnHand: updates.qoh as number | undefined,
+      minQty: updates.minQty as number | undefined,
+      maxQty: updates.maxQty as number | undefined,
+      onPlan: updates.onPlan as boolean | undefined,
+      binLocation: updates.binLocation as string | undefined,
+      module: updates.module as string | undefined,
+      unitCost: updates.unitCost as number | undefined,
+    });
     debouncedLoadAll();
   };
 
   const deletePart = async (id: string) => {
-    await sbDelete("stock", id);
+    await convexDeleteStock({ id });
     debouncedLoadAll();
   };
 
   const createPart = async (data: Record<string, unknown>) => {
-    await sbInsert("stock", {
-      part_number: data.partNumber || data.part_number,
-      description: data.description || "",
-      type: data.type || "Required",
-      qty_on_hand: Number(data.qoh ?? data.qty_on_hand ?? 0),
-      min_qty: Number(data.minQty ?? data.min_qty ?? data.min ?? 0),
-      max_qty: Number(data.maxQty ?? data.max_qty ?? data.max ?? 0),
-      on_plan: data.onPlan ?? data.on_plan ?? false,
-      bin_location: data.binLocation ?? data.bin_location ?? "",
-      module: data.module ?? "",
-      unit_cost: Number(data.unitCost ?? data.unit_cost ?? 0),
-      last_activity: new Date().toISOString(),
+    await convexCreateStock({
+      partNumber: (data.partNumber || data.part_number) as string,
+      description: (data.description as string) || "",
+      type: (data.type as string) || "Required",
+      qtyOnHand: Number(data.qoh ?? data.qty_on_hand ?? 0),
+      minQty: Number(data.minQty ?? data.min_qty ?? data.min ?? 0),
+      maxQty: Number(data.maxQty ?? data.max_qty ?? data.max ?? 0),
+      onPlan: (data.onPlan ?? data.on_plan) as boolean | undefined,
+      binLocation: (data.binLocation ?? data.bin_location) as string | undefined,
+      module: data.module as string | undefined,
+      unitCost: Number(data.unitCost ?? data.unit_cost ?? 0),
     });
     debouncedLoadAll();
   };
 
   const markAsReady = async (ids: string[]) => {
-    await Promise.all(ids.map(id =>
-      sbUpdate("sap_staging", `id=eq.${id}`, { export_status: "ready" })
-    ));
+    await convexMarkSapReady({ ids });
     debouncedLoadAll();
   };
 
   const markExported = async (ids: string[]) => {
-    const now = new Date().toISOString();
-    await Promise.all(ids.map(id =>
-      sbUpdate("sap_staging", `id=eq.${id}`, { export_status: "posted", exported_at: now })
-    ));
+    await convexMarkSapExported({ ids });
     debouncedLoadAll();
   };
 
-  const updateSapStatus = async (id: string, status: string) => {
-    await sbUpdate("sap_staging", `id=eq.${id}`, { export_status: status });
+  const updateSapStatusFn = async (id: string, status: string) => {
+    await convexUpdateSapStatus({ id, status: status as any });
     debouncedLoadAll();
   };
 
-  const addEmployee = async (name: string, initials: string) => {
-    await sbInsert("users", {
-      username: name.toLowerCase().replace(/\s+/g, "."),
-      display_name: name,
-      role: "engineer",
-      is_active: true,
+  const addEmployee = async (name: string, _initials: string) => {
+    await convexInsertUser({
+      data: {
+        username: name.toLowerCase().replace(/\s+/g, "."),
+        display_name: name,
+        role: "engineer",
+        is_active: true,
+      },
     });
     debouncedLoadAll();
   };
@@ -710,17 +648,17 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     if (updates.name !== undefined) mapped.display_name = updates.name;
     if (updates.email !== undefined) mapped.username = updates.email;
     if (updates.role !== undefined) mapped.role = updates.role;
-    await sbUpdate("users", id, mapped);
+    await convexUpdateUser({ id, data: mapped });
     debouncedLoadAll();
   };
 
   const toggleEmployeeActive = async (id: string, currentlyActive: boolean) => {
-    await sbUpdate("users", id, { is_active: !currentlyActive });
+    await convexUpdateUser({ id, data: { is_active: !currentlyActive } });
     debouncedLoadAll();
   };
 
   const deleteEmployee = async (id: string) => {
-    await sbDelete("users", id);
+    await convexDeleteUser({ id });
     debouncedLoadAll();
   };
 
@@ -732,7 +670,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       isLoading, error,
       totalSKUs, totalQOH, outCount, lowCount, okCount, overCount, onPlanCount,
       refresh, scanPart, updatePart, deletePart, createPart,
-      markAsReady, markExported, updateSapStatus, addEmployee,
+      markAsReady, markExported, updateSapStatus: updateSapStatusFn, addEmployee,
       updateEmployee, toggleEmployeeActive, deleteEmployee,
     }}>
       {children}
