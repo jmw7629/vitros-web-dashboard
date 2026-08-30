@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
@@ -19,7 +19,9 @@ const RoleContext = createContext<RoleContextType>({
 });
 
 export function RoleProvider({ children }: { children: ReactNode }) {
-  // Server-authoritative role from Convex Auth user record
+  // Server-authoritative role from Convex Auth user record.
+  // `undefined` means the query is still resolving. Fail closed rather than
+  // trusting a localStorage role for an authenticated session.
   const user = useQuery(api.auth.currentUser);
   const [localRole, setLocalRole] = useState<Role>(() => {
     const saved = localStorage.getItem("vitros-role");
@@ -30,11 +32,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     return (saved as "inventory" | "rem") || "inventory";
   });
 
-  // Sync server role to local state for presentation compatibility
-  const serverRole = user?.role as Role;
-  const effectiveRole: Role = serverRole || localRole;
+  const serverRole: Role = user?.role as Role;
+  const effectiveRole: Role = user === undefined ? null : (serverRole ?? "viewer");
 
   const handleSetRole = (r: Role) => {
+    // Presentation-only compatibility mirror. This value never authorizes
+    // authenticated users and is intentionally excluded from effectiveRole.
     setLocalRole(r);
     if (r) localStorage.setItem("vitros-role", r);
     else localStorage.removeItem("vitros-role");
@@ -44,6 +47,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     setActiveTab(t);
     localStorage.setItem("vitros-tab", t);
   };
+
+  // Keep localRole alive only for legacy presentation compatibility and to
+  // avoid silently changing existing localStorage behavior.
+  void localRole;
 
   return (
     <RoleContext.Provider value={{ role: effectiveRole, setRole: handleSetRole, activeTab, setActiveTab: handleSetTab }}>
