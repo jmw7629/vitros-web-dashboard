@@ -15,13 +15,23 @@ alter table public.stock
 create unique index if not exists stock_barcode_unique
   on public.stock (barcode) where barcode is not null and barcode <> '';
 
+alter table public.kits
+  add column if not exists kit_barcode_value text,
+  add column if not exists analyzer_type text,
+  add column if not exists active boolean not null default true,
+  add column if not exists notes text;
+
+create unique index if not exists kits_kit_id_unique on public.kits (kit_id);
+create unique index if not exists kits_barcode_unique
+  on public.kits (kit_barcode_value) where kit_barcode_value is not null and kit_barcode_value <> '';
+
 create table if not exists public.stocking_plan (
   id uuid primary key default gen_random_uuid(),
   plant_sloc text not null,
-  part_number text not null,
+  part_number text not null references public.stock(part_number) on update cascade on delete restrict,
   product_name text,
-  reorder_point integer,
-  reorder_qty integer,
+  reorder_point integer check (reorder_point is null or reorder_point >= 0),
+  reorder_qty integer check (reorder_qty is null or reorder_qty >= 0),
   prime boolean,
   expense boolean,
   obsolete boolean,
@@ -33,8 +43,8 @@ create table if not exists public.stocking_plan (
 
 create table if not exists public.kit_components (
   id uuid primary key default gen_random_uuid(),
-  kit_id text not null,
-  part_number text not null,
+  kit_id text not null references public.kits(kit_id) on update cascade on delete restrict,
+  part_number text not null references public.stock(part_number) on update cascade on delete restrict,
   qty_per_kit integer not null check (qty_per_kit > 0),
   component_notes text,
   created_at timestamptz not null default now(),
@@ -59,8 +69,8 @@ create table if not exists public.inventory_batches (
 
 create table if not exists public.inventory_batch_lines (
   id uuid primary key default gen_random_uuid(),
-  batch_id text not null references public.inventory_batches(batch_id) on delete restrict,
-  part_number text not null,
+  batch_id text not null references public.inventory_batches(batch_id) on update cascade on delete restrict,
+  part_number text not null references public.stock(part_number) on update cascade on delete restrict,
   requested_qty integer not null check (requested_qty > 0),
   issued_qty integer check (issued_qty is null or issued_qty >= 0),
   shortage_qty integer not null default 0 check (shortage_qty >= 0),
@@ -77,7 +87,7 @@ create table if not exists public.shortages (
   batch_id text,
   kit_id text,
   kit_name text,
-  part_number text not null,
+  part_number text not null references public.stock(part_number) on update cascade on delete restrict,
   need_qty integer not null check (need_qty > 0),
   issued_qty integer not null default 0 check (issued_qty >= 0),
   short_qty integer generated always as (greatest(need_qty - issued_qty, 0)) stored,
@@ -93,8 +103,8 @@ create table if not exists public.transaction_reversals (
   id uuid primary key default gen_random_uuid(),
   original_correlation_id text not null,
   reversal_correlation_id text not null unique,
-  original_audit_id uuid,
-  reversal_audit_id uuid,
+  original_audit_id uuid references public.audit_log(id) on delete restrict,
+  reversal_audit_id uuid references public.audit_log(id) on delete restrict,
   reason text not null,
   reversed_by text not null,
   created_at timestamptz not null default now(),
@@ -120,7 +130,7 @@ on conflict (mapping_key) do nothing;
 
 create table if not exists public.sap_post_log (
   id uuid primary key default gen_random_uuid(),
-  staging_id uuid,
+  staging_id uuid references public.sap_staging(id) on delete restrict,
   local_transaction_id text,
   batch_id text,
   post_status text not null,
