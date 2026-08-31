@@ -237,6 +237,18 @@ export default defineSchema({
     }))),
   }),
 
+  remAudit: defineTable({
+    action: v.string(),
+    actor: v.string(),
+    timestamp: v.number(),
+    table: v.string(),
+    recordId: v.string(),
+    before: v.optional(v.any()),
+    after: v.optional(v.any()),
+    details: v.optional(v.string()),
+  }).index("by_table", ["table"])
+    .index("by_timestamp", ["timestamp"]),
+
   appSettings: defineTable({
     key: v.string(),
     value: v.string(),

@@ -1,9 +1,11 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { requireCapability } from "./authGuard";
 
 export const importParts = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "inventory.write");
     for (const row of batch) {
       await ctx.db.insert("parts", row);
     }
@@ -14,6 +16,7 @@ export const importParts = mutation({
 export const importEmployees = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "inventory.write");
     for (const row of batch) {
       await ctx.db.insert("employees", row);
     }
@@ -24,6 +27,7 @@ export const importEmployees = mutation({
 export const importKits = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "inventory.write");
     for (const row of batch) {
       await ctx.db.insert("kits", row);
     }
@@ -34,6 +38,7 @@ export const importKits = mutation({
 export const importAnalyzers = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "rem.write");
     for (const row of batch) {
       await ctx.db.insert("remAnalyzers", row);
     }
@@ -44,6 +49,7 @@ export const importAnalyzers = mutation({
 export const importLvcc = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "rem.write");
     for (const row of batch) {
       await ctx.db.insert("lvccItems", row);
     }
@@ -54,6 +60,7 @@ export const importLvcc = mutation({
 export const importWeeklyNotes = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "rem.write");
     for (const row of batch) {
       await ctx.db.insert("weeklyNotes", row);
     }
@@ -64,6 +71,7 @@ export const importWeeklyNotes = mutation({
 export const importSettings = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "inventory.admin");
     for (const row of batch) {
       await ctx.db.insert("appSettings", row);
     }

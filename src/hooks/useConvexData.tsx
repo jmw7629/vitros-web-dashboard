@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useAction, useConvexAuth } from "convex/react";
+import { useAction, useMutation, useConvexAuth } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
 // ─── Supabase anon read-only fallback (for reads when actions are unavailable) ───
@@ -368,6 +368,16 @@ interface ConvexData {
   updateEmployee: (id: string, updates: { name?: string; initials?: string; email?: string; role?: string }) => Promise<void>;
   toggleEmployeeActive: (id: string, currentlyActive: boolean) => Promise<void>;
   deleteEmployee: (id: string) => Promise<void>;
+  updateRemAnalyzer: (id: string, updates: Record<string, unknown>) => Promise<void>;
+  createRemAnalyzer: (serialNumber: string, analyzerType?: string) => Promise<any>;
+  updateRemLvccItem: (id: string, updates: Record<string, unknown>) => Promise<void>;
+  createRemLvccItem: (data: { serialNumber?: string; itemType?: string; category?: string }) => Promise<any>;
+  updateRemStaffMember: (id: string, updates: Record<string, unknown>) => Promise<void>;
+  createRemStaffMember: (name: string, role: string, fte?: number) => Promise<any>;
+  updateRemTarget: (id: string, updates: Record<string, unknown>) => Promise<void>;
+  createRemTarget: (type: string, target: number, completed: number) => Promise<any>;
+  updateRemWeeklyNote: (id: string, updates: Record<string, unknown>) => Promise<void>;
+  createRemWeeklyNote: (weekNumber: number, weekStart: string, quarter: string, notes: { product: string; content: string }[]) => Promise<any>;
 }
 
 const ConvexDataContext = createContext<ConvexData | null>(null);
@@ -557,6 +567,18 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexUpdateUser = useAction(api.supabaseGateway.updateUser);
   const convexDeleteUser = useAction(api.supabaseGateway.deleteUser);
 
+  // REM mutations
+  const convexRemUpdateAnalyzer = useMutation(api.remActions.updateAnalyzer);
+  const convexRemCreateAnalyzer = useMutation(api.remActions.createAnalyzer);
+  const convexRemUpdateLvccItem = useMutation(api.remActions.updateLvccItem);
+  const convexRemCreateLvccItem = useMutation(api.remActions.createLvccItem);
+  const convexRemUpdateStaffMember = useMutation(api.remActions.updateStaffMember);
+  const convexRemCreateStaffMember = useMutation(api.remActions.createStaffMember);
+  const convexRemUpdateTarget = useMutation(api.remActions.updateTarget);
+  const convexRemCreateTarget = useMutation(api.remActions.createTarget);
+  const convexRemUpdateWeeklyNote = useMutation(api.remActions.updateWeeklyNote);
+  const convexRemCreateWeeklyNote = useMutation(api.remActions.createWeeklyNote);
+
   const scanPart = async (mode: string, partNumber: string, qty: number, user: string, _analyzerSerial?: string, _batchId?: string) => {
     const correlationId = `scan-${partNumber}-${mode}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const result = await convexScanStock({
@@ -662,6 +684,62 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     debouncedLoadAll();
   };
 
+  // ─── REM Mutations ───
+  const updateRemAnalyzer = async (id: string, updates: Record<string, unknown>) => {
+    await convexRemUpdateAnalyzer({ id: id as any, ...updates } as any);
+    debouncedLoadAll();
+  };
+
+  const createRemAnalyzer = async (serialNumber: string, analyzerType?: string) => {
+    const result = await convexRemCreateAnalyzer({ serialNumber, analyzerType });
+    debouncedLoadAll();
+    return result;
+  };
+
+  const updateRemLvccItem = async (id: string, updates: Record<string, unknown>) => {
+    await convexRemUpdateLvccItem({ id: id as any, ...updates } as any);
+    debouncedLoadAll();
+  };
+
+  const createRemLvccItem = async (data: { serialNumber?: string; itemType?: string; category?: string }) => {
+    const result = await convexRemCreateLvccItem(data);
+    debouncedLoadAll();
+    return result;
+  };
+
+  const updateRemStaffMember = async (id: string, updates: Record<string, unknown>) => {
+    await convexRemUpdateStaffMember({ id: id as any, ...updates } as any);
+    debouncedLoadAll();
+  };
+
+  const createRemStaffMember = async (name: string, role: string, fte?: number) => {
+    const result = await convexRemCreateStaffMember({ name, role, fte });
+    debouncedLoadAll();
+    return result;
+  };
+
+  const updateRemTarget = async (id: string, updates: Record<string, unknown>) => {
+    await convexRemUpdateTarget({ id: id as any, ...updates } as any);
+    debouncedLoadAll();
+  };
+
+  const createRemTarget = async (type: string, target: number, completed: number) => {
+    const result = await convexRemCreateTarget({ type, target, completed });
+    debouncedLoadAll();
+    return result;
+  };
+
+  const updateRemWeeklyNote = async (id: string, updates: Record<string, unknown>) => {
+    await convexRemUpdateWeeklyNote({ id: id as any, ...updates } as any);
+    debouncedLoadAll();
+  };
+
+  const createRemWeeklyNote = async (weekNumber: number, weekStart: string, quarter: string, notes: { product: string; content: string }[]) => {
+    const result = await convexRemCreateWeeklyNote({ weekNumber, weekStart, quarter, notes });
+    debouncedLoadAll();
+    return result;
+  };
+
   return (
     <ConvexDataContext.Provider value={{
       parts, transactions, kits, sapRecords, cycleSchedules, cycleResults,
@@ -672,6 +750,9 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       refresh, scanPart, updatePart, deletePart, createPart,
       markAsReady, markExported, updateSapStatus: updateSapStatusFn, addEmployee,
       updateEmployee, toggleEmployeeActive, deleteEmployee,
+      updateRemAnalyzer, createRemAnalyzer, updateRemLvccItem, createRemLvccItem,
+      updateRemStaffMember, createRemStaffMember, updateRemTarget, createRemTarget,
+      updateRemWeeklyNote, createRemWeeklyNote,
     }}>
       {children}
     </ConvexDataContext.Provider>

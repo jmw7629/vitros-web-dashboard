@@ -22,6 +22,7 @@ import type * as inventoryActions from "../inventoryActions.js";
 import type * as kits from "../kits.js";
 import type * as parts from "../parts.js";
 import type * as rem from "../rem.js";
+import type * as remActions from "../remActions.js";
 import type * as remAnalyzers from "../remAnalyzers.js";
 import type * as remBuildPlan from "../remBuildPlan.js";
 import type * as remLvcc from "../remLvcc.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   kits: typeof kits;
   parts: typeof parts;
   rem: typeof rem;
+  remActions: typeof remActions;
   remAnalyzers: typeof remAnalyzers;
   remBuildPlan: typeof remBuildPlan;
   remLvcc: typeof remLvcc;

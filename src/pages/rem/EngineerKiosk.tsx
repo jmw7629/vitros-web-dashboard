@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
+import { useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { WebCard, StatusBadge, ProgressBar, theme } from "../../components/vitros/SharedComponents";
 
 const STAGES = ["Procurement", "Cleaning", "Service/Repair", "Final Line", "Packaging", "Release Testing", "QA Release", "SAP Release", "Complete"];
@@ -9,9 +11,31 @@ export function EngineerKiosk() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [newStage, setNewStage] = useState("");
   const [notes, setNotes] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const updateAnalyzer = useMutation(api.remActions.updateAnalyzer);
 
   const activeAnalyzers = data.analyzers.filter(a => !a.isComplete);
   const selected = activeAnalyzers.find(a => a._id === selectedId);
+
+  const handleUpdate = async () => {
+    if (!selected || newStage === selected.currentStage || isUpdating) return;
+    setIsUpdating(true);
+    try {
+      await updateAnalyzer({
+        id: selected._id as any,
+        currentStage: newStage,
+        isComplete: newStage === "Complete",
+        notes: notes || undefined,
+      });
+      setSelectedId(null);
+      setNotes("");
+      data.refresh();
+    } catch (e) {
+      console.error("Failed to update analyzer:", e);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -76,10 +100,11 @@ export function EngineerKiosk() {
               placeholder="Add notes..." value={notes} onChange={e => setNotes(e.target.value)} />
           </WebCard>
 
-          <button disabled={newStage === selected.currentStage}
+          <button disabled={newStage === selected.currentStage || isUpdating}
+            onClick={handleUpdate}
             className="w-full py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
             style={{ backgroundColor: "#6366f1" }}>
-            Update to {newStage}
+            {isUpdating ? "Updating..." : `Update to ${newStage}`}
           </button>
         </>
       )}
