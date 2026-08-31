@@ -151,6 +151,9 @@ export default defineSchema({
   }).index("by_status", ["status"]),
 
   // ============ REM TRACKER MODULE ============
+  // DEPRECATED: These Convex tables are retained as fallback during migration.
+  // Authoritative REM source is now Supabase (rem_analyzers, rem_lvcc, etc.)
+  // via convex/remSupabase.ts actions.
 
   remAnalyzers: defineTable({
     serialNumber: v.string(),

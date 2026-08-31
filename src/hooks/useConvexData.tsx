@@ -1,5 +1,13 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useAction, useConvexAuth } from "convex/react";
+import { useAction } from "convex/react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../../convex/_generated/api";
 
 // ─── Supabase anon read-only fallback (for reads when actions are unavailable) ───
@@ -7,15 +15,21 @@ import { api } from "../../convex/_generated/api";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
-async function sbAnonQuery<T>(table: string, params: string = ""): Promise<T[]> {
+async function sbAnonQuery<T>(
+  table: string,
+  params: string = "",
+): Promise<T[]> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${params ? "&" + params : ""}`, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/${table}?select=*${params ? `&${params}` : ""}`,
+    {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
     },
-  });
+  );
   if (!res.ok) return [];
   return (await res.json()) as T[];
 }
@@ -24,7 +38,11 @@ async function sbAnonQuery<T>(table: string, params: string = ""): Promise<T[]> 
 const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
 const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
 
-async function convexQuery<T>(url: string, fn: string, args: Record<string, unknown> = {}): Promise<T> {
+async function convexQuery<T>(
+  url: string,
+  fn: string,
+  args: Record<string, unknown> = {},
+): Promise<T> {
   const res = await fetch(`${url}/api/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -35,8 +53,16 @@ async function convexQuery<T>(url: string, fn: string, args: Record<string, unkn
   throw new Error(json.errorMessage || "Query failed");
 }
 
-async function safeConvexQuery<T>(url: string, fn: string, fallback: T): Promise<T> {
-  try { return await convexQuery<T>(url, fn); } catch { return fallback; }
+async function safeConvexQuery<T>(
+  url: string,
+  fn: string,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await convexQuery<T>(url, fn);
+  } catch {
+    return fallback;
+  }
 }
 
 // ─── Types ───
@@ -130,7 +156,12 @@ export interface CycleResult {
   scheduleId: string;
   timestamp: number;
   countedBy: string;
-  results: { partNumber: string; systemQty: number; countedQty: number; variance: number }[];
+  results: {
+    partNumber: string;
+    systemQty: number;
+    countedQty: number;
+    variance: number;
+  }[];
   status: string;
   sortMode?: string;
 }
@@ -271,9 +302,9 @@ export interface IncomingStockLog {
 
 export interface AnnualTarget {
   _id: string;
-  year: number;
+  type: string;
   target: number;
-  actual: number;
+  completed: number;
 }
 
 // ─── Supabase → App type mappers ───
@@ -319,7 +350,12 @@ function mapUserToEmployee(row: any): Employee {
   return {
     _id: row.id,
     name: row.display_name || row.username || "",
-    initials: (row.display_name || row.username || "").split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2),
+    initials: (row.display_name || row.username || "")
+      .split(" ")
+      .map((w: string) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2),
     email: row.username,
     active: row.is_active ?? true,
     createdAt: new Date(row.created_at).getTime(),
@@ -357,7 +393,15 @@ interface ConvexData {
   overCount: number;
   onPlanCount: number;
   refresh: () => Promise<void>;
-  scanPart: (mode: string, partNumber: string, qty: number, user: string, analyzerSerial?: string, batchId?: string) => Promise<unknown>;
+  refreshRem: () => Promise<void>;
+  scanPart: (
+    mode: string,
+    partNumber: string,
+    qty: number,
+    user: string,
+    analyzerSerial?: string,
+    batchId?: string,
+  ) => Promise<unknown>;
   updatePart: (id: string, updates: Record<string, unknown>) => Promise<void>;
   deletePart: (id: string) => Promise<void>;
   createPart: (data: Record<string, unknown>) => Promise<void>;
@@ -365,9 +409,29 @@ interface ConvexData {
   markExported: (ids: string[]) => Promise<void>;
   updateSapStatus: (id: string, status: string) => Promise<void>;
   addEmployee: (name: string, initials: string) => Promise<void>;
-  updateEmployee: (id: string, updates: { name?: string; initials?: string; email?: string; role?: string }) => Promise<void>;
+  updateEmployee: (
+    id: string,
+    updates: {
+      name?: string;
+      initials?: string;
+      email?: string;
+      role?: string;
+    },
+  ) => Promise<void>;
   toggleEmployeeActive: (id: string, currentlyActive: boolean) => Promise<void>;
   deleteEmployee: (id: string) => Promise<void>;
+  updateAnalyzer: (
+    id: string,
+    updates: {
+      stage?: string;
+      progress?: number;
+      status?: string;
+      notes?: string;
+      currentStage?: string;
+      overallPct?: number;
+      isComplete?: boolean;
+    },
+  ) => Promise<void>;
 }
 
 const ConvexDataContext = createContext<ConvexData | null>(null);
@@ -401,6 +465,15 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexListUsers = useAction(api.supabaseGateway.listUsers);
   const convexListSettings = useAction(api.supabaseGateway.listSettings);
 
+  // REM Supabase actions (authenticated, server-side)
+  const remListAnalyzers = useAction(api.remSupabase.listAnalyzers);
+  const remListLvcc = useAction(api.remSupabase.listLvccItems);
+  const remListTargets = useAction(api.remSupabase.listTargets);
+  const remListStaff = useAction(api.remSupabase.listStaff);
+  const remListWeeklyNotes = useAction(api.remSupabase.listWeeklyNotes);
+  const remListBuildPlan = useAction(api.remSupabase.listBuildPlan);
+  const remListTrackerWeekly = useAction(api.remSupabase.listTrackerWeekly);
+
   const loadAll = useCallback(async () => {
     if (!hasLoadedOnce.current) setIsLoading(true);
     setError(null);
@@ -414,32 +487,36 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       let settingsRows: any[] = [];
 
       try {
-        [stockRows, auditRows, sapRows, userRows, settingsRows] = await Promise.all([
-          convexListStock(),
-          convexListAuditLog(),
-          convexListSapStaging(),
-          convexListUsers(),
-          convexListSettings(),
-        ]);
+        [stockRows, auditRows, sapRows, userRows, settingsRows] =
+          await Promise.all([
+            convexListStock(),
+            convexListAuditLog(),
+            convexListSapStaging(),
+            convexListUsers(),
+            convexListSettings(),
+          ]);
       } catch {
         // Auth may not be ready yet — fall back to anon reads
-        [stockRows, auditRows, sapRows, userRows, settingsRows] = await Promise.all([
-          sbAnonQuery<any>("stock", "order=part_number.asc"),
-          sbAnonQuery<any>("audit_log", "order=created_at.desc&limit=500"),
-          sbAnonQuery<any>("sap_staging", "order=created_at.desc"),
-          sbAnonQuery<any>("users", "order=display_name.asc"),
-          sbAnonQuery<any>("settings").catch(() => [] as any[]),
-        ]);
+        [stockRows, auditRows, sapRows, userRows, settingsRows] =
+          await Promise.all([
+            sbAnonQuery<any>("stock", "order=part_number.asc"),
+            sbAnonQuery<any>("audit_log", "order=created_at.desc&limit=500"),
+            sbAnonQuery<any>("sap_staging", "order=created_at.desc"),
+            sbAnonQuery<any>("users", "order=display_name.asc"),
+            sbAnonQuery<any>("settings").catch(() => [] as any[]),
+          ]);
       }
 
       const mappedParts = stockRows.map(mapStockToPart);
       const mappedTx = auditRows.map(mapAuditToTransaction);
       const mappedEmployees = userRows.map(mapUserToEmployee);
-      const mappedSettings: AppSetting[] = (settingsRows || []).map((s: any) => ({
-        _id: s.id || s.key,
-        key: s.key,
-        value: s.value,
-      }));
+      const mappedSettings: AppSetting[] = (settingsRows || []).map(
+        (s: any) => ({
+          _id: s.id || s.key,
+          key: s.key,
+          value: s.value,
+        }),
+      );
       const mappedSap: SapRecord[] = sapRows.map((s: any) => ({
         _id: s.id,
         txId: s.tx_id,
@@ -472,7 +549,15 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         const mapped: Employee[] = convexEmployees.map((e: any) => ({
           _id: e._id,
           name: e.name || "",
-          initials: e.initials || e.name?.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 3) || "",
+          initials:
+            e.initials ||
+            e.name
+              ?.split(" ")
+              .map((w: string) => w[0])
+              .join("")
+              .toUpperCase()
+              .slice(0, 3) ||
+            "",
           email: e.email || undefined,
           active: e.active ?? true,
           createdAt: e.createdAt || e._creationTime || Date.now(),
@@ -501,24 +586,76 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       setBatches([]);
       setStockLog([]);
 
-      // ─── Convex queries (REM tracker - read only until migrated) ───
-      const [an, lv, at2, sm, wn, wb, tw] = await Promise.all([
-        safeConvexQuery<REMAnalyzer[]>(CONVEX_URL, "remAnalyzers:list", []),
-        safeConvexQuery<LVCCItem[]>(CONVEX_URL, "remLvcc:list", []),
-        safeConvexQuery<AnnualTarget[]>(CONVEX_URL, "remTargets:list", []),
-        safeConvexQuery<StaffMember[]>(CONVEX_URL, "remStaffing:getTrainingMatrix", []),
-        safeConvexQuery<WeeklyNoteEntry[]>(CONVEX_URL, "remWeeklyNotes:list", []),
-        safeConvexQuery<WeeklyBuildPlan[]>(CONVEX_URL, "remBuildPlan:list", []),
-        safeConvexQuery<TrackerWeekly[]>(CONVEX_URL, "remTracker:listWeekly", []),
-      ]);
-      setAnalyzers(an); setLvccItems(lv); setAnnualTargets(at2); setStaffMembers(sm);
-      setWeeklyNotes(wn); setWeeklyBuildPlan(wb); setTrackerWeekly(tw);
+      // ─── REM reads: authenticated Convex actions → Supabase (server-side) ───
+      // Falls back to direct Convex HTTP if actions fail (e.g., tables not yet migrated)
+      let an: REMAnalyzer[] = [];
+      let lv: LVCCItem[] = [];
+      let at2: AnnualTarget[] = [];
+      let sm: StaffMember[] = [];
+      let wn: WeeklyNoteEntry[] = [];
+      let wb: WeeklyBuildPlan[] = [];
+      let tw: TrackerWeekly[] = [];
+
+      try {
+        [an, lv, at2, sm, wn, wb, tw] = await Promise.all([
+          remListAnalyzers() as Promise<REMAnalyzer[]>,
+          remListLvcc() as Promise<LVCCItem[]>,
+          remListTargets() as Promise<AnnualTarget[]>,
+          remListStaff() as Promise<StaffMember[]>,
+          remListWeeklyNotes() as Promise<WeeklyNoteEntry[]>,
+          remListBuildPlan() as Promise<WeeklyBuildPlan[]>,
+          remListTrackerWeekly() as Promise<TrackerWeekly[]>,
+        ]);
+      } catch {
+        // Fallback: direct Convex HTTP if Supabase tables not yet available
+        [an, lv, at2, sm, wn, wb, tw] = await Promise.all([
+          safeConvexQuery<REMAnalyzer[]>(CONVEX_URL, "remAnalyzers:list", []),
+          safeConvexQuery<LVCCItem[]>(CONVEX_URL, "remLvcc:list", []),
+          safeConvexQuery<AnnualTarget[]>(CONVEX_URL, "remTargets:list", []),
+          safeConvexQuery<StaffMember[]>(
+            CONVEX_URL,
+            "remStaffing:getTrainingMatrix",
+            [],
+          ),
+          safeConvexQuery<WeeklyNoteEntry[]>(
+            CONVEX_URL,
+            "remWeeklyNotes:list",
+            [],
+          ),
+          safeConvexQuery<WeeklyBuildPlan[]>(
+            CONVEX_URL,
+            "remBuildPlan:list",
+            [],
+          ),
+          safeConvexQuery<TrackerWeekly[]>(
+            CONVEX_URL,
+            "remTracker:listWeekly",
+            [],
+          ),
+        ]);
+      }
+      setAnalyzers(an);
+      setLvccItems(lv);
+      setAnnualTargets(at2);
+      setStaffMembers(sm);
+      setWeeklyNotes(wn);
+      setWeeklyBuildPlan(wb);
+      setTrackerWeekly(tw);
 
       const [cs, cr] = await Promise.all([
-        safeConvexQuery<CycleSchedule[]>(CYCLE_CONVEX_URL, "cycleCount:listSchedules", []),
-        safeConvexQuery<CycleResult[]>(CYCLE_CONVEX_URL, "cycleCount:listResults", []),
+        safeConvexQuery<CycleSchedule[]>(
+          CYCLE_CONVEX_URL,
+          "cycleCount:listSchedules",
+          [],
+        ),
+        safeConvexQuery<CycleResult[]>(
+          CYCLE_CONVEX_URL,
+          "cycleCount:listResults",
+          [],
+        ),
       ]);
-      setCycleSchedules(cs); setCycleResults(cr);
+      setCycleSchedules(cs);
+      setCycleResults(cr);
 
       hasLoadedOnce.current = true;
       setIsLoading(false);
@@ -527,7 +664,20 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       hasLoadedOnce.current = true;
       setIsLoading(false);
     }
-  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListSettings]);
+  }, [
+    convexListStock,
+    convexListAuditLog,
+    convexListSapStaging,
+    convexListUsers,
+    convexListSettings,
+    remListAnalyzers,
+    remListLvcc,
+    remListTargets,
+    remListStaff,
+    remListWeeklyNotes,
+    remListBuildPlan,
+    remListTrackerWeekly,
+  ]);
 
   useEffect(() => {
     loadAll();
@@ -539,7 +689,9 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const totalQOH = parts.reduce((s, p) => s + p.qoh, 0);
   const outCount = parts.filter(p => p.qoh <= 0).length;
   const lowCount = parts.filter(p => p.qoh > 0 && p.qoh < p.minQty).length;
-  const okCount = parts.filter(p => p.qoh >= p.minQty && p.qoh <= p.maxQty).length;
+  const okCount = parts.filter(
+    p => p.qoh >= p.minQty && p.qoh <= p.maxQty,
+  ).length;
   const overCount = parts.filter(p => p.qoh > p.maxQty).length;
   const onPlanCount = parts.filter(p => p.onPlan).length;
 
@@ -552,12 +704,22 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexDeleteStock = useAction(api.inventoryActions.deleteStockItem);
   const convexUpdateSapStatus = useAction(api.inventoryActions.updateSapStatus);
   const convexMarkSapReady = useAction(api.inventoryActions.markSapBatchReady);
-  const convexMarkSapExported = useAction(api.inventoryActions.markSapBatchExported);
+  const convexMarkSapExported = useAction(
+    api.inventoryActions.markSapBatchExported,
+  );
   const convexInsertUser = useAction(api.supabaseGateway.insertUser);
   const convexUpdateUser = useAction(api.supabaseGateway.updateUser);
   const convexDeleteUser = useAction(api.supabaseGateway.deleteUser);
+  const convexRemUpdateAnalyzer = useAction(api.remSupabase.updateAnalyzer);
 
-  const scanPart = async (mode: string, partNumber: string, qty: number, user: string, _analyzerSerial?: string, _batchId?: string) => {
+  const scanPart = async (
+    mode: string,
+    partNumber: string,
+    qty: number,
+    user: string,
+    _analyzerSerial?: string,
+    _batchId?: string,
+  ) => {
     const correlationId = `scan-${partNumber}-${mode}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const result = await convexScanStock({
       partNumber,
@@ -574,7 +736,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
 
   // Debounced loadAll
   const debouncedLoadAll = useCallback(() => {
-    if ((debouncedLoadAll as any)._t) clearTimeout((debouncedLoadAll as any)._t);
+    if ((debouncedLoadAll as any)._t)
+      clearTimeout((debouncedLoadAll as any)._t);
     (debouncedLoadAll as any)._t = setTimeout(() => loadAll(), 300);
   }, [loadAll]);
 
@@ -609,7 +772,9 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       minQty: Number(data.minQty ?? data.min_qty ?? data.min ?? 0),
       maxQty: Number(data.maxQty ?? data.max_qty ?? data.max ?? 0),
       onPlan: (data.onPlan ?? data.on_plan) as boolean | undefined,
-      binLocation: (data.binLocation ?? data.bin_location) as string | undefined,
+      binLocation: (data.binLocation ?? data.bin_location) as
+        | string
+        | undefined,
       module: data.module as string | undefined,
       unitCost: Number(data.unitCost ?? data.unit_cost ?? 0),
     });
@@ -643,7 +808,15 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     debouncedLoadAll();
   };
 
-  const updateEmployee = async (id: string, updates: { name?: string; initials?: string; email?: string; role?: string }) => {
+  const updateEmployee = async (
+    id: string,
+    updates: {
+      name?: string;
+      initials?: string;
+      email?: string;
+      role?: string;
+    },
+  ) => {
     const mapped: Record<string, unknown> = {};
     if (updates.name !== undefined) mapped.display_name = updates.name;
     if (updates.email !== undefined) mapped.username = updates.email;
@@ -662,17 +835,92 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     debouncedLoadAll();
   };
 
+  // ─── REM mutations ───
+
+  const updateAnalyzer = async (
+    id: string,
+    updates: {
+      stage?: string;
+      progress?: number;
+      status?: string;
+      notes?: string;
+      currentStage?: string;
+      overallPct?: number;
+      isComplete?: boolean;
+    },
+  ) => {
+    await convexRemUpdateAnalyzer({ id, ...updates });
+    debouncedLoadAll();
+  };
+
+  const refreshRem = async () => {
+    try {
+      const [an, lv, at2, sm, wn, wb, tw] = await Promise.all([
+        remListAnalyzers() as Promise<REMAnalyzer[]>,
+        remListLvcc() as Promise<LVCCItem[]>,
+        remListTargets() as Promise<AnnualTarget[]>,
+        remListStaff() as Promise<StaffMember[]>,
+        remListWeeklyNotes() as Promise<WeeklyNoteEntry[]>,
+        remListBuildPlan() as Promise<WeeklyBuildPlan[]>,
+        remListTrackerWeekly() as Promise<TrackerWeekly[]>,
+      ]);
+      setAnalyzers(an);
+      setLvccItems(lv);
+      setAnnualTargets(at2);
+      setStaffMembers(sm);
+      setWeeklyNotes(wn);
+      setWeeklyBuildPlan(wb);
+      setTrackerWeekly(tw);
+    } catch {
+      // Silent fallback — data remains from previous load
+    }
+  };
+
   return (
-    <ConvexDataContext.Provider value={{
-      parts, transactions, kits, sapRecords, cycleSchedules, cycleResults,
-      batches, stockLog, employees, settings,
-      analyzers, lvccItems, annualTargets, staffMembers, weeklyNotes, weeklyBuildPlan, trackerWeekly,
-      isLoading, error,
-      totalSKUs, totalQOH, outCount, lowCount, okCount, overCount, onPlanCount,
-      refresh, scanPart, updatePart, deletePart, createPart,
-      markAsReady, markExported, updateSapStatus: updateSapStatusFn, addEmployee,
-      updateEmployee, toggleEmployeeActive, deleteEmployee,
-    }}>
+    <ConvexDataContext.Provider
+      value={{
+        parts,
+        transactions,
+        kits,
+        sapRecords,
+        cycleSchedules,
+        cycleResults,
+        batches,
+        stockLog,
+        employees,
+        settings,
+        analyzers,
+        lvccItems,
+        annualTargets,
+        staffMembers,
+        weeklyNotes,
+        weeklyBuildPlan,
+        trackerWeekly,
+        isLoading,
+        error,
+        totalSKUs,
+        totalQOH,
+        outCount,
+        lowCount,
+        okCount,
+        overCount,
+        onPlanCount,
+        refresh,
+        refreshRem,
+        scanPart,
+        updatePart,
+        deletePart,
+        createPart,
+        markAsReady,
+        markExported,
+        updateSapStatus: updateSapStatusFn,
+        addEmployee,
+        updateEmployee,
+        toggleEmployeeActive,
+        deleteEmployee,
+        updateAnalyzer,
+      }}
+    >
       {children}
     </ConvexDataContext.Provider>
   );
@@ -680,6 +928,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
 
 export function useConvexData() {
   const ctx = useContext(ConvexDataContext);
-  if (!ctx) throw new Error("useConvexData must be used within ConvexDataProvider");
+  if (!ctx)
+    throw new Error("useConvexData must be used within ConvexDataProvider");
   return ctx;
 }

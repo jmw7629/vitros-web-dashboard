@@ -1,3 +1,6 @@
+// DEPRECATED: REM import mutations write to parallel Convex tables.
+// Authoritative source is now Supabase via remSupabase.ts actions.
+// Retained for backward compatibility during migration only.
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
