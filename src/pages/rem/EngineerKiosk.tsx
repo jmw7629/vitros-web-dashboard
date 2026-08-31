@@ -1,17 +1,41 @@
 import { useState } from "react";
+import { useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { useConvexData } from "../../hooks/useConvexData";
 import { WebCard, StatusBadge, ProgressBar, theme } from "../../components/vitros/SharedComponents";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 const STAGES = ["Procurement", "Cleaning", "Service/Repair", "Final Line", "Packaging", "Release Testing", "QA Release", "SAP Release", "Complete"];
 
 export function EngineerKiosk() {
   const data = useConvexData();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const updateAnalyzer = useMutation(api.rem.updateAnalyzer);
+  const [selectedId, setSelectedId] = useState<Id<"remAnalyzers"> | null>(null);
   const [newStage, setNewStage] = useState("");
   const [notes, setNotes] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const activeAnalyzers = data.analyzers.filter(a => !a.isComplete);
   const selected = activeAnalyzers.find(a => a._id === selectedId);
+
+  const handleUpdate = async () => {
+    if (!selected || newStage === selected.currentStage || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await updateAnalyzer({
+        id: selected._id as Id<"remAnalyzers">,
+        stage: newStage,
+        notes: notes.trim() || undefined,
+      });
+      setSelectedId(null);
+      setNewStage("");
+      setNotes("");
+    } catch (err) {
+      console.error("Failed to update analyzer:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -27,7 +51,7 @@ export function EngineerKiosk() {
           </div>
           <div className="divide-y" style={{ borderColor: theme.cardBorder }}>
             {activeAnalyzers.map(a => (
-              <button key={a._id} onClick={() => { setSelectedId(a._id); setNewStage(a.currentStage); }}
+              <button key={a._id} onClick={() => { setSelectedId(a._id as Id<"remAnalyzers">); setNewStage(a.currentStage); }}
                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left">
                 <div className="flex-1">
                   <div className="text-sm font-bold" style={{ color: theme.textPrimary }}>{a.serialNumber}</div>
@@ -70,16 +94,17 @@ export function EngineerKiosk() {
           </WebCard>
 
           <WebCard className="p-4">
-            <label className="text-xs font-semibold" style={{ color: theme.textSecondary }}>Notes</label>
-            <textarea className="w-full mt-1 px-3 py-2 rounded-xl text-sm border resize-none h-20"
+            <label htmlFor="rem-notes" className="text-xs font-semibold" style={{ color: theme.textSecondary }}>Notes</label>
+            <textarea id="rem-notes" className="w-full mt-1 px-3 py-2 rounded-xl text-sm border resize-none h-20"
               style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
               placeholder="Add notes..." value={notes} onChange={e => setNotes(e.target.value)} />
           </WebCard>
 
-          <button disabled={newStage === selected.currentStage}
+          <button disabled={newStage === selected.currentStage || isSubmitting}
+            onClick={handleUpdate}
             className="w-full py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
             style={{ backgroundColor: "#6366f1" }}>
-            Update to {newStage}
+            {isSubmitting ? "Updating..." : `Update to ${newStage}`}
           </button>
         </>
       )}
