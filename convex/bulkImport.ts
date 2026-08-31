@@ -1,5 +1,6 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { requireCapability } from "./authGuard";
 
 export const importParts = mutation({
   args: { batch: v.array(v.any()) },
@@ -34,6 +35,7 @@ export const importKits = mutation({
 export const importAnalyzers = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "rem.write");
     for (const row of batch) {
       await ctx.db.insert("remAnalyzers", row);
     }
@@ -44,6 +46,7 @@ export const importAnalyzers = mutation({
 export const importLvcc = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "rem.write");
     for (const row of batch) {
       await ctx.db.insert("lvccItems", row);
     }
@@ -54,6 +57,7 @@ export const importLvcc = mutation({
 export const importWeeklyNotes = mutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
+    await requireCapability(ctx, "rem.write");
     for (const row of batch) {
       await ctx.db.insert("weeklyNotes", row);
     }
