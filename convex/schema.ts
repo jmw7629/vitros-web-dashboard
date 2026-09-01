@@ -11,11 +11,7 @@ const users = defineTable({
   phoneVerificationTime: v.optional(v.number()),
   isAnonymous: v.optional(v.boolean()),
   role: v.optional(
-    v.union(
-      v.literal("superuser"),
-      v.literal("engineer"),
-      v.literal("viewer"),
-    ),
+    v.union(v.literal("superuser"), v.literal("engineer"), v.literal("viewer")),
   ),
 })
   .index("email", ["email"])
@@ -48,7 +44,8 @@ export default defineSchema({
     usageScore: v.optional(v.number()),
     daysInStock: v.optional(v.number()),
     unitCost: v.optional(v.number()),
-  }).index("by_partNumber", ["partNumber"])
+  })
+    .index("by_partNumber", ["partNumber"])
     .index("by_type", ["type"]),
 
   transactions: defineTable({
@@ -63,7 +60,8 @@ export default defineSchema({
     archived: v.optional(v.boolean()),
     timestamp: v.union(v.number(), v.string()),
     sapStatus: v.optional(v.string()),
-  }).index("by_partNumber", ["partNumber"])
+  })
+    .index("by_partNumber", ["partNumber"])
     .index("by_timestamp", ["timestamp"])
     .index("by_sapStatus", ["sapStatus"]),
 
@@ -94,25 +92,31 @@ export default defineSchema({
     parts: v.array(v.string()),
     countType: v.optional(v.string()),
     createdAt: v.optional(v.number()),
-  }).index("by_status", ["status"])
+  })
+    .index("by_status", ["status"])
     .index("by_nextDue", ["nextDue"]),
 
   cycleResults: defineTable({
     scheduleId: v.string(),
     timestamp: v.number(),
     countedBy: v.string(),
-    results: v.array(v.object({
-      partNumber: v.string(),
-      systemQty: v.number(),
-      countedQty: v.number(),
-      variance: v.number(),
-      wipEntries: v.optional(v.array(v.object({ sn: v.string(), qty: v.number() }))),
-      incomingQty: v.optional(v.number()),
-    })),
+    results: v.array(
+      v.object({
+        partNumber: v.string(),
+        systemQty: v.number(),
+        countedQty: v.number(),
+        variance: v.number(),
+        wipEntries: v.optional(
+          v.array(v.object({ sn: v.string(), qty: v.number() })),
+        ),
+        incomingQty: v.optional(v.number()),
+      }),
+    ),
     status: v.string(),
     sortMode: v.optional(v.string()),
     wipSerials: v.optional(v.array(v.string())),
-  }).index("by_scheduleId", ["scheduleId"])
+  })
+    .index("by_scheduleId", ["scheduleId"])
     .index("by_timestamp", ["timestamp"]),
 
   dhrFolders: defineTable({
@@ -121,21 +125,23 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     scanIds: v.array(v.string()),
-    lines: v.array(v.object({
-      id: v.string(),
-      partNumber: v.string(),
-      description: v.string(),
-      qty: v.number(),
-      category: v.string(),
-      consumed: v.boolean(),
-      section: v.string(),
-      sectionLabel: v.string(),
-      confidence: v.number(),
-      matchStatus: v.string(),
-      isEditing: v.boolean(),
-      scanId: v.optional(v.string()),
-      addedAt: v.optional(v.number()),
-    })),
+    lines: v.array(
+      v.object({
+        id: v.string(),
+        partNumber: v.string(),
+        description: v.string(),
+        qty: v.number(),
+        category: v.string(),
+        consumed: v.boolean(),
+        section: v.string(),
+        sectionLabel: v.string(),
+        confidence: v.number(),
+        matchStatus: v.string(),
+        isEditing: v.boolean(),
+        scanId: v.optional(v.string()),
+        addedAt: v.optional(v.number()),
+      }),
+    ),
     sentToWip: v.boolean(),
     wipScheduleId: v.optional(v.string()),
     wipScheduleName: v.optional(v.string()),
@@ -151,6 +157,9 @@ export default defineSchema({
   }).index("by_status", ["status"]),
 
   // ============ REM TRACKER MODULE ============
+  // DEPRECATED: These Convex tables are retained as fallback during migration.
+  // Authoritative REM source is now Supabase (rem_analyzers, rem_lvcc, etc.)
+  // via convex/remSupabase.ts actions.
 
   remAnalyzers: defineTable({
     serialNumber: v.string(),
@@ -221,8 +230,17 @@ export default defineSchema({
     name: v.string(),
     role: v.string(),
     fte: v.optional(v.number()),
-    certifications: v.optional(v.any()),
-    skills: v.optional(v.any()),
+    certifications: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          issueDate: v.optional(v.string()),
+          expiryDate: v.optional(v.string()),
+          isValid: v.optional(v.boolean()),
+        }),
+      ),
+    ),
+    skills: v.optional(v.record(v.string(), v.string())),
     isLead: v.optional(v.boolean()),
     inTraining: v.optional(v.boolean()),
   }),
@@ -231,10 +249,14 @@ export default defineSchema({
     weekNumber: v.optional(v.number()),
     weekStart: v.optional(v.string()),
     quarter: v.optional(v.string()),
-    notes: v.optional(v.array(v.object({
-      product: v.string(),
-      content: v.string(),
-    }))),
+    notes: v.optional(
+      v.array(
+        v.object({
+          product: v.string(),
+          content: v.string(),
+        }),
+      ),
+    ),
   }),
 
   appSettings: defineTable({

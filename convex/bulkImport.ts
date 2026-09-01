@@ -1,5 +1,9 @@
-import { mutation } from "./_generated/server";
+// DEPRECATED: REM import mutations write to parallel Convex tables.
+// Authoritative source is now Supabase via remSupabase.ts actions.
+// Retained for backward compatibility during migration only.
+
 import { v } from "convex/values";
+import { mutation } from "./_generated/server";
 
 export const importParts = mutation({
   args: { batch: v.array(v.any()) },

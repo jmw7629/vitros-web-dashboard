@@ -1,9 +1,14 @@
-import { mutation, query } from "./_generated/server";
+// DEPRECATED: This file's queries read from the parallel Convex REM tables.
+// Authoritative source is now Supabase via remSupabase.ts actions.
+// The updateAnalyzer mutation is replaced by remSupabase.updateAnalyzer (with RBAC + audit).
+// Retained as fallback during migration only.
+
 import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
 
 export const listAnalyzers = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("remAnalyzers").collect();
   },
 });
@@ -13,60 +18,62 @@ export const getAnalyzerBySerial = query({
   handler: async (ctx, { serialNumber }) => {
     return await ctx.db
       .query("remAnalyzers")
-      .withIndex("by_serialNumber", (q) => q.eq("serialNumber", serialNumber))
+      .withIndex("by_serialNumber", q => q.eq("serialNumber", serialNumber))
       .first();
   },
 });
 
 export const listLvccItems = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("lvccItems").collect();
   },
 });
 
 export const listTargets = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("annualTargets").collect();
   },
 });
 
 export const listStaff = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("staffMembers").collect();
   },
 });
 
 export const listWeeklyNotes = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("weeklyNotes").order("desc").collect();
   },
 });
 
 export const listEmployees = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("employees").collect();
   },
 });
 
 export const listCycleSchedules = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("cycleSchedules").collect();
   },
 });
 
 export const listIncomingBatches = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async ctx => {
     return await ctx.db.query("incomingBatches").collect();
   },
 });
 
+// DEPRECATED: Use remSupabase.updateAnalyzer instead (with RBAC + audit).
+// Retained for backward compatibility during migration.
 export const updateAnalyzer = mutation({
   args: {
     id: v.id("remAnalyzers"),
@@ -78,7 +85,7 @@ export const updateAnalyzer = mutation({
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
     const filtered = Object.fromEntries(
-      Object.entries(updates).filter(([, v]) => v !== undefined)
+      Object.entries(updates).filter(([, v]) => v !== undefined),
     );
     await ctx.db.patch(id, filtered);
   },
