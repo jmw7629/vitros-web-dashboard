@@ -1,10 +1,8 @@
 -- Final browser read-boundary cutover.
 --
--- IMPORTANT: This migration is intentionally stacked behind the reviewed
--- browser-safe-read Edge/client cutover. Do not apply it until the production
--- `browser-safe-read` Edge function is deployed from the exact reviewed source
--- with verify_jwt=false and its post-deploy read smoke passes. Applying this to
--- current main before that cutover would remove the emergency browser fallback.
+-- IMPORTANT: Apply only after the reviewed browser-safe-read Edge/client cutover
+-- is live in production, the Edge function is deployed from the exact reviewed
+-- source with verify_jwt=false, and its post-deploy read smoke passes.
 --
 -- Scope is deliberately narrow: remove only the temporary anonymous SELECT
 -- policies/grants on the four base tables. No authenticated/service-role grants,
