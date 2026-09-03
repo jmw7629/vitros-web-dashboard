@@ -1,24 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useAction, useConvexAuth } from "convex/react";
+import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
-
-// ─── Supabase anon read-only fallback (for reads when actions are unavailable) ───
-// SECURITY: Only the anon key is used here for reads. The service_role key is NEVER in the browser.
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-
-async function sbAnonQuery<T>(table: string, params: string = ""): Promise<T[]> {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [];
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${params ? "&" + params : ""}`, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-    },
-  });
-  if (!res.ok) return [];
-  return (await res.json()) as T[];
-}
+import { browserSafeRead } from "../lib/browserSafeRead";
 
 // ─── Convex HTTP helpers (for REM data still on Convex production backend) ───
 const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
@@ -406,7 +389,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       // ─── Inventory reads: prefer Convex actions (server-side, authenticated) ───
-      // Falls back to anon Supabase reads if actions fail (e.g., not authenticated yet)
+      // If those actions are unavailable, use only the public least-privilege Edge boundary.
       let stockRows: any[] = [];
       let auditRows: any[] = [];
       let sapRows: any[] = [];
@@ -422,14 +405,15 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
           convexListSettings(),
         ]);
       } catch {
-        // Auth may not be ready yet — fall back to anon reads
-        [stockRows, auditRows, sapRows, userRows, settingsRows] = await Promise.all([
-          sbAnonQuery<any>("stock", "order=part_number.asc"),
-          sbAnonQuery<any>("audit_log", "order=created_at.desc&limit=500"),
-          sbAnonQuery<any>("sap_staging", "order=created_at.desc"),
-          sbAnonQuery<any>("users", "order=display_name.asc"),
-          sbAnonQuery<any>("settings").catch(() => [] as any[]),
+        // Stock is critical and intentionally fails closed. Noncritical browser-safe reads may degrade independently.
+        [stockRows, auditRows, sapRows, settingsRows] = await Promise.all([
+          browserSafeRead<any>("stock"),
+          browserSafeRead<any>("audit").catch(() => [] as any[]),
+          browserSafeRead<any>("sap").catch(() => [] as any[]),
+          browserSafeRead<any>("settings").catch(() => [] as any[]),
         ]);
+        // Employee identity is server-authoritative only; never anonymously query users.
+        userRows = [];
       }
 
       const mappedParts = stockRows.map(mapStockToPart);
