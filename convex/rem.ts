@@ -1,4 +1,8 @@
-import { mutation, query } from "./_generated/server";
+// DEPRECATED: This file's queries read from the parallel Convex REM tables.
+// Authoritative source is migrating to Supabase via secure server actions.
+// Legacy writes are internal-only so browser/API callers cannot mutate fallback state.
+
+import { internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const listAnalyzers = query({
@@ -67,7 +71,9 @@ export const listIncomingBatches = query({
   },
 });
 
-export const updateAnalyzer = mutation({
+// Internal-only compatibility path. Browser/API callers must use the secure
+// authoritative REM server actions once the Supabase cutover lands.
+export const updateAnalyzer = internalMutation({
   args: {
     id: v.id("remAnalyzers"),
     stage: v.optional(v.string()),
@@ -78,7 +84,7 @@ export const updateAnalyzer = mutation({
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
     const filtered = Object.fromEntries(
-      Object.entries(updates).filter(([, v]) => v !== undefined)
+      Object.entries(updates).filter(([, value]) => value !== undefined)
     );
     await ctx.db.patch(id, filtered);
   },
