@@ -1,4 +1,4 @@
-const BASE = "https://oykqiiydpwngasvzdthh.supabase.co/functions/v1/browser-safe-read-staging";
+const BASE = "https://oykqiiydpwngasvzdthh.supabase.co/functions/v1/browser-safe-read";
 
 const ALLOWED_FIELDS = {
   stock: new Set([
@@ -85,4 +85,4 @@ const post = await request("stock", {
 });
 assert(post.status === 405, `POST expected HTTP 405, received ${post.status}`);
 
-console.log("browser-safe-read staging runtime smoke: PASS");
+console.log("browser-safe-read production runtime smoke: PASS");
