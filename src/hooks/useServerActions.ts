@@ -15,6 +15,8 @@ export function useServerActions() {
   const deleteDhrSession = useAction(api.supabaseGateway.deleteDhrSession);
   const deleteDhrSessionWithResults = useAction(api.supabaseGateway.deleteDhrSessionWithResults);
   const uploadToStorage = useAction(api.supabaseGateway.uploadToStorage);
+  const scanStockTransition = useAction(api.inventoryActions.scanStockTransition);
+  const ocrDhrPage = useAction(api.aiGateway.ocrDhrPage);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
     switch (table) {
@@ -63,5 +65,12 @@ export function useServerActions() {
     return uploadToStorage({ bucket, path, data, contentType });
   }, [uploadToStorage]);
 
-  return { sbInsert, sbUpdate, sbDelete, sbUpload };
+  return {
+    sbInsert,
+    sbUpdate,
+    sbDelete,
+    sbUpload,
+    scanStockTransition,
+    ocrDhrPage,
+  };
 }
