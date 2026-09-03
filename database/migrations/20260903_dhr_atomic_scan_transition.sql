@@ -80,6 +80,8 @@ declare
   v_sap_id uuid := null;
   v_event_id uuid;
   v_canonical_part text;
+  v_result_match_count integer := 0;
+  v_stock_match_count integer := 0;
 begin
   if p_session_id is null then
     raise exception 'sessionId is required';
@@ -156,7 +158,19 @@ begin
     );
   end if;
 
-  -- Row lock complements the logical field advisory lock for an existing row.
+  -- Fail closed if historic data contains more than one canonical DHR result.
+  -- The raw unique constraint is case/whitespace sensitive, so ambiguity must not
+  -- be silently resolved by SELECT INTO.
+  select count(*) into v_result_match_count
+  from public.dhr_scan_results
+  where session_id = p_session_id
+    and section_id = p_section_id
+    and upper(btrim(part_number)) = v_canonical_part;
+
+  if v_result_match_count > 1 then
+    raise exception 'Ambiguous canonical DHR result for part %', p_part_number;
+  end if;
+
   select * into v_result
   from public.dhr_scan_results
   where session_id = p_session_id
@@ -193,14 +207,22 @@ begin
   -- existing audited/idempotent inventory primitive inside this same transaction,
   -- making stock + audit + SAP staging + DHR state all-or-nothing.
   if lower(p_category) <> 'tool' then
+    -- Production currently contains a quarantined legacy canonical collision.
+    -- Never select an arbitrary stock row when a canonical key is ambiguous.
+    select count(*) into v_stock_match_count
+    from public.stock
+    where upper(btrim(part_number)) = v_canonical_part;
+
+    if v_stock_match_count = 0 then
+      raise exception 'Part not found: %', p_part_number;
+    elsif v_stock_match_count > 1 then
+      raise exception 'Ambiguous canonical stock part: %', p_part_number;
+    end if;
+
     select * into v_stock
     from public.stock
     where upper(btrim(part_number)) = v_canonical_part
     for update;
-
-    if not found then
-      raise exception 'Part not found: %', p_part_number;
-    end if;
 
     v_stock_before := coalesce(v_stock.qty_on_hand, 0);
     v_stock_after := v_stock_before;
