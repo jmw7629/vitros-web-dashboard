@@ -130,8 +130,12 @@ revoke all on function public.browser_read_stock() from public;
 revoke all on function public.browser_read_audit_log() from public;
 revoke all on function public.browser_read_sap_staging() from public;
 revoke all on function public.browser_read_settings() from public;
+revoke all on function public.browser_read_stock() from authenticated;
+revoke all on function public.browser_read_audit_log() from authenticated;
+revoke all on function public.browser_read_sap_staging() from authenticated;
+revoke all on function public.browser_read_settings() from authenticated;
 
-grant execute on function public.browser_read_stock() to anon, authenticated;
-grant execute on function public.browser_read_audit_log() to anon, authenticated;
-grant execute on function public.browser_read_sap_staging() to anon, authenticated;
-grant execute on function public.browser_read_settings() to anon, authenticated;
+grant execute on function public.browser_read_stock() to anon;
+grant execute on function public.browser_read_audit_log() to anon;
+grant execute on function public.browser_read_sap_staging() to anon;
+grant execute on function public.browser_read_settings() to anon;
