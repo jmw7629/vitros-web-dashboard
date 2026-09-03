@@ -1,9 +1,30 @@
 import fs from "node:fs";
 
-const target = "src/lib/browserSafeRead.ts";
-const source = fs.readFileSync(target, "utf8");
+const clientPath = "src/lib/browserSafeRead.ts";
+const edgePath = "supabase/functions/browser-safe-read/index.ts";
+const configPath = "supabase/config.toml";
 
-const required = [
+const client = fs.readFileSync(clientPath, "utf8");
+const edge = fs.readFileSync(edgePath, "utf8");
+const config = fs.readFileSync(configPath, "utf8");
+
+function requireTokens(source, label, tokens) {
+  for (const token of tokens) {
+    if (!source.includes(token)) {
+      throw new Error(`${label} invariant missing: ${token}`);
+    }
+  }
+}
+
+function forbidTokens(source, label, tokens) {
+  for (const token of tokens) {
+    if (source.includes(token)) {
+      throw new Error(`${label} forbidden token found: ${token}`);
+    }
+  }
+}
+
+requireTokens(client, "browser client", [
   '"stock"',
   '"audit"',
   '"sap"',
@@ -11,15 +32,9 @@ const required = [
   "/functions/v1/browser-safe-read",
   'method: "GET"',
   'cache: "no-store"',
-];
+]);
 
-for (const token of required) {
-  if (!source.includes(token)) {
-    throw new Error(`browser-safe-read invariant missing: ${token}`);
-  }
-}
-
-const forbidden = [
+forbidTokens(client, "browser client", [
   "service_role",
   "SUPABASE_SERVICE_ROLE",
   "VITE_SUPABASE_ANON_KEY",
@@ -34,16 +49,42 @@ const forbidden = [
   'method: "PUT"',
   'method: "PATCH"',
   'method: "DELETE"',
-];
+]);
 
-for (const token of forbidden) {
-  if (source.includes(token)) {
-    throw new Error(`browser-safe-read forbidden token found: ${token}`);
-  }
+if (!/throw new Error\(/.test(client)) {
+  throw new Error("browser client must fail closed with explicit errors");
 }
 
-if (!/throw new Error\(/.test(source)) {
-  throw new Error("browser-safe-read must fail closed with explicit errors");
+requireTokens(edge, "edge boundary", [
+  'new Set(["stock", "audit", "sap", "settings"])',
+  '"Access-Control-Allow-Methods": "GET, OPTIONS"',
+  '"Cache-Control": "no-store, max-age=0"',
+  'if (request.method !== "GET")',
+  '"stock?select=id,part_number,description,type,qty_on_hand,min_qty,max_qty,on_plan,bin_location,module,unit_cost,last_activity,status,updated_at&order=part_number.asc"',
+  '"audit_log?select=id,action,part_number,user_name,created_at,new_value&order=created_at.desc&limit=500"',
+  '"sap_staging?select=id,created_at,mode,part_number,description,qty_on_hand,qty_before,qty_after,movement_type,plant_code,storage_location,export_status&order=created_at.desc"',
+  'const allowed = "sapHeaderText,sapMovementADJUST,sapMovementIN,sapMovementOUT,sapPlantCode,sapStorageLocation"',
+  'Deno.env.get("SUPABASE_SECRET_KEYS")',
+  'Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")',
+  'headers.Authorization = `Bearer ${serverKey.value}`',
+]);
+
+forbidTokens(edge, "edge boundary", [
+  "select=*",
+  "ip_address",
+  'method: "POST"',
+  'method: "PUT"',
+  'method: "PATCH"',
+  'method: "DELETE"',
+]);
+
+if (!/serverKey\.kind === "legacy_service_role"/.test(edge)) {
+  throw new Error("edge boundary must gate Bearer authorization to legacy service-role keys only");
 }
+
+requireTokens(config, "supabase function config", [
+  "[functions.browser-safe-read]",
+  "verify_jwt = false",
+]);
 
 console.log("browser-safe-read security invariants: PASS");
