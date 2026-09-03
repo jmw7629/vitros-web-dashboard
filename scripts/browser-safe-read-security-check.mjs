@@ -57,6 +57,7 @@ if (!/throw new Error\(/.test(client)) {
   throw new Error("browser client must fail closed with explicit errors");
 }
 
+// Bind the application data hook itself to the safe-read boundary; checking the helper alone is insufficient.
 requireTokens(hook, "browser data hook", [
   'import { browserSafeRead } from "../lib/browserSafeRead"',
   'browserSafeRead<any>("stock")',
