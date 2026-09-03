@@ -18,31 +18,48 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function getSupabaseSecretKey(): string | null {
+type SupabaseServerKey = {
+  value: string;
+  kind: "secret" | "legacy_service_role";
+};
+
+function getSupabaseServerKey(): SupabaseServerKey | null {
   const modern = Deno.env.get("SUPABASE_SECRET_KEYS");
   if (modern) {
     try {
       const parsed = JSON.parse(modern) as Record<string, string>;
-      if (typeof parsed.default === "string" && parsed.default.length > 0) return parsed.default;
+      if (typeof parsed.default === "string" && parsed.default.startsWith("sb_secret_")) {
+        return { value: parsed.default, kind: "secret" };
+      }
     } catch {
       // Fall through to the legacy server-only key during the 2026 key migration window.
     }
   }
-  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || null;
+
+  const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  return legacy ? { value: legacy, kind: "legacy_service_role" } : null;
 }
 
 async function postgrest(path: string): Promise<unknown[]> {
   const baseUrl = Deno.env.get("SUPABASE_URL");
-  const secretKey = getSupabaseSecretKey();
-  if (!baseUrl || !secretKey) throw new Error("server_configuration_missing");
+  const serverKey = getSupabaseServerKey();
+  if (!baseUrl || !serverKey) throw new Error("server_configuration_missing");
+
+  const headers: Record<string, string> = {
+    apikey: serverKey.value,
+    Accept: "application/json",
+  };
+
+  // Modern sb_secret keys are API keys, not JWTs, and must not be sent as Bearer tokens.
+  // The legacy service-role key is JWT-based and retains its Authorization header only
+  // for migration compatibility until it is retired.
+  if (serverKey.kind === "legacy_service_role") {
+    headers.Authorization = `Bearer ${serverKey.value}`;
+  }
 
   const response = await fetch(`${baseUrl}/rest/v1/${path}`, {
     method: "GET",
-    headers: {
-      apikey: secretKey,
-      Authorization: `Bearer ${secretKey}`,
-      Accept: "application/json",
-    },
+    headers,
     cache: "no-store",
   });
 
