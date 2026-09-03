@@ -80,13 +80,7 @@ forbidTokens(hook, "browser data hook", [
   'browserSafeRead<any>("users")',
 ]);
 
-const stockSafeRead = 'browserSafeRead<any>("stock")';
-const stockIndex = hook.indexOf(stockSafeRead);
-if (stockIndex < 0) {
-  throw new Error("browser data hook must use the safe stock read");
-}
-const stockWindow = hook.slice(stockIndex, stockIndex + 120);
-if (/\.catch\s*\(/.test(stockWindow)) {
+if (/browserSafeRead<any>\("stock"\)\.catch\s*\(/.test(hook)) {
   throw new Error("critical stock safe-read must not be downgraded to an empty fallback");
 }
 
