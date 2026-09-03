@@ -79,6 +79,7 @@ declare
   v_audit_id uuid := null;
   v_sap_id uuid := null;
   v_event_id uuid;
+  v_canonical_part text;
 begin
   if p_session_id is null then
     raise exception 'sessionId is required';
@@ -98,6 +99,9 @@ begin
   if p_expected_revision is null or p_expected_revision < 0 then
     raise exception 'expected revision must be zero or greater';
   end if;
+  if p_category is null or btrim(p_category) = '' then
+    raise exception 'category is required';
+  end if;
   if p_actor is null or btrim(p_actor) = '' then
     raise exception 'actor is required';
   end if;
@@ -105,13 +109,33 @@ begin
     raise exception 'correlationId is required';
   end if;
 
+  v_canonical_part := upper(btrim(p_part_number));
+
+  -- Serialize globally on the idempotency key first, then on the logical DHR
+  -- field. The field lock exists even before a result row does, which closes the
+  -- concurrent-first-write race that a row lock alone cannot prevent.
+  perform pg_advisory_xact_lock(hashtextextended('dhr-correlation|' || p_correlation_id, 0));
+  perform pg_advisory_xact_lock(hashtextextended(
+    'dhr-field|' || p_session_id::text || '|' || p_section_id || '|' || v_canonical_part,
+    0
+  ));
+
   -- Retry of an already committed event returns the original receipt and never
   -- moves stock again, even if the DHR row has since advanced to a newer revision.
+  -- Reusing a correlation id for different intent is rejected rather than
+  -- disclosing or aliasing another DHR event.
   select * into v_existing_event
   from public.dhr_scan_result_events
   where correlation_id = p_correlation_id;
 
   if found then
+    if v_existing_event.session_id <> p_session_id
+      or v_existing_event.section_id <> p_section_id
+      or upper(btrim(v_existing_event.part_number)) <> v_canonical_part
+      or v_existing_event.new_qty <> p_new_qty then
+      raise exception 'correlationId already used for a different DHR event';
+    end if;
+
     return jsonb_build_object(
       'success', true,
       'duplicate', true,
@@ -132,13 +156,12 @@ begin
     );
   end if;
 
-  -- Serialize edits to one DHR field. Canonical part matching is deliberately
-  -- conservative: trim surrounding whitespace and compare case-insensitively.
+  -- Row lock complements the logical field advisory lock for an existing row.
   select * into v_result
   from public.dhr_scan_results
   where session_id = p_session_id
     and section_id = p_section_id
-    and upper(btrim(part_number)) = upper(btrim(p_part_number))
+    and upper(btrim(part_number)) = v_canonical_part
   for update;
 
   if found then
@@ -169,10 +192,10 @@ begin
   -- Tools/non-consumables update checklist state only. Consumable deltas use the
   -- existing audited/idempotent inventory primitive inside this same transaction,
   -- making stock + audit + SAP staging + DHR state all-or-nothing.
-  if lower(coalesce(p_category, '')) <> 'tool' then
+  if lower(p_category) <> 'tool' then
     select * into v_stock
     from public.stock
-    where upper(btrim(part_number)) = upper(btrim(p_part_number))
+    where upper(btrim(part_number)) = v_canonical_part
     for update;
 
     if not found then
@@ -234,7 +257,7 @@ begin
         status = v_status,
         stock_before = v_stock_before,
         stock_after = v_stock_after,
-        stock_id = case when lower(coalesce(p_category, '')) = 'tool' then null else v_stock.id end,
+        stock_id = case when lower(p_category) = 'tool' then null else v_stock.id end,
         scanned_at = now(),
         scanned_by = p_actor,
         updated_at = now(),
