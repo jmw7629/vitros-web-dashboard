@@ -29,6 +29,8 @@ jobs:
         run: node scripts/check-secrets.mjs
       - name: Browser safe-read boundary check
         run: node scripts/browser-safe-read-security-check.mjs
+      - name: Browser safe-read staging runtime smoke
+        run: node scripts/browser-safe-read-staging-smoke.mjs
       - name: Lint
         run: npm run lint || true
       - name: Git diff check
