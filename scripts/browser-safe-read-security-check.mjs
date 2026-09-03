@@ -1,10 +1,12 @@
 import fs from "node:fs";
 
 const clientPath = "src/lib/browserSafeRead.ts";
+const hookPath = "src/hooks/useConvexData.tsx";
 const edgePath = "supabase/functions/browser-safe-read/index.ts";
 const configPath = "supabase/config.toml";
 
 const client = fs.readFileSync(clientPath, "utf8");
+const hook = fs.readFileSync(hookPath, "utf8");
 const edge = fs.readFileSync(edgePath, "utf8");
 const config = fs.readFileSync(configPath, "utf8");
 
@@ -53,6 +55,38 @@ forbidTokens(client, "browser client", [
 
 if (!/throw new Error\(/.test(client)) {
   throw new Error("browser client must fail closed with explicit errors");
+}
+
+requireTokens(hook, "browser data hook", [
+  'import { browserSafeRead } from "../lib/browserSafeRead"',
+  'browserSafeRead<any>("stock")',
+  'browserSafeRead<any>("audit").catch(() => [] as any[])',
+  'browserSafeRead<any>("sap").catch(() => [] as any[])',
+  'browserSafeRead<any>("settings").catch(() => [] as any[])',
+  "setError(e instanceof Error ? e.message : \"Failed to load data\")",
+  "userRows = [];",
+]);
+
+forbidTokens(hook, "browser data hook", [
+  "VITE_SUPABASE_ANON_KEY",
+  "sbAnonQuery",
+  "/rest/v1/stock",
+  "/rest/v1/audit_log",
+  "/rest/v1/sap_staging",
+  "/rest/v1/settings",
+  "/rest/v1/users",
+  "select=*",
+  'browserSafeRead<any>("users")',
+]);
+
+const stockSafeRead = 'browserSafeRead<any>("stock")';
+const stockIndex = hook.indexOf(stockSafeRead);
+if (stockIndex < 0) {
+  throw new Error("browser data hook must use the safe stock read");
+}
+const stockWindow = hook.slice(stockIndex, stockIndex + 120);
+if (/\.catch\s*\(/.test(stockWindow)) {
+  throw new Error("critical stock safe-read must not be downgraded to an empty fallback");
 }
 
 requireTokens(edge, "edge boundary", [
