@@ -10,16 +10,87 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: 3b253690f68740f04f3e661a2b392dad608bd94f
+      BASE_SHA: 8cfa7bf3893a97c88a9ebdf054f2913394e3d5d3
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - name: Fetch exact implementation head read-only
-        env:
-          TARGET_SHA: 3b253690f68740f04f3e661a2b392dad608bd94f
         run: git fetch --no-tags --depth=1 origin "$TARGET_SHA"
-      - name: Verify exact implementation head
-        run: node scripts/verify-dhr-scanner-atomic-175.mjs
+      - name: Verify exact implementation file set
+        shell: bash
+        run: |
+          test "$(git rev-parse "$TARGET_SHA")" = "$TARGET_SHA"
+          expected=$'.github/workflows/ci.yml\nconvex/dhrInventoryActions.ts\nconvex/users.ts\nscripts/dhr-scanner-atomic-security-check.mjs\nsrc/components/vitros/SharedComponents.tsx\nsrc/hooks/useServerActions.ts\nsrc/pages/inventory/DhrScanner.tsx'
+          test "$(git diff --name-only "$BASE_SHA" "$TARGET_SHA" | sort)" = "$expected"
+      - name: Verify DHR UI atomic path
+        shell: bash
+        run: |
+          ui="$(git show "$TARGET_SHA:src/pages/inventory/DhrScanner.tsx")"
+          grep -Fq 'loadDhrScannerData' <<<"$ui"
+          grep -Fq 'loadDhrSessionResults' <<<"$ui"
+          grep -Fq 'applyDhrChecklistChange' <<<"$ui"
+          grep -Fq 'expectedRevision: existing?.revision ?? 0' <<<"$ui"
+          grep -Fq 'ocrDhrPage' <<<"$ui"
+          grep -Fq 'capture="environment"' <<<"$ui"
+          grep -Fq 'Confirm & apply' <<<"$ui"
+          grep -Eq 'applyQuantity\(result\.section_id, *result\.part_number, *0' <<<"$ui"
+          grep -Fq 'data.refresh()' <<<"$ui"
+      - name: Reject legacy DHR browser mutation and secret paths
+        shell: bash
+        run: |
+          ui="$(git show "$TARGET_SHA:src/pages/inventory/DhrScanner.tsx")"
+          ! grep -Fq 'VITE_OPENAI_KEY' <<<"$ui"
+          ! grep -Fq 'api.openai.com' <<<"$ui"
+          ! grep -Fq 'VITE_SUPABASE_ANON_KEY' <<<"$ui"
+          ! grep -Fq 'sbUpdate("stock"' <<<"$ui"
+          ! grep -Fq 'sbInsert("audit_log"' <<<"$ui"
+          ! grep -Fq 'sbInsert("sap_staging"' <<<"$ui"
+          ! grep -Fq 'sbDelete("dhr_scan_results"' <<<"$ui"
+          ! grep -Fq 'qty || 1' <<<"$ui"
+          ! grep -Fq 'localStorage' <<<"$ui"
+      - name: Verify server identity and atomic RPC boundary
+        shell: bash
+        run: |
+          hook="$(git show "$TARGET_SHA:src/hooks/useServerActions.ts")"
+          server="$(git show "$TARGET_SHA:convex/dhrInventoryActions.ts")"
+          users="$(git show "$TARGET_SHA:convex/users.ts")"
+          grep -Fq 'api.dhrInventoryActions.applyScanTransition' <<<"$hook"
+          grep -Fq 'buildDhrCorrelationId' <<<"$hook"
+          grep -Fq 'api.aiGateway.ocrDhrPage' <<<"$hook"
+          grep -Fq 'userIdAndProvider' <<<"$users"
+          grep -Fq '"vitros-role"' <<<"$users"
+          grep -Fq 'providerAccountId.startsWith("employee:")' <<<"$users"
+          grep -Fq 'requireCapability(ctx, "inventory.write")' <<<"$server"
+          grep -Fq 'internal.users.getUserAuditIdentity' <<<"$server"
+          grep -Fq 'convex_employees?select=id,name,initials,active&id=eq.' <<<"$server"
+          grep -Fq '/rest/v1/rpc/apply_dhr_scan_transition' <<<"$server"
+          grep -Fq 'p_expected_revision: args.expectedRevision' <<<"$server"
+          grep -Fq 'p_actor: actor' <<<"$server"
+          ! grep -Fq 'args.actor' <<<"$server"
+          ! grep -Fq 'args.initials' <<<"$server"
+      - name: Verify immutable atomic database foundation
+        shell: bash
+        run: |
+          migration="$(git show "$BASE_SHA:database/migrations/20260903_dhr_atomic_scan_transition.sql")"
+          grep -Fq 'create table if not exists public.dhr_scan_result_events' <<<"$migration"
+          grep -Fq 'DHR scan event history is immutable' <<<"$migration"
+          grep -Fq 'pg_advisory_xact_lock' <<<"$migration"
+          grep -Fq 'DHR revision conflict' <<<"$migration"
+          grep -Fq 'Ambiguous canonical stock part' <<<"$migration"
+          grep -Fq 'public.apply_inventory_transition' <<<"$migration"
+          grep -Fq 'from public, anon, authenticated' <<<"$migration"
+          grep -Fq 'to service_role' <<<"$migration"
+          ! grep -Fq 'to anon;' <<<"$migration"
+          ! grep -Fq 'to authenticated;' <<<"$migration"
+      - name: Verify dedicated implementation regression gate
+        shell: bash
+        run: |
+          ci="$(git show "$TARGET_SHA:.github/workflows/ci.yml")"
+          check="$(git show "$TARGET_SHA:scripts/dhr-scanner-atomic-security-check.mjs")"
+          grep -Fq 'node scripts/dhr-scanner-atomic-security-check.mjs' <<<"$ci"
+          grep -Fq 'DHR atomic scanner security invariants: PASS' <<<"$check"
+      - name: Terminal verifier result
+        run: echo "VERIFY=PASS SHA=$TARGET_SHA"
