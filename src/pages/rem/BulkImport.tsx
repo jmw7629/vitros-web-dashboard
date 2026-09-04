@@ -71,8 +71,8 @@ function parseRemWorkbook(fileName: string, fileHash: string, workbook: XLSX.Wor
     .filter((value): value is { name: string; week: number } => Boolean(value))
     .sort((a, b) => b.week - a.week);
 
-  let sourceSheet = wipCandidates[0]?.name;
-  let sourceWeek = wipCandidates[0]?.week;
+  let sourceSheet: string | undefined = wipCandidates[0]?.name;
+  let sourceWeek: number | undefined = wipCandidates[0]?.week;
   if (!sourceSheet) {
     const fallback = normalizedNames.find(sheet => sheet.normalized.startsWith("wip productivity vitros"));
     sourceSheet = fallback?.name;
