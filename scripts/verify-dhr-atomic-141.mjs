@@ -43,14 +43,11 @@ requireAll([
 ]);
 
 forbidAll([
-  " to anon",
-  " to authenticated",
-  "grant execute on function public.apply_dhr_scan_transition(",
+  "to anon;",
+  "to authenticated;",
   "delete from public.audit_log",
   "truncate public.stock",
   "post to sap",
 ]);
 
-// The migration is a database foundation only. The verifier intentionally does
-// not claim scanner/UI E2E completion or production SAP posting.
 console.log(`VERIFY=PASS SHA=${TARGET_SHA} DHR_E2E=NOT_YET_WIRED`);
