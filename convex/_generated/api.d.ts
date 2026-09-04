@@ -16,6 +16,7 @@ import type * as bulkImport from "../bulkImport.js";
 import type * as constants from "../constants.js";
 import type * as cycleCount from "../cycleCount.js";
 import type * as dhr from "../dhr.js";
+import type * as dhrInventoryActions from "../dhrInventoryActions.js";
 import type * as employees from "../employees.js";
 import type * as http from "../http.js";
 import type * as inventoryActions from "../inventoryActions.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   constants: typeof constants;
   cycleCount: typeof cycleCount;
   dhr: typeof dhr;
+  dhrInventoryActions: typeof dhrInventoryActions;
   employees: typeof employees;
   http: typeof http;
   inventoryActions: typeof inventoryActions;
