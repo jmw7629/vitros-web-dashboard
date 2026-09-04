@@ -25,7 +25,7 @@ VERIFY_MARKER = "<!-- vitros-opencode-verify:v1 -->"
 LEGACY_VERIFY_MARKER = "joeos-opencode-bridge:v1"
 DEFAULT_REPO = "jmw7629/vitros-web-dashboard"
 TERMINAL_RE = re.compile(
-    r"^VERIFY=(PASS|FAIL|BLOCKED)(?:\s+SHA=([0-9a-f]{40}))?(?:\s+REASON=(.*))?$",
+    r"VERIFY=(PASS|FAIL|BLOCKED)\s+SHA=([0-9a-f]{40})(?:\s+REASON=([^\r\n\"\\]+))?",
     re.IGNORECASE,
 )
 SHA_RE = re.compile(r"\b[0-9a-f]{40}\b", re.IGNORECASE)
@@ -74,7 +74,7 @@ def sanitize(value: str) -> str:
     text = value.replace("\x00", "")
     for pattern in SECRET_PATTERNS:
         if pattern.groups:
-            text = pattern.sub(lambda m: f"{m.group(1)}[REDACTED]", text)
+            text = pattern.sub(lambda match: f"{match.group(1)}[REDACTED]", text)
         else:
             text = pattern.sub("[REDACTED]", text)
     return text[-6000:]
@@ -141,7 +141,7 @@ def validate_opencode() -> str:
         raise BridgeError("OpenCode --version returned no version.")
     help_text = run([resolved_path, "run", "--help"], check=False, timeout=30)
     combined = f"{help_text.stdout}\n{help_text.stderr}"
-    for flag in ("--dir", "--format"):
+    for flag in ("--dir", "--auto", "--format"):
         if flag not in combined:
             raise BridgeError(f"OpenCode run is missing required flag {flag}")
     return resolved_path
@@ -162,9 +162,13 @@ def list_tasks(repo: str) -> list[dict[str, Any]]:
         title = (issue.get("title") or "").strip()
         body = issue.get("body") or ""
         marker_ok = VERIFY_MARKER in body or LEGACY_VERIFY_MARKER in body
-        if author in allowed and title.startswith("[VERIFY]") and marker_ok:
+        # This recovery worker intentionally handles exact-PR verifier jobs only.
+        # Historical production-head verifier issues without a PR are left alone.
+        target_ok = PR_RE.search(body) is not None and SHA_RE.search(body) is not None
+        if author in allowed and title.startswith("[VERIFY]") and marker_ok and target_ok:
             selected.append(issue)
-    return sorted(selected, key=lambda item: int(item["number"]))
+    # New verifier work should not sit behind stale historical tasks.
+    return sorted(selected, key=lambda item: int(item["number"]), reverse=True)
 
 
 def parse_target(body: str) -> tuple[int, str]:
@@ -191,13 +195,12 @@ def resolve_pr(repo: str, pr_number: int, expected_sha: str) -> dict[str, str]:
         raise BridgeError(
             f"PR #{pr_number} head moved: expected {expected_sha}, current {head or 'unknown'}"
         )
-    if str(raw.get("state") or "").upper() != "OPEN":
-        raise BridgeError(f"PR #{pr_number} is not open.")
     return {
         "head": head,
         "base": str(raw.get("baseRefOid") or "").lower(),
         "url": str(raw.get("url") or ""),
         "title": str(raw.get("title") or ""),
+        "state": str(raw.get("state") or "").upper(),
     }
 
 
@@ -226,18 +229,18 @@ VERIFY=BLOCKED SHA={target_sha} REASON=<concise blocker>
 
 
 def extract_terminal(stdout: str, stderr: str, target_sha: str) -> tuple[str, str]:
-    lines = [line.strip() for line in f"{stdout}\n{stderr}".splitlines() if line.strip()]
-    for line in reversed(lines):
-        match = TERMINAL_RE.match(line)
-        if not match:
-            continue
-        status = match.group(1).upper()
-        sha = (match.group(2) or "").lower()
-        reason = sanitize((match.group(3) or "").strip())
-        if sha != target_sha:
-            return "BLOCKED", f"Verifier returned terminal SHA {sha or 'missing'} instead of {target_sha}."
-        return status, reason
-    return "BLOCKED", "OpenCode did not emit the required terminal verifier line."
+    # OpenCode JSON output may embed the assistant terminal line inside a JSON string,
+    # so search the raw output and use the last terminal result emitted.
+    matches = list(TERMINAL_RE.finditer(f"{stdout}\n{stderr}"))
+    if not matches:
+        return "BLOCKED", "OpenCode did not emit the required terminal verifier line."
+    match = matches[-1]
+    status = match.group(1).upper()
+    sha = match.group(2).lower()
+    reason = sanitize((match.group(3) or "").strip())
+    if sha != target_sha:
+        return "BLOCKED", f"Verifier returned terminal SHA {sha} instead of {target_sha}."
+    return status, reason
 
 
 def safe_worktree_status(worktree: Path) -> str:
@@ -270,7 +273,6 @@ def execute_task(
     issue_number = int(issue["number"])
     body = issue.get("body") or ""
     pr_number, target_sha = parse_target(body)
-    pr = resolve_pr(repo, pr_number, target_sha)
     task_key = f"{issue_number}:{pr_number}:{target_sha}"
     if task_key in state["completed"]:
         return
@@ -279,9 +281,27 @@ def execute_task(
     if int(retry.get("next", 0)) > int(time.time()):
         return
 
+    pr = resolve_pr(repo, pr_number, target_sha)
+    if pr["state"] != "OPEN":
+        # A closed/merged PR no longer needs verifier capacity; remember this locally
+        # without posting noisy BLOCKED comments to historical verifier issues.
+        state["completed"][task_key] = {
+            "status": "STALE",
+            "issue": issue_number,
+            "pr": pr_number,
+            "sha": target_sha,
+            "time": int(time.time()),
+        }
+        state["retry"].pop(task_key, None)
+        save_state(state_path, state)
+        return
+
     run(["git", "fetch", "--prune", "origin", f"pull/{pr_number}/head"], cwd=root)
     # Re-read the PR after fetching to close the race between resolution and checkout.
     pr = resolve_pr(repo, pr_number, target_sha)
+    if pr["state"] != "OPEN":
+        return
+
     worktree = worktree_root / f"verify-{issue_number}-{target_sha[:10]}"
     if worktree.exists():
         run(["git", "worktree", "remove", "--force", str(worktree)], cwd=root, check=False)
@@ -305,6 +325,7 @@ def execute_task(
             "run",
             "--dir",
             str(worktree),
+            "--auto",
             "--format",
             "json",
             "--title",
@@ -332,7 +353,9 @@ def execute_task(
             status, reason = extract_terminal(proc.stdout or "", proc.stderr or "", target_sha)
 
         # Exact head must still match immediately before publishing the result.
-        resolve_pr(repo, pr_number, target_sha)
+        current = resolve_pr(repo, pr_number, target_sha)
+        if current["state"] != "OPEN":
+            status, reason = "BLOCKED", "Target PR closed while verification was running."
         terminal = f"VERIFY={status} SHA={target_sha}"
         if reason:
             terminal += f" REASON={reason[:900]}"
@@ -371,11 +394,23 @@ def bridge_once(
     ensure_repo(root, repo)
     state = load_state(state_path)
     for issue in list_tasks(repo):
+        issue_key = f"issue:{int(issue['number'])}"
+        retry = state["retry"].get(issue_key) or {}
+        if int(retry.get("next", 0)) > int(time.time()):
+            continue
         try:
             execute_task(root, repo, issue, state, state_path, worktree_root, opencode_bin)
+            state["retry"].pop(issue_key, None)
+            save_state(state_path, state)
         except Exception as exc:
             reason = sanitize(str(exc))[:900]
-            # Infrastructure failures are retryable and must not permanently consume a verifier task.
+            attempts = int(retry.get("attempts", 0)) + 1
+            state["retry"][issue_key] = {
+                "attempts": attempts,
+                "next": int(time.time()) + min(3600, 300 * max(1, attempts)),
+                "reason": reason,
+            }
+            save_state(state_path, state)
             try:
                 comment(repo, int(issue["number"]), f"VERIFY=BLOCKED SHA=unknown REASON={reason}")
             except Exception:
