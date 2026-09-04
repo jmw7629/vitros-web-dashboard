@@ -161,7 +161,11 @@ export const reviewPackingListDraft = action({
       const partNumberOcr = asString(obj.partNumber ?? obj.part_number);
       const canonical = canonicalPartNumber(partNumberOcr);
       const descriptionOcr = asString(obj.description);
-      const qtyNumber = asFiniteNumber(obj.qty ?? obj.quantity ?? obj.shippedQuantity ?? obj.shipped_quantity);
+      // Packing-list receipt quantity is SHIP QTY when available. Generic qty is
+      // accepted only as a fallback for document families that expose QTY/UNIT.
+      const qtyNumber = asFiniteNumber(
+        obj.shippedQuantity ?? obj.shipped_quantity ?? obj.shipQty ?? obj.ship_qty ?? obj.qty ?? obj.quantity,
+      );
       const confidenceNumber = asFiniteNumber(obj.confidence);
       const confidence = confidenceNumber !== null && confidenceNumber >= 0 && confidenceNumber <= 1
         ? confidenceNumber
@@ -208,6 +212,7 @@ export const reviewPackingListDraft = action({
       requiresHumanConfirmation: true,
       identityRule: "canonical_part_number_only",
       descriptionUsedForIdentity: false,
+      quantityRule: "ship_qty_preferred",
       lines,
       summary,
     };
