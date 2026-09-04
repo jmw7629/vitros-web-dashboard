@@ -247,29 +247,52 @@ export const setScannerSessionLifecycle = action({
   args: {
     sessionId: v.string(),
     status: v.union(v.literal("in_progress"), v.literal("completed")),
-    expectedRevision: v.number(),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
     const userId = await requireCapability(ctx, "inventory.write");
     const sessionId = validateUuid(args.sessionId, "DHR session id");
-    if (!Number.isInteger(args.expectedRevision) || args.expectedRevision < 0) {
-      throw new Error("DHR session revision must be a non-negative integer");
-    }
     const { url, serviceKey } = getSupabaseConfig();
     const actor = await resolveAuditActor(ctx, userId, serviceKey, url);
 
-    // Correlation is derived from the browser-observed revision, not a fresh server
-    // read. If the response is lost, a retry carries the same revision and returns
-    // the original immutable event. A genuinely stale browser instead receives the
-    // RPC revision conflict and must reload before changing lifecycle state.
-    const correlationId = `dhr-lifecycle:${sessionId}:${args.expectedRevision}:${args.status}`;
+    const rows = await readSupabaseRows<{ id?: string; status?: string | null; revision?: number }>(
+      serviceKey,
+      url,
+      `dhr_scan_sessions?select=id,status,revision&id=eq.${encodeURIComponent(sessionId)}&limit=2`,
+    );
+    if (rows.length !== 1 || rows[0].id !== sessionId) throw new Error("DHR session was not found");
+    const revision = rows[0].revision;
+    if (!Number.isInteger(revision) || (revision as number) < 0) {
+      throw new Error("DHR session revision is unavailable");
+    }
+    const currentStatus = (rows[0].status || "in_progress").trim().toLowerCase();
+    if (currentStatus !== "in_progress" && currentStatus !== "completed") {
+      throw new Error("DHR session has unsupported lifecycle status");
+    }
+
+    // If a prior call committed but its response was lost, or another authenticated
+    // operator already achieved the requested lifecycle state, return that real
+    // immutable event as a duplicate/no-op. Do not mint another revision merely
+    // because the browser retried.
+    if (currentStatus === args.status) {
+      const events = await readSupabaseRows<Record<string, unknown>>(
+        serviceKey,
+        url,
+        `dhr_scan_session_events?select=id,session_id,from_status,to_status,revision_before,revision_after,actor,created_at&session_id=eq.${encodeURIComponent(sessionId)}&to_status=eq.${encodeURIComponent(args.status)}&revision_after=eq.${revision}&order=revision_after.desc&limit=1`,
+      );
+      if (events.length !== 1) {
+        throw new Error("DHR lifecycle state is already applied but immutable event history is missing");
+      }
+      return { ...events[0], duplicate: true };
+    }
+
+    const correlationId = `dhr-lifecycle:${sessionId}:${revision}:${args.status}`;
     return callDhrLifecycleRpc(serviceKey, url, {
       p_session_id: sessionId,
       p_target_status: args.status,
       p_actor: actor,
       p_correlation_id: correlationId,
-      p_expected_revision: args.expectedRevision,
+      p_expected_revision: revision,
     });
   },
 });
