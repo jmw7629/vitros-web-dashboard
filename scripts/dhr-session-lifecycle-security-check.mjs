@@ -45,6 +45,9 @@ requireAll(actions, "DHR server actions", [
   "resolveAuditActor(ctx, userId, serviceKey, url)",
   "/rest/v1/rpc/apply_dhr_session_lifecycle",
   "dhr_scan_sessions?select=id,status,revision",
+  "if (currentStatus === args.status)",
+  "dhr_scan_session_events?select=id,session_id,from_status,to_status,revision_before,revision_after,actor,created_at",
+  "return { ...events[0], duplicate: true }",
   "dhr-lifecycle:${sessionId}:${revision}:${args.status}",
   "p_expected_revision: revision",
 ]);
