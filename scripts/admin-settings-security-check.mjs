@@ -24,7 +24,7 @@ requireText(action, "expectedVersion", "optimistic concurrency");
 requireText(action, "correlationId", "idempotency key");
 rejectText(action, "VITE_", "server credential boundary");
 rejectText(action, "service_role", "browser-facing action must not hard-code role credentials");
-if (/args\s*:\s*\{[\s\S]*?actor\s*:/m.test(action)) {
+if (/^\s*actor\s*:/m.test(action)) {
   throw new Error("actor must not be caller supplied");
 }
 
