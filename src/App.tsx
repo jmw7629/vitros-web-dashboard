@@ -5,7 +5,7 @@ import { ExecutiveDashboard } from "./pages/inventory/ExecutiveDashboard";
 import { StockSummary } from "./pages/inventory/StockSummary";
 import { ScanKiosk } from "./pages/inventory/ScanKiosk";
 import { UserDashboard } from "./pages/inventory/UserDashboard";
-import { IncomingStock } from "./pages/inventory/IncomingStock";
+import { IncomingStockSecure } from "./pages/inventory/IncomingStockSecure";
 import { ReorderStockout } from "./pages/inventory/ReorderStockout";
 import { TransactionSearch } from "./pages/inventory/TransactionSearch";
 import { AgedInventory } from "./pages/inventory/AgedInventory";
@@ -66,7 +66,8 @@ function App() {
           <Route path="/scan-kiosk" element={<ScanKiosk />} />
           <Route path="/user-dashboard" element={<UserDashboard />} />
           <Route path="/stock-summary" element={<StockSummary />} />
-          <Route path="/incoming-stock" element={<IncomingStock />} />
+          {/* Incoming Stock uses the reviewed server-authoritative receive workflow. */}
+          <Route path="/incoming-stock" element={<IncomingStockSecure />} />
           <Route path="/reorder-stockout" element={<ReorderStockout />} />
           <Route path="/transaction-search" element={<TransactionSearch />} />
           <Route path="/aged-inventory" element={<AgedInventory />} />
