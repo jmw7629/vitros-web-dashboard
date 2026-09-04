@@ -299,13 +299,27 @@ export function Settings() {
         ))}
       </WebCard>
 
-      {/* Danger Zone — superuser only */}
+      {/* Danger Zone — superuser only. Destructive reset stays fail-closed until a reviewed recovery workflow exists. */}
       {isAdmin && (
         <WebCard className="p-4">
           <h3 className="text-sm font-bold mb-3" style={{ color: theme.statusOut }}>⚠️ Danger Zone</h3>
-          <p className="text-xs mb-3" style={{ color: theme.textSecondary }}>Data reset is irreversible. This will clear all transactions, parts, and settings.</p>
-          <button className="px-4 py-2 rounded-xl text-sm font-bold text-white" style={{ backgroundColor: theme.statusOut }}>
-            Reset All Data
+          <p id="danger-zone-reset-status" className="text-xs mb-2" style={{ color: theme.textSecondary }}>
+            Production data reset is intentionally disabled until a reviewed backup/restore and server-authoritative approval workflow is available.
+          </p>
+          <div className="flex items-center gap-1.5 mb-3" style={{ color: theme.textMuted }}>
+            <Lock className="w-3 h-3" aria-hidden="true" />
+            <span className="text-[10px]">No data can be deleted from this screen.</span>
+          </div>
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            aria-describedby="danger-zone-reset-status"
+            title="Disabled until backup, restore, authorization, and audit safeguards are reviewed"
+            className="px-4 py-2 rounded-xl text-sm font-bold text-white opacity-50 cursor-not-allowed"
+            style={{ backgroundColor: theme.statusOut }}
+          >
+            Reset All Data — Disabled
           </button>
         </WebCard>
       )}
