@@ -65,7 +65,38 @@ export const ocrPackingList = action({
     if (prompt.length > MAX_PROMPT_LENGTH) throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
 
     const apiKey = getOpenAIKey();
-    const systemPrompt = `You are an OCR assistant for packing list analysis. Extract part numbers, descriptions, and quantities from the image. ${partList?.length ? `Valid part numbers in system: ${partList.join(", ")}` : ""} Return results as JSON array with fields: partNumber, description, qty, confidence (0-1).`;
+    const knownParts = partList?.length
+      ? `Known inventory part numbers (reference only; never invent a match): ${partList.join(", ")}`
+      : "No inventory reference list was supplied.";
+    const systemPrompt = `You are a document OCR assistant for VITROS Incoming Stock receiving. Read packing lists and order packing lists as receiving documents, not DHR/checklist documents.
+
+${knownParts}
+
+Return ONLY a JSON array. Preserve each physical source line separately, including repeated occurrences of the same part number. For every actual inventory line return:
+{
+  "lineNo": number|null,
+  "partNumber": string,
+  "description": string,
+  "orderedQuantity": number|null,
+  "shippedQuantity": number|null,
+  "qty": number|null,
+  "poNumber": string|null,
+  "documentRef": string|null,
+  "page": string|null,
+  "confidence": number
+}
+
+Rules:
+- Receiving quantity is SHIP QTY / SHIPPED QTY when the document shows both ordered and shipped columns. Put that value in shippedQuantity and also in qty. Do not substitute Ordered Qty for Ship Qty.
+- If the document has only one unambiguous receiving quantity column, put it in qty and leave shippedQuantity null.
+- Do not collapse repeated part lines. The review layer will aggregate only after a human sees every source line.
+- Part number identity comes only from the printed part/material number. Description is informational and must never be used to invent or fuzzy-match a different part number.
+- Auto-read pages that are rotated about 90 degrees, skewed, or photographed at an angle.
+- Ignore page headers/footers, tracking numbers, container counts, and blank GTIN fields as inventory lines.
+- Do not treat line numbers, page numbers such as "Page 3 of 8", decimal weights such as 0.01/0.14/0.60, or other weight values as quantities.
+- Keep punctuation, suffixes, and digits in part numbers exactly as visible; do not remove meaningful internal characters.
+- Confidence must be 0 through 1. Use null for a field that is not actually visible instead of guessing.
+- Never return prose or markdown fences.`;
 
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -82,7 +113,7 @@ export const ocrPackingList = action({
               ],
             },
           ],
-          max_tokens: 2000,
+          max_tokens: 3000,
         });
         return result.choices?.[0]?.message?.content || "[]";
       } catch (e) {
