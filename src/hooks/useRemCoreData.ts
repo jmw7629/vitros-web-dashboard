@@ -17,28 +17,49 @@ export function useRemCoreData() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const active = useRef(true);
+  const inFlight = useRef<Promise<void> | null>(null);
 
   const refresh = useCallback(async () => {
-    setError(null);
+    if (inFlight.current) return inFlight.current;
+
+    const request = (async () => {
+      if (active.current) setError(null);
+      try {
+        const result = await readCore();
+        if (!active.current) return;
+        setData(result as RemCoreData);
+      } catch (cause) {
+        if (!active.current) return;
+        setError(cause instanceof Error ? cause.message : "Unable to load authoritative REM data");
+      } finally {
+        if (active.current) setIsLoading(false);
+      }
+    })();
+
+    inFlight.current = request;
     try {
-      const result = await readCore();
-      if (!active.current) return;
-      setData(result as RemCoreData);
-    } catch (cause) {
-      if (!active.current) return;
-      setError(cause instanceof Error ? cause.message : "Unable to load authoritative REM data");
+      await request;
     } finally {
-      if (active.current) setIsLoading(false);
+      if (inFlight.current === request) inFlight.current = null;
     }
   }, [readCore]);
 
   useEffect(() => {
     active.current = true;
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 10_000);
+
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 10_000);
+    const handleVisibility = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
       active.current = false;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [refresh]);
 
