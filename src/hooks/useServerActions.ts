@@ -1,4 +1,4 @@
-// Shared hook providing server-side write functions for components that need
+// Shared hook providing server-side read/write functions for components that need
 // Supabase-backed operations routed through validated Convex actions.
 import { useAction } from "convex/react";
 import { useCallback } from "react";
@@ -37,6 +37,13 @@ export interface DhrChecklistChangeArgs {
   analyzerSerial?: string;
 }
 
+export interface DhrScannerBootstrap {
+  sections: Record<string, unknown>[];
+  expectedParts: Record<string, unknown>[];
+  sessions: Record<string, unknown>[];
+  employees: Record<string, unknown>[];
+}
+
 function canonicalDhrPartNumber(partNumber: string): string {
   return partNumber.trim().toUpperCase();
 }
@@ -64,6 +71,8 @@ export function useServerActions() {
   const deleteDhrSessionWithResults = useAction(api.supabaseGateway.deleteDhrSessionWithResults);
   const uploadToStorage = useAction(api.supabaseGateway.uploadToStorage);
   const applyDhrScanTransitionAction = useAction(api.dhrInventoryActions.applyScanTransition);
+  const loadDhrScannerDataAction = useAction(api.dhrInventoryActions.loadScannerData);
+  const loadDhrSessionResultsAction = useAction(api.dhrInventoryActions.loadSessionResults);
   const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
@@ -109,6 +118,15 @@ export function useServerActions() {
   const sbUpload = useCallback(async (bucket: string, path: string, data: string, contentType: string) => {
     return uploadToStorage({ bucket, path, data, contentType });
   }, [uploadToStorage]);
+
+  const loadDhrScannerData = useCallback(async (): Promise<DhrScannerBootstrap> => {
+    return await loadDhrScannerDataAction({}) as unknown as DhrScannerBootstrap;
+  }, [loadDhrScannerDataAction]);
+
+  const loadDhrSessionResults = useCallback(async (sessionId: string): Promise<Record<string, unknown>[]> => {
+    if (!sessionId.trim()) throw new Error("DHR session is required");
+    return await loadDhrSessionResultsAction({ sessionId: sessionId.trim() }) as unknown as Record<string, unknown>[];
+  }, [loadDhrSessionResultsAction]);
 
   const applyDhrScanTransition = useCallback(async (args: {
     sessionId: string;
@@ -163,6 +181,8 @@ export function useServerActions() {
     sbUpdate,
     sbDelete,
     sbUpload,
+    loadDhrScannerData,
+    loadDhrSessionResults,
     applyDhrScanTransition,
     applyDhrChecklistChange,
     ocrDhrPage,
