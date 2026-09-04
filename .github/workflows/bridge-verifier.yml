@@ -1,0 +1,33 @@
+name: Bridge Verifier CI
+
+on:
+  pull_request:
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-verifier.yml"
+  push:
+    branches: [main]
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-verifier.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python3 -m py_compile bridge/verifier_runner.py bridge/test_verifier_runner.py
+      - name: Verifier runner tests
+        run: python3 -m unittest bridge/test_verifier_runner.py
+      - name: Shell syntax
+        run: bash -n bridge/install_verifier.sh bridge/uninstall.sh bridge/install.sh
+      - name: No privileged verifier Git commands
+        run: |
+          ! grep -nE 'subprocess\.(run|Popen).*\b(commit|push|merge|rebase|reset|checkout)\b' bridge/verifier_runner.py
+          grep -q 'git", "worktree", "add", "--detach"' bridge/verifier_runner.py
+          grep -q 'resolve_pr(repo, pr_number, target_sha)' bridge/verifier_runner.py
