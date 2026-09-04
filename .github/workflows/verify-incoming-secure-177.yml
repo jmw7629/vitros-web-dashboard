@@ -10,16 +10,63 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: c69c6c278c97ad46746420ce089e62f0597f9622
+      BASE_SHA: 8cfa7bf3893a97c88a9ebdf054f2913394e3d5d3
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - name: Fetch exact implementation head read-only
-        env:
-          TARGET_SHA: c69c6c278c97ad46746420ce089e62f0597f9622
         run: git fetch --no-tags --depth=1 origin "$TARGET_SHA"
-      - name: Verify exact implementation head
-        run: node scripts/verify-incoming-secure-177.mjs
+      - name: Verify exact file set
+        shell: bash
+        run: |
+          test "$(git rev-parse "$TARGET_SHA")" = "$TARGET_SHA"
+          test "$(git diff --name-only "$BASE_SHA" "$TARGET_SHA" | sort)" = $'src/App.tsx\nsrc/pages/inventory/IncomingStockSecure.tsx'
+      - name: Verify routed secure UI
+        shell: bash
+        run: |
+          app="$(git show "$TARGET_SHA:src/App.tsx")"
+          ui="$(git show "$TARGET_SHA:src/pages/inventory/IncomingStockSecure.tsx")"
+          grep -Fq 'IncomingStockSecure' <<<"$app"
+          grep -Fq '<Route path="/incoming-stock" element={<IncomingStockSecure />} />' <<<"$app"
+          grep -Fq 'api.aiGateway.ocrPackingList' <<<"$ui"
+          grep -Fq 'api.incomingStockActions.reviewPackingListDraft' <<<"$ui"
+          grep -Fq 'api.incomingStockActions.commitConfirmedReceiveLine' <<<"$ui"
+          grep -Fq 'capture="environment"' <<<"$ui"
+          grep -Fq 'Confirm & Receive' <<<"$ui"
+          grep -Fq 'line.matchStatus === "matched"' <<<"$ui"
+      - name: Reject legacy browser receive paths
+        shell: bash
+        run: |
+          ui="$(git show "$TARGET_SHA:src/pages/inventory/IncomingStockSecure.tsx")"
+          ! grep -Fq 'VITE_SUPABASE' <<<"$ui"
+          ! grep -Fq 'SUPABASE_ANON_KEY' <<<"$ui"
+          ! grep -Fq 'scanPart("RECEIVE"' <<<"$ui"
+          ! grep -Fq 'levenshtein' <<<"$ui"
+          ! grep -Fq 'matchPartNumber(' <<<"$ui"
+          ! grep -Fq 'api.openai.com' <<<"$ui"
+      - name: Verify server authoritative review and RECEIVE
+        shell: bash
+        run: |
+          server="$(git show "$TARGET_SHA:convex/incomingStockActions.ts")"
+          grep -Fq 'requireCapability(ctx, "inventory.write")' <<<"$server"
+          grep -Fq 'value.trim().toUpperCase()' <<<"$server"
+          grep -Fq 'matches.length === 1 ? "matched"' <<<"$server"
+          grep -Fq 'p_mode: "RECEIVE"' <<<"$server"
+          grep -Fq 'const correlationId = `incoming:${args.confirmationId.trim()}`' <<<"$server"
+          grep -Fq 'humanConfirmed: true' <<<"$server"
+          ! grep -Fq 'args.actor' <<<"$server"
+          ! grep -Fq 'args.role' <<<"$server"
+      - name: Verify Incoming Stock OCR contract
+        shell: bash
+        run: |
+          ai="$(git show "$TARGET_SHA:convex/aiGateway.ts")"
+          grep -Fq 'requireCapability(ctx, "ai.ocr")' <<<"$ai"
+          grep -Fq 'VITROS Incoming Stock receiving' <<<"$ai"
+          grep -Fq 'Receiving quantity is SHIP QTY / SHIPPED QTY' <<<"$ai"
+          grep -Fq 'Description is informational' <<<"$ai"
+          ! grep -Fq 'VITE_OPENAI_KEY' <<<"$ai"
+      - name: Terminal verifier result
+        run: echo "VERIFY=PASS SHA=$TARGET_SHA"
