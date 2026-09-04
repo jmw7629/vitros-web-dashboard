@@ -34,10 +34,7 @@ async function callOpenAI(
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -64,13 +61,8 @@ export const ocrPackingList = action({
   returns: v.string(),
   handler: async (ctx, { imageBase64, prompt, partList }) => {
     await requireCapability(ctx, "ai.ocr");
-
-    if (imageBase64.length > MAX_IMAGE_SIZE_BYTES * 1.37) {
-      throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
-    }
-    if (prompt.length > MAX_PROMPT_LENGTH) {
-      throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
-    }
+    if (imageBase64.length > MAX_IMAGE_SIZE_BYTES * 1.37) throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
+    if (prompt.length > MAX_PROMPT_LENGTH) throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
 
     const apiKey = getOpenAIKey();
     const systemPrompt = `You are an OCR assistant for packing list analysis. Extract part numbers, descriptions, and quantities from the image. ${partList?.length ? `Valid part numbers in system: ${partList.join(", ")}` : ""} Return results as JSON array with fields: partNumber, description, qty, confidence (0-1).`;
@@ -95,9 +87,7 @@ export const ocrPackingList = action({
         return result.choices?.[0]?.message?.content || "[]";
       } catch (e) {
         lastError = e instanceof Error ? e : new Error("Unknown error");
-        if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        }
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
       }
     }
     throw new Error(`OCR failed after 3 attempts: ${sanitizeError(lastError)}`);
@@ -106,20 +96,22 @@ export const ocrPackingList = action({
 
 export const ocrDhrPage = action({
   args: {
-    imageUrl: v.string(),
+    imageUrl: v.optional(v.string()),
+    imageBase64: v.optional(v.string()),
     prompt: v.string(),
     partList: v.optional(v.array(v.string())),
   },
   returns: v.string(),
-  handler: async (ctx, { imageUrl, prompt, partList }) => {
+  handler: async (ctx, { imageUrl, imageBase64, prompt, partList }) => {
     await requireCapability(ctx, "ai.ocr");
-
-    if (prompt.length > MAX_PROMPT_LENGTH) {
-      throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
-    }
+    if (prompt.length > MAX_PROMPT_LENGTH) throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
+    if (!!imageUrl === !!imageBase64) throw new Error("Provide exactly one DHR image source");
+    if (imageBase64 && imageBase64.length > MAX_IMAGE_SIZE_BYTES * 1.37) throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
+    if (imageUrl && (!/^https:\/\//i.test(imageUrl) || imageUrl.length > 2048)) throw new Error("Invalid DHR image URL");
 
     const apiKey = getOpenAIKey();
     const systemPrompt = `You are an OCR assistant for DHR (Device History Record) page analysis. Extract structured data from the document image. ${partList?.length ? `Valid part numbers: ${partList.join(", ")}` : ""} Return results as JSON.`;
+    const source = imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : imageUrl!;
 
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -132,7 +124,7 @@ export const ocrDhrPage = action({
               role: "user",
               content: [
                 { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: imageUrl } },
+                { type: "image_url", image_url: { url: source } },
               ],
             },
           ],
@@ -141,9 +133,7 @@ export const ocrDhrPage = action({
         return result.choices?.[0]?.message?.content || "{}";
       } catch (e) {
         lastError = e instanceof Error ? e : new Error("Unknown error");
-        if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        }
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
       }
     }
     throw new Error(`OCR failed after 3 attempts: ${sanitizeError(lastError)}`);
