@@ -31,6 +31,8 @@ jobs:
         run: node scripts/browser-safe-read-security-check.mjs
       - name: Browser safe-read staging runtime smoke
         run: node scripts/browser-safe-read-staging-smoke.mjs
+      - name: REM workbook import security check
+        run: node scripts/rem-workbook-import-security-check.mjs
       - name: Lint
         run: npm run lint || true
       - name: Git diff check
