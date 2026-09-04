@@ -1,0 +1,17 @@
+name: Verify REM Live Summary #134
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-rem-live-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify exact target SHA invariants
+        run: node scripts/verify-rem-live-summary-134.mjs
