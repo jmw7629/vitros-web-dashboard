@@ -1,4 +1,4 @@
-const SAFE_DATASETS = new Set(["stock", "audit", "sap", "settings"]);
+const SAFE_DATASETS = new Set(["stock", "audit", "sap", "settings", "rem_analyzers", "rem_lvcc"]);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -50,9 +50,6 @@ async function postgrest(path: string): Promise<unknown[]> {
     Accept: "application/json",
   };
 
-  // Modern sb_secret keys are API keys, not JWTs, and must not be sent as Bearer tokens.
-  // The legacy service-role key is JWT-based and retains its Authorization header only
-  // for migration compatibility until it is retired.
   if (serverKey.kind === "legacy_service_role") {
     headers.Authorization = `Bearer ${serverKey.value}`;
   }
@@ -144,6 +141,18 @@ Deno.serve(async (request: Request) => {
         const allowed = "sapHeaderText,sapMovementADJUST,sapMovementIN,sapMovementOUT,sapPlantCode,sapStorageLocation";
         const rows = await postgrest(
           `settings?select=key,value&key=in.(${allowed})&order=key.asc`,
+        );
+        return jsonResponse(rows);
+      }
+      case "rem_analyzers": {
+        const rows = await postgrest(
+          "rem_analyzers?select=id,serial_number,analyzer_type,production_order,start_date,sla_days,current_stage,days_in_stage,overall_pct,procurement_pct,cleaning_pct,service_pct,final_line_pct,release_testing_pct,qa_release_pct,sap_release_pct,packaging_pct,current_pct,is_complete&order=serial_number.asc",
+        );
+        return jsonResponse(rows);
+      }
+      case "rem_lvcc": {
+        const rows = await postgrest(
+          "rem_lvcc?select=id,serial_number,item_type,batch_number,start_date,end_date,current_stage,build_pct,test_pct,qa_release_pct,sap_release_pct,packaging_pct,is_complete&order=serial_number.asc",
         );
         return jsonResponse(rows);
       }
