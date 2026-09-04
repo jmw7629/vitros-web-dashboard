@@ -15,6 +15,7 @@ export function useServerActions() {
   const deleteDhrSession = useAction(api.supabaseGateway.deleteDhrSession);
   const deleteDhrSessionWithResults = useAction(api.supabaseGateway.deleteDhrSessionWithResults);
   const uploadToStorage = useAction(api.supabaseGateway.uploadToStorage);
+  const applyDhrScanTransitionAction = useAction(api.dhrInventoryActions.applyScanTransition);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
     switch (table) {
@@ -63,5 +64,18 @@ export function useServerActions() {
     return uploadToStorage({ bucket, path, data, contentType });
   }, [uploadToStorage]);
 
-  return { sbInsert, sbUpdate, sbDelete, sbUpload };
+  const applyDhrScanTransition = useCallback(async (args: {
+    sessionId: string;
+    sectionId: string;
+    partNumber: string;
+    expectedQty: number;
+    newQty: number;
+    category: string;
+    description: string;
+    correlationId: string;
+    expectedRevision: number;
+    analyzerSerial?: string;
+  }) => applyDhrScanTransitionAction(args), [applyDhrScanTransitionAction]);
+
+  return { sbInsert, sbUpdate, sbDelete, sbUpload, applyDhrScanTransition };
 }
