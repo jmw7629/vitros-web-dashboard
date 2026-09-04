@@ -39,6 +39,8 @@ jobs:
         run: node scripts/secure-role-session-check.mjs
       - name: DHR atomic scanner security check
         run: node scripts/dhr-scanner-atomic-security-check.mjs
+      - name: 30-user refresh storm check
+        run: node scripts/refresh-coordinator-check.mjs
       - name: Lint
         run: npm run lint || true
       - name: Git diff check
