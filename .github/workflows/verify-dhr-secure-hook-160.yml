@@ -1,0 +1,17 @@
+name: Verify DHR Secure Hook #160
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-dhr-secure-hook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify exact implementation SHA
+        run: node scripts/verify-dhr-secure-hook-160.mjs
