@@ -25,6 +25,35 @@ export interface DhrTransitionReceipt {
   processedAt: string;
 }
 
+export interface DhrChecklistChangeArgs {
+  sessionId: string;
+  sectionId: string;
+  partNumber: string;
+  expectedQty: number;
+  newQty: number;
+  category: string;
+  description: string;
+  expectedRevision: number;
+  analyzerSerial?: string;
+}
+
+function canonicalDhrPartNumber(partNumber: string): string {
+  return partNumber.trim().toUpperCase();
+}
+
+function buildDhrCorrelationId(args: DhrChecklistChangeArgs): string {
+  // Deterministic for one logical revision+intent so a retry after an ambiguous
+  // network failure is idempotent instead of consuming inventory twice.
+  return [
+    "dhr",
+    args.sessionId,
+    args.sectionId.trim(),
+    canonicalDhrPartNumber(args.partNumber),
+    `r${args.expectedRevision}`,
+    `q${args.newQty}`,
+  ].join(":");
+}
+
 export function useServerActions() {
   const insertAuditLog = useAction(api.supabaseGateway.insertAuditLog);
   const insertSapStaging = useAction(api.supabaseGateway.insertSapStaging);
@@ -101,11 +130,39 @@ export function useServerActions() {
     return await applyDhrScanTransitionAction(args) as unknown as DhrTransitionReceipt;
   }, [applyDhrScanTransitionAction]);
 
+  const applyDhrChecklistChange = useCallback(async (
+    args: DhrChecklistChangeArgs,
+  ): Promise<DhrTransitionReceipt> => {
+    if (!Number.isInteger(args.newQty) || args.newQty < 0) {
+      throw new Error("DHR quantity must be a non-negative integer");
+    }
+    if (!Number.isInteger(args.expectedRevision) || args.expectedRevision < 0) {
+      throw new Error("DHR revision must be a non-negative integer");
+    }
+
+    const partNumber = canonicalDhrPartNumber(args.partNumber);
+    if (!partNumber) throw new Error("DHR part number is required");
+
+    return applyDhrScanTransition({
+      ...args,
+      partNumber,
+      correlationId: buildDhrCorrelationId({ ...args, partNumber }),
+    });
+  }, [applyDhrScanTransition]);
+
   const ocrDhrPage = useCallback(async (args: {
     imageUrl: string;
     prompt: string;
     partList?: string[];
   }): Promise<string> => ocrDhrPageAction(args), [ocrDhrPageAction]);
 
-  return { sbInsert, sbUpdate, sbDelete, sbUpload, applyDhrScanTransition, ocrDhrPage };
+  return {
+    sbInsert,
+    sbUpdate,
+    sbDelete,
+    sbUpload,
+    applyDhrScanTransition,
+    applyDhrChecklistChange,
+    ocrDhrPage,
+  };
 }
