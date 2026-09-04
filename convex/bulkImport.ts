@@ -1,7 +1,12 @@
-import { mutation } from "./_generated/server";
+// DEPRECATED: Legacy bulk imports write to parallel Convex tables.
+// Authoritative imports must use reviewed server-authoritative gateways.
+// Compatibility mutations are internal-only so browser/API callers cannot bypass
+// RBAC, validation, audit, canonical identity, or authoritative Supabase state.
+
+import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
-export const importParts = mutation({
+export const importParts = internalMutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
     for (const row of batch) {
@@ -11,7 +16,7 @@ export const importParts = mutation({
   },
 });
 
-export const importEmployees = mutation({
+export const importEmployees = internalMutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
     for (const row of batch) {
@@ -21,7 +26,7 @@ export const importEmployees = mutation({
   },
 });
 
-export const importKits = mutation({
+export const importKits = internalMutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
     for (const row of batch) {
@@ -31,7 +36,7 @@ export const importKits = mutation({
   },
 });
 
-export const importAnalyzers = mutation({
+export const importAnalyzers = internalMutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
     for (const row of batch) {
@@ -41,7 +46,7 @@ export const importAnalyzers = mutation({
   },
 });
 
-export const importLvcc = mutation({
+export const importLvcc = internalMutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
     for (const row of batch) {
@@ -51,7 +56,7 @@ export const importLvcc = mutation({
   },
 });
 
-export const importWeeklyNotes = mutation({
+export const importWeeklyNotes = internalMutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
     for (const row of batch) {
@@ -61,7 +66,7 @@ export const importWeeklyNotes = mutation({
   },
 });
 
-export const importSettings = mutation({
+export const importSettings = internalMutation({
   args: { batch: v.array(v.any()) },
   handler: async (ctx, { batch }) => {
     for (const row of batch) {
