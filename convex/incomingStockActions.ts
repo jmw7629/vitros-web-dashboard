@@ -1,6 +1,6 @@
-// Server-authoritative Incoming Stock OCR review boundary.
-// This module validates OCR output and resolves inventory matches by canonical part number only.
-// It performs NO inventory mutation; human confirmation and the existing atomic RECEIVE path remain separate.
+// Server-authoritative Incoming Stock OCR review + confirmed RECEIVE boundary.
+// OCR matching is canonical part-number only; inventory mutation is allowed only after an
+// explicit human-confirmed line is submitted through the atomic inventory transition RPC.
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
@@ -10,6 +10,7 @@ declare const process: { env: Record<string, string | undefined> };
 const MAX_OCR_JSON_CHARS = 256_000;
 const MAX_LINES = 500;
 const MAX_DOCUMENT_REF_CHARS = 200;
+const MAX_CONFIRMATION_ID_CHARS = 180;
 
 type StockRow = {
   id: string;
@@ -91,6 +92,55 @@ function asString(value: unknown): string {
 function asFiniteNumber(value: unknown): number | null {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
   return Number.isFinite(n) ? n : null;
+}
+
+function matchingCanonicalRows(stockRows: StockRow[], partNumber: string): StockRow[] {
+  const canonical = canonicalPartNumber(partNumber);
+  return stockRows.filter((row) => canonicalPartNumber(asString(row.part_number)) === canonical);
+}
+
+async function applyConfirmedReceive(
+  url: string,
+  serviceKey: string,
+  args: {
+    partNumber: string;
+    qty: number;
+    actor: string;
+    correlationId: string;
+    batchId?: string;
+  },
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${url}/rest/v1/rpc/apply_inventory_transition`, {
+    method: "POST",
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      p_part_number: args.partNumber,
+      p_mode: "RECEIVE",
+      p_qty: args.qty,
+      p_user: args.actor,
+      p_correlation_id: args.correlationId,
+      p_analyzer_serial: null,
+      p_batch_id: args.batchId ?? null,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const message = body && typeof body === "object"
+      ? String((body as Record<string, unknown>).message ?? (body as Record<string, unknown>).error ?? "Receive failed")
+      : "Receive failed";
+    throw new Error(message);
+  }
+
+  const body = await response.json();
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Receive returned an invalid receipt");
+  }
+  return body as Record<string, unknown>;
 }
 
 export const reviewPackingListDraft = action({
@@ -190,6 +240,68 @@ export const reviewPackingListDraft = action({
       descriptionUsedForIdentity: false,
       lines,
       summary,
+    };
+  },
+});
+
+// Commits exactly one human-confirmed reviewed line through the existing transactional
+// inventory primitive. The server re-resolves canonical identity immediately before the
+// RECEIVE so a stale/tampered browser review cannot select a different or ambiguous stock row.
+export const commitConfirmedReceiveLine = action({
+  args: {
+    partNumber: v.string(),
+    qty: v.number(),
+    confirmationId: v.string(),
+    documentRef: v.optional(v.string()),
+    lineNo: v.optional(v.number()),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const actorId = await requireCapability(ctx, "inventory.write");
+
+    const canonical = canonicalPartNumber(args.partNumber);
+    if (!canonical) throw new Error("Part number is required");
+    if (!Number.isInteger(args.qty) || args.qty <= 0) {
+      throw new Error("Receive quantity must be a positive integer");
+    }
+    if (!args.confirmationId.trim() || args.confirmationId.length > MAX_CONFIRMATION_ID_CHARS) {
+      throw new Error("A bounded confirmation ID is required");
+    }
+    if ((args.documentRef?.length ?? 0) > MAX_DOCUMENT_REF_CHARS) {
+      throw new Error("Document reference is too long");
+    }
+    if (args.lineNo !== undefined && (!Number.isInteger(args.lineNo) || args.lineNo <= 0 || args.lineNo > MAX_LINES)) {
+      throw new Error("Line number is invalid");
+    }
+
+    const { url, serviceKey } = getSupabaseConfig();
+    const stockRows = await listStockRows(url, serviceKey);
+    const matches = matchingCanonicalRows(stockRows, canonical);
+    if (matches.length === 0) throw new Error("Confirmed part is not present in inventory");
+    if (matches.length > 1) throw new Error("Confirmed part number is ambiguous and cannot be received");
+
+    const match = matches[0];
+    const documentRef = args.documentRef?.trim() || undefined;
+    const correlationId = `incoming:${args.confirmationId.trim()}`;
+    const receipt = await applyConfirmedReceive(url, serviceKey, {
+      partNumber: match.part_number,
+      qty: args.qty,
+      actor: String(actorId),
+      correlationId,
+      batchId: documentRef,
+    });
+
+    return {
+      success: true,
+      humanConfirmed: true,
+      lineNo: args.lineNo ?? null,
+      documentRef: documentRef ?? null,
+      canonicalPartNumber: canonical,
+      resolvedPartNumber: match.part_number,
+      stockId: match.id,
+      qtyReceived: args.qty,
+      correlationId,
+      receipt,
     };
   },
 });
