@@ -94,20 +94,20 @@ async function resolveAuditActor(
 ): Promise<string> {
   const profile = await ctx.runQuery(internal.users.getUserAuditIdentity, { userId });
   if (profile.role === "superuser") return profile.name || "Superuser";
-  if (profile.role !== "engineer" || !profile.name) {
+  if (profile.role !== "engineer" || !profile.employeeId) {
     throw new Error("Authenticated DHR operator identity is unavailable");
   }
-
-  const rows = await readSupabaseRows<{ name?: string; initials?: string; active?: boolean }>(
+  const employeeId = validateUuid(profile.employeeId, "employee identity");
+  const rows = await readSupabaseRows<{ id?: string; name?: string; initials?: string; active?: boolean }>(
     serviceKey,
     url,
-    `convex_employees?select=name,initials,active&name=eq.${encodeURIComponent(profile.name)}&active=is.true&limit=2`,
+    `convex_employees?select=id,name,initials,active&id=eq.${encodeURIComponent(employeeId)}&active=is.true&limit=2`,
   );
-  if (rows.length !== 1 || !rows[0].initials?.trim()) {
-    throw new Error("Authenticated DHR employee identity is missing or ambiguous");
+  if (rows.length !== 1 || !rows[0].name?.trim() || !rows[0].initials?.trim()) {
+    throw new Error("Authenticated DHR employee identity is missing or inactive");
   }
   const initials = rows[0].initials!.trim().toUpperCase();
-  return `${profile.name} (${initials})`;
+  return `${rows[0].name!.trim()} (${initials})`;
 }
 
 function validateUuid(value: string, label: string): string {
