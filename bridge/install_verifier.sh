@@ -96,7 +96,7 @@ RestartSec=30
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=$HOME/.local/state/joeos-opencode-bridge $HOME/.cache/joeos-opencode-bridge $ROOT
+ReadWritePaths=$HOME/.local/state/joeos-opencode-bridge $HOME/.cache/joeos-opencode-bridge
 UMask=0077
 
 [Install]
@@ -113,4 +113,4 @@ echo "VITROS verifier service installed."
 echo "OpenCode binary: $OPENCODE_BIN_PATH"
 echo "Service: vitros-opencode-verifier.service"
 echo "Logs: journalctl --user -u vitros-opencode-verifier.service -f"
-echo "The verifier cannot commit, push, merge, deploy, or mutate GitHub through OpenCode."
+echo "The control checkout is read-only to the verifier service; disposable sandboxes live under the verifier cache."
