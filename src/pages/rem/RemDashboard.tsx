@@ -1,71 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
-import { useConvexData, type LVCCItem, type REMAnalyzer } from "../../hooks/useConvexData";
+import { useConvexData } from "../../hooks/useConvexData";
 import { browserSafeRead } from "../../lib/browserSafeRead";
 import { WebCard, DashCard, ProgressBar, theme } from "../../components/vitros/SharedComponents";
 
-function mapAnalyzer(row: any): REMAnalyzer {
-  return {
-    _id: row.id,
-    serialNumber: row.serial_number || "",
-    analyzerType: row.analyzer_type || "Unknown",
-    currentStage: row.current_stage || "Unassigned",
-    startDate: row.start_date || undefined,
-    productionOrder: row.production_order == null ? undefined : Number(row.production_order),
-    procurementPct: Number(row.procurement_pct) || 0,
-    cleaningPct: Number(row.cleaning_pct) || 0,
-    servicePct: Number(row.service_pct) || 0,
-    finalLinePct: Number(row.final_line_pct) || 0,
-    packagingPct: Number(row.packaging_pct) || 0,
-    releaseTestingPct: Number(row.release_testing_pct) || 0,
-    qaReleasePct: Number(row.qa_release_pct) || 0,
-    sapReleasePct: Number(row.sap_release_pct) || 0,
-    currentPct: Number(row.current_pct) || 0,
-    overallPct: Number(row.overall_pct) || 0,
-    isComplete: row.is_complete === true,
-    daysInStage: Number(row.days_in_stage) || 0,
-    slaDays: Number(row.sla_days) || 0,
-  };
-}
-
-function mapLvcc(row: any): LVCCItem {
-  return {
-    _id: row.id,
-    serialNumber: row.serial_number || "",
-    batchNumber: row.batch_number || undefined,
-    itemType: row.item_type || undefined,
-    currentStage: row.current_stage || undefined,
-    startDate: row.start_date || undefined,
-    endDate: row.end_date || undefined,
-    isComplete: row.is_complete === true,
-    buildPct: Number(row.build_pct) || 0,
-    testPct: Number(row.test_pct) || 0,
-    packagingPct: Number(row.packaging_pct) || 0,
-    qaReleasePct: Number(row.qa_release_pct) || 0,
-    sapReleasePct: Number(row.sap_release_pct) || 0,
-  };
-}
+type RemSummary = {
+  total: number;
+  completed: number;
+  active: number;
+  by_type: { type: string; total: number; completed: number }[];
+  by_stage: { stage: string; count: number }[];
+  lvcc_total: number;
+  lvcc_active: number;
+};
 
 export function RemDashboard() {
   const data = useConvexData();
-  const [liveAnalyzers, setLiveAnalyzers] = useState<REMAnalyzer[] | null>(null);
-  const [liveLvcc, setLiveLvcc] = useState<LVCCItem[] | null>(null);
+  const [summary, setSummary] = useState<RemSummary | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const [analyzers, lvcc] = await Promise.all([
-          browserSafeRead<any>("rem_analyzers"),
-          browserSafeRead<any>("rem_lvcc"),
-        ]);
+        const rows = await browserSafeRead<RemSummary>("rem_summary");
         if (cancelled) return;
-        setLiveAnalyzers(analyzers.map(mapAnalyzer));
-        setLiveLvcc(lvcc.map(mapLvcc));
+        setSummary(rows[0] ?? null);
         setLiveError(null);
       } catch (error) {
         if (cancelled) return;
-        setLiveError(error instanceof Error ? error.message : "REM live data unavailable");
+        setLiveError(error instanceof Error ? error.message : "REM live summary unavailable");
       }
     };
     load();
@@ -76,34 +39,39 @@ export function RemDashboard() {
     };
   }, []);
 
-  const analyzers = liveAnalyzers ?? data.analyzers;
-  const lvccItems = liveLvcc ?? data.lvccItems;
-  const total = analyzers.length;
-  const completed = analyzers.filter(a => a.isComplete).length;
-  const active = total - completed;
+  const fallbackTotal = data.analyzers.length;
+  const fallbackCompleted = data.analyzers.filter(a => a.isComplete).length;
+  const total = summary?.total ?? fallbackTotal;
+  const completed = summary?.completed ?? fallbackCompleted;
+  const active = summary?.active ?? (fallbackTotal - fallbackCompleted);
 
   const byType = useMemo(() => {
+    if (summary) return summary.by_type.map(x => [x.type, { total: x.total, completed: x.completed }] as const);
     const m: Record<string, { total: number; completed: number }> = {};
-    for (const a of analyzers) {
+    for (const a of data.analyzers) {
       if (!m[a.analyzerType]) m[a.analyzerType] = { total: 0, completed: 0 };
       m[a.analyzerType].total++;
       if (a.isComplete) m[a.analyzerType].completed++;
     }
     return Object.entries(m).sort((a, b) => b[1].total - a[1].total);
-  }, [analyzers]);
+  }, [summary, data.analyzers]);
 
   const byStage = useMemo(() => {
+    if (summary) return summary.by_stage.map(x => [x.stage, x.count] as const);
     const m: Record<string, number> = {};
-    analyzers.filter(a => !a.isComplete).forEach(a => { m[a.currentStage] = (m[a.currentStage] || 0) + 1; });
+    data.analyzers.filter(a => !a.isComplete).forEach(a => { m[a.currentStage] = (m[a.currentStage] || 0) + 1; });
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
-  }, [analyzers]);
+  }, [summary, data.analyzers]);
+
+  const lvccTotal = summary?.lvcc_total ?? data.lvccItems.length;
+  const lvccActive = summary?.lvcc_active ?? data.lvccItems.filter(l => !l.isComplete).length;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-bold" style={{ color: theme.textPrimary }}>REM Dashboard</h2>
         <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: liveError ? theme.textMuted : theme.statusOk }}>
-          {liveError ? "Fallback data" : liveAnalyzers ? "Live Supabase" : "Loading live data"}
+          {liveError ? "Fallback data" : summary ? "Live Supabase" : "Loading live data"}
         </span>
       </div>
 
@@ -117,13 +85,13 @@ export function RemDashboard() {
         <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>By Analyzer Type</h3>
         {byType.length === 0 ? (
           <div className="text-sm py-4 text-center" style={{ color: theme.textMuted }}>No REM analyzers available</div>
-        ) : byType.map(([type, { total: t, completed: c }]) => (
+        ) : byType.map(([type, counts]) => (
           <div key={type} className="mb-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm" style={{ color: theme.textPrimary }}>{type}</span>
-              <span className="text-xs" style={{ color: theme.textMuted }}>{c}/{t} complete</span>
+              <span className="text-xs" style={{ color: theme.textMuted }}>{counts.completed}/{counts.total} complete</span>
             </div>
-            <ProgressBar value={c} maxValue={t} color="#6366f1" />
+            <ProgressBar value={counts.completed} maxValue={counts.total} color="#6366f1" />
           </div>
         ))}
       </WebCard>
@@ -144,8 +112,8 @@ export function RemDashboard() {
       </WebCard>
 
       <div className="grid grid-cols-2 gap-3">
-        <DashCard label="LVCC TOTAL" value={lvccItems.length} icon="📋" color="#8b5cf6" />
-        <DashCard label="LVCC ACTIVE" value={lvccItems.filter(l => !l.isComplete).length} icon="⚡" color="#f59e0b" />
+        <DashCard label="LVCC TOTAL" value={lvccTotal} icon="📋" color="#8b5cf6" />
+        <DashCard label="LVCC ACTIVE" value={lvccActive} icon="⚡" color="#f59e0b" />
       </div>
     </div>
   );
