@@ -98,7 +98,7 @@ export function useServerActions() {
     expectedRevision: number;
     analyzerSerial?: string;
   }): Promise<DhrTransitionReceipt> => {
-    return await applyDhrScanTransitionAction(args) as DhrTransitionReceipt;
+    return await applyDhrScanTransitionAction(args) as unknown as DhrTransitionReceipt;
   }, [applyDhrScanTransitionAction]);
 
   const ocrDhrPage = useCallback(async (args: {
