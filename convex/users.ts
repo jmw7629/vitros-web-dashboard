@@ -10,6 +10,21 @@ export const getUserRole = internalQuery({
   },
 });
 
+// Server-only identity projection used when an external durable audit trail must
+// carry a human-recognizable actor. Browser callers cannot invoke this directly.
+export const getUserAuditIdentity = internalQuery({
+  args: { userId: v.id("users") },
+  returns: v.object({
+    name: v.union(v.string(), v.null()),
+    role: v.union(v.literal("superuser"), v.literal("engineer"), v.literal("viewer")),
+  }),
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    const role = user?.role === "superuser" || user?.role === "engineer" ? user.role : "viewer";
+    return { name: user?.name?.trim() || null, role };
+  },
+});
+
 export const getMyProfile = query({
   args: {},
   handler: async (ctx) => {
