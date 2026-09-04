@@ -17,5 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Fetch exact implementation head read-only
+        env:
+          TARGET_SHA: 3b253690f68740f04f3e661a2b392dad608bd94f
+        run: git fetch --no-tags --depth=1 origin "$TARGET_SHA"
       - name: Verify exact implementation head
         run: node scripts/verify-dhr-scanner-atomic-175.mjs
