@@ -141,11 +141,7 @@ export function useServerActions() {
   const setDhrScannerSessionLifecycle = useCallback(async (args: {
     sessionId: string;
     status: "in_progress" | "completed";
-    expectedRevision: number;
   }): Promise<Record<string, unknown>> => {
-    if (!Number.isInteger(args.expectedRevision) || args.expectedRevision < 0) {
-      throw new Error("DHR session revision must be a non-negative integer");
-    }
     return await setDhrScannerSessionLifecycleAction(args) as unknown as Record<string, unknown>;
   }, [setDhrScannerSessionLifecycleAction]);
 
