@@ -99,7 +99,8 @@ export function useServerActions() {
   }, [applyDhrScanTransitionAction]);
 
   const ocrDhrPage = useCallback(async (args: {
-    imageUrl: string;
+    imageUrl?: string;
+    imageBase64?: string;
     prompt: string;
     partList?: string[];
   }): Promise<string> => ocrDhrPageAction(args), [ocrDhrPageAction]);
