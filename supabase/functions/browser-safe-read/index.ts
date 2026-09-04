@@ -1,4 +1,4 @@
-const SAFE_DATASETS = new Set(["stock", "audit", "sap", "settings", "rem_analyzers", "rem_lvcc"]);
+const SAFE_DATASETS = new Set(["stock", "audit", "sap", "settings", "rem_summary"]);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -91,6 +91,37 @@ function sanitizeAuditRow(row: Record<string, unknown>) {
   };
 }
 
+function buildRemSummary(analyzers: Record<string, unknown>[], lvcc: Record<string, unknown>[]) {
+  const byType: Record<string, { total: number; completed: number }> = {};
+  const byStage: Record<string, number> = {};
+  let completed = 0;
+
+  for (const row of analyzers) {
+    const type = typeof row.analyzer_type === "string" && row.analyzer_type ? row.analyzer_type : "Unknown";
+    const stage = typeof row.current_stage === "string" && row.current_stage ? row.current_stage : "Unassigned";
+    const isComplete = row.is_complete === true;
+    if (!byType[type]) byType[type] = { total: 0, completed: 0 };
+    byType[type].total += 1;
+    if (isComplete) {
+      byType[type].completed += 1;
+      completed += 1;
+    } else {
+      byStage[stage] = (byStage[stage] || 0) + 1;
+    }
+  }
+
+  const lvccComplete = lvcc.filter((row) => row.is_complete === true).length;
+  return [{
+    total: analyzers.length,
+    completed,
+    active: analyzers.length - completed,
+    by_type: Object.entries(byType).map(([type, counts]) => ({ type, ...counts })),
+    by_stage: Object.entries(byStage).map(([stage, count]) => ({ stage, count })),
+    lvcc_total: lvcc.length,
+    lvcc_active: lvcc.length - lvccComplete,
+  }];
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (request.method !== "GET") return jsonResponse({ error: "method_not_allowed" }, 405);
@@ -144,17 +175,15 @@ Deno.serve(async (request: Request) => {
         );
         return jsonResponse(rows);
       }
-      case "rem_analyzers": {
-        const rows = await postgrest(
-          "rem_analyzers?select=id,serial_number,analyzer_type,production_order,start_date,sla_days,current_stage,days_in_stage,overall_pct,procurement_pct,cleaning_pct,service_pct,final_line_pct,release_testing_pct,qa_release_pct,sap_release_pct,packaging_pct,current_pct,is_complete&order=serial_number.asc",
-        );
-        return jsonResponse(rows);
-      }
-      case "rem_lvcc": {
-        const rows = await postgrest(
-          "rem_lvcc?select=id,serial_number,item_type,batch_number,start_date,end_date,current_stage,build_pct,test_pct,qa_release_pct,sap_release_pct,packaging_pct,is_complete&order=serial_number.asc",
-        );
-        return jsonResponse(rows);
+      case "rem_summary": {
+        const [analyzers, lvcc] = await Promise.all([
+          postgrest("rem_analyzers?select=analyzer_type,current_stage,is_complete"),
+          postgrest("rem_lvcc?select=is_complete"),
+        ]);
+        return jsonResponse(buildRemSummary(
+          analyzers as Record<string, unknown>[],
+          lvcc as Record<string, unknown>[],
+        ));
       }
       default:
         return jsonResponse({ error: "invalid_dataset" }, 400);
