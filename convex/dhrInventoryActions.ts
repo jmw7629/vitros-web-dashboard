@@ -247,35 +247,29 @@ export const setScannerSessionLifecycle = action({
   args: {
     sessionId: v.string(),
     status: v.union(v.literal("in_progress"), v.literal("completed")),
+    expectedRevision: v.number(),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
     const userId = await requireCapability(ctx, "inventory.write");
     const sessionId = validateUuid(args.sessionId, "DHR session id");
+    if (!Number.isInteger(args.expectedRevision) || args.expectedRevision < 0) {
+      throw new Error("DHR session revision must be a non-negative integer");
+    }
     const { url, serviceKey } = getSupabaseConfig();
     const actor = await resolveAuditActor(ctx, userId, serviceKey, url);
 
-    const rows = await readSupabaseRows<{ id?: string; status?: string | null; revision?: number }>(
-      serviceKey,
-      url,
-      `dhr_scan_sessions?select=id,status,revision&id=eq.${encodeURIComponent(sessionId)}&limit=2`,
-    );
-    if (rows.length !== 1 || rows[0].id !== sessionId) throw new Error("DHR session was not found");
-    const revision = rows[0].revision;
-    if (!Number.isInteger(revision) || (revision as number) < 0) {
-      throw new Error("DHR session revision is unavailable");
-    }
-
-    // The correlation key is deterministic for one lifecycle intent at one accepted
-    // revision. A network retry therefore returns the original event rather than
-    // creating a second finalize/reopen revision.
-    const correlationId = `dhr-lifecycle:${sessionId}:${revision}:${args.status}`;
+    // Correlation is derived from the browser-observed revision, not a fresh server
+    // read. If the response is lost, a retry carries the same revision and returns
+    // the original immutable event. A genuinely stale browser instead receives the
+    // RPC revision conflict and must reload before changing lifecycle state.
+    const correlationId = `dhr-lifecycle:${sessionId}:${args.expectedRevision}:${args.status}`;
     return callDhrLifecycleRpc(serviceKey, url, {
       p_session_id: sessionId,
       p_target_status: args.status,
       p_actor: actor,
       p_correlation_id: correlationId,
-      p_expected_revision: revision,
+      p_expected_revision: args.expectedRevision,
     });
   },
 });
