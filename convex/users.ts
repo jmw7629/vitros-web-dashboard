@@ -11,18 +11,31 @@ export const getUserRole = internalQuery({
 });
 
 // Server-only identity projection used when an external durable audit trail must
-// carry a human-recognizable actor. Browser callers cannot invoke this directly.
+// carry a human-recognizable actor. Engineer identity is anchored to the immutable
+// vitros-role provider account (`employee:<Supabase employee id>`), not mutable
+// browser profile/localStorage fields.
 export const getUserAuditIdentity = internalQuery({
   args: { userId: v.id("users") },
   returns: v.object({
     name: v.union(v.string(), v.null()),
     role: v.union(v.literal("superuser"), v.literal("engineer"), v.literal("viewer")),
+    employeeId: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, { userId }) => {
     const user = await ctx.db.get(userId);
     let role: "superuser" | "engineer" | "viewer" = "viewer";
     if (user?.role === "superuser" || user?.role === "engineer") role = user.role;
-    return { name: user?.name?.trim() || null, role };
+
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("userIdAndProvider", (q) => q.eq("userId", userId).eq("provider", "vitros-role"))
+      .unique();
+    const providerAccountId = account?.providerAccountId ?? "";
+    const employeeId = providerAccountId.startsWith("employee:")
+      ? providerAccountId.slice("employee:".length)
+      : null;
+
+    return { name: user?.name?.trim() || null, role, employeeId };
   },
 });
 
