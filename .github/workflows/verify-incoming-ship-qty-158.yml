@@ -1,0 +1,17 @@
+name: Verify Incoming Stock SHIP QTY #158
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-incoming-ship-qty:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify exact implementation SHA
+        run: node scripts/verify-incoming-ship-qty-158.mjs
