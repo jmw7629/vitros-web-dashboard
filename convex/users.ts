@@ -20,7 +20,8 @@ export const getUserAuditIdentity = internalQuery({
   }),
   handler: async (ctx, { userId }) => {
     const user = await ctx.db.get(userId);
-    const role = user?.role === "superuser" || user?.role === "engineer" ? user.role : "viewer";
+    let role: "superuser" | "engineer" | "viewer" = "viewer";
+    if (user?.role === "superuser" || user?.role === "engineer") role = user.role;
     return { name: user?.name?.trim() || null, role };
   },
 });
