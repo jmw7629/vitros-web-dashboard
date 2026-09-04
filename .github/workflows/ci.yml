@@ -27,6 +27,8 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
       - name: Secret pattern check
         run: node scripts/check-secrets.mjs
+      - name: Secure role-session check
+        run: node scripts/secure-role-session-check.mjs
       - name: Browser safe-read boundary check
         run: node scripts/browser-safe-read-security-check.mjs
       - name: Browser safe-read staging runtime smoke
