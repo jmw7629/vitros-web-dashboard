@@ -66,6 +66,7 @@ function App() {
           <Route path="/scan-kiosk" element={<ScanKiosk />} />
           <Route path="/user-dashboard" element={<UserDashboard />} />
           <Route path="/stock-summary" element={<StockSummary />} />
+          {/* Incoming Stock uses the reviewed server-authoritative receive workflow. */}
           <Route path="/incoming-stock" element={<IncomingStockSecure />} />
           <Route path="/reorder-stockout" element={<ReorderStockout />} />
           <Route path="/transaction-search" element={<TransactionSearch />} />
