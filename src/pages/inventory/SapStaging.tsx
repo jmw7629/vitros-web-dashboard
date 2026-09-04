@@ -40,6 +40,10 @@ export function SapStaging() {
     );
   }, [tabRecords, search]);
 
+  const gridTemplateColumns = tab !== "exported"
+    ? "28px 100px minmax(180px, 2fr) 120px 70px 90px 110px"
+    : "100px minmax(180px, 2fr) 120px 70px 90px 110px";
+
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -192,69 +196,73 @@ export function SapStaging() {
         </div>
       )}
 
-      {/* Records Table */}
+      {/* Records Table — one scroll context keeps sticky header and rows synchronized */}
       <WebCard className="overflow-hidden">
-        <div className="grid items-center px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider border-b"
-          style={{
-            gridTemplateColumns: tab !== "exported" ? "28px 80px minmax(120px, 2fr) 80px 60px 50px 80px" : "80px minmax(120px, 2fr) 80px 60px 50px 80px",
-            backgroundColor: "#0f172a",
-            borderColor: theme.cardBorder,
-            color: theme.textMuted,
-          }}>
-          {tab !== "exported" && <span />}
-          <span>Part #</span>
-          <span>Description</span>
-          <span>Movement</span>
-          <span className="text-right">Qty</span>
-          <span>User</span>
-          <span className="text-right">Date</span>
-        </div>
-
-        <div className="divide-y max-h-[55vh] overflow-y-auto" style={{ borderColor: theme.cardBorder }}>
-          {filtered.length === 0 ? (
-            <div className="py-8 text-center">
-              <div className="text-2xl mb-2">{tab === "pending" ? "🎉" : "📋"}</div>
-              <div className="text-sm font-bold" style={{ color: theme.textPrimary }}>
-                {tab === "pending" ? "All caught up!" : tab === "ready" ? "No records ready" : "No exports yet"}
-              </div>
-              <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>
-                {tab === "pending" ? "No transactions pending SAP review" : tab === "ready" ? "Mark pending records as ready first" : "Export ready records to SAP"}
-              </div>
+        <div className="max-h-[55vh] overflow-auto overscroll-contain">
+          <div className="min-w-[760px]">
+            <div className="sticky top-0 z-10 grid items-center px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider border-b"
+              style={{
+                gridTemplateColumns,
+                backgroundColor: "#0f172a",
+                borderColor: theme.cardBorder,
+                color: theme.textMuted,
+              }}>
+              {tab !== "exported" && <span />}
+              <span>Part #</span>
+              <span>Description</span>
+              <span>Movement</span>
+              <span className="text-right">Qty</span>
+              <span>User</span>
+              <span className="text-right">Date</span>
             </div>
-          ) : (
-            filtered.map((r: any) => {
-              const isSelected = selectedIds.has(r._id);
-              return (
-                <div key={r._id}
-                  className="grid items-center px-4 py-2.5 transition-colors cursor-pointer"
-                  style={{
-                    gridTemplateColumns: tab !== "exported" ? "28px 80px minmax(120px, 2fr) 80px 60px 50px 80px" : "80px minmax(120px, 2fr) 80px 60px 50px 80px",
-                    backgroundColor: isSelected ? `${theme.accentBlue}10` : undefined,
-                  }}
-                  onClick={() => tab !== "exported" && toggleSelect(r._id)}>
-                  {tab !== "exported" && (
-                    <span>
-                      <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all"
-                        style={{
-                          borderColor: isSelected ? theme.accentBlue : theme.cardBorder,
-                          backgroundColor: isSelected ? theme.accentBlue : "transparent",
-                        }}>
-                        {isSelected && <Check className="w-3 h-3 text-white" />}
-                      </div>
-                    </span>
-                  )}
-                  <span className="text-sm font-medium" style={{ color: theme.accentBlue }}>{r.partNumber}</span>
-                  <span className="text-sm truncate pr-2" style={{ color: theme.textPrimary }}>{r.description || "—"}</span>
-                  <span>
-                    <StatusBadge text={r.mode} color={modeColor(r.mode)} />
-                  </span>
-                  <span className="text-sm font-bold text-right" style={{ color: theme.textPrimary }}>×{Math.abs(r.qty)}</span>
-                  <span className="text-xs truncate" style={{ color: theme.textSecondary }}>{r.user || "—"}</span>
-                  <span className="text-xs text-right" style={{ color: theme.textMuted }}>{formatDate(r.timestamp)}</span>
+
+            <div className="divide-y" style={{ borderColor: theme.cardBorder }}>
+              {filtered.length === 0 ? (
+                <div className="py-8 text-center">
+                  <div className="text-2xl mb-2">{tab === "pending" ? "🎉" : "📋"}</div>
+                  <div className="text-sm font-bold" style={{ color: theme.textPrimary }}>
+                    {tab === "pending" ? "All caught up!" : tab === "ready" ? "No records ready" : "No exports yet"}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>
+                    {tab === "pending" ? "No transactions pending SAP review" : tab === "ready" ? "Mark pending records as ready first" : "Export ready records to SAP"}
+                  </div>
                 </div>
-              );
-            })
-          )}
+              ) : (
+                filtered.map((r: any) => {
+                  const isSelected = selectedIds.has(r._id);
+                  return (
+                    <div key={r._id}
+                      className="grid items-center px-4 py-2.5 transition-colors cursor-pointer"
+                      style={{
+                        gridTemplateColumns,
+                        backgroundColor: isSelected ? `${theme.accentBlue}10` : undefined,
+                      }}
+                      onClick={() => tab !== "exported" && toggleSelect(r._id)}>
+                      {tab !== "exported" && (
+                        <span>
+                          <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all"
+                            style={{
+                              borderColor: isSelected ? theme.accentBlue : theme.cardBorder,
+                              backgroundColor: isSelected ? theme.accentBlue : "transparent",
+                            }}>
+                            {isSelected && <Check className="w-3 h-3 text-white" />}
+                          </div>
+                        </span>
+                      )}
+                      <span className="text-sm font-medium" style={{ color: theme.accentBlue }}>{r.partNumber}</span>
+                      <span className="text-sm truncate pr-2" style={{ color: theme.textPrimary }}>{r.description || "—"}</span>
+                      <span title={movementType(r.mode)}>
+                        <StatusBadge text={r.mode} color={modeColor(r.mode)} />
+                      </span>
+                      <span className="text-sm font-bold text-right" style={{ color: theme.textPrimary }}>×{Math.abs(r.qty)}</span>
+                      <span className="text-xs truncate" style={{ color: theme.textSecondary }}>{r.user || "—"}</span>
+                      <span className="text-xs text-right" style={{ color: theme.textMuted }}>{formatDate(r.timestamp)}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
       </WebCard>
     </div>
