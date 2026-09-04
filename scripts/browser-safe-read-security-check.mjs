@@ -31,6 +31,7 @@ requireTokens(client, "browser client", [
   '"audit"',
   '"sap"',
   '"settings"',
+  '"rem_summary"',
   "/functions/v1/browser-safe-read",
   'method: "GET"',
   'cache: "no-store"',
@@ -46,6 +47,8 @@ forbidTokens(client, "browser client", [
   "/rest/v1/sap_staging",
   "/rest/v1/settings",
   "/rest/v1/users",
+  "/rest/v1/rem_analyzers",
+  "/rest/v1/rem_lvcc",
   "select=*",
   'method: "POST"',
   'method: "PUT"',
@@ -76,6 +79,8 @@ forbidTokens(hook, "browser data hook", [
   "/rest/v1/sap_staging",
   "/rest/v1/settings",
   "/rest/v1/users",
+  "/rest/v1/rem_analyzers",
+  "/rest/v1/rem_lvcc",
   "select=*",
   'browserSafeRead<any>("users")',
 ]);
@@ -85,7 +90,7 @@ if (/browserSafeRead<any>\("stock"\)\.catch\s*\(/.test(hook)) {
 }
 
 requireTokens(edge, "edge boundary", [
-  'new Set(["stock", "audit", "sap", "settings"])',
+  'new Set(["stock", "audit", "sap", "settings", "rem_summary"])',
   '"Access-Control-Allow-Methods": "GET, OPTIONS"',
   '"Cache-Control": "no-store, max-age=0"',
   'if (request.method !== "GET")',
@@ -93,6 +98,10 @@ requireTokens(edge, "edge boundary", [
   '"audit_log?select=id,action,part_number,user_name,created_at,new_value&order=created_at.desc&limit=500"',
   '"sap_staging?select=id,created_at,mode,part_number,description,qty_on_hand,qty_before,qty_after,movement_type,plant_code,storage_location,export_status&order=created_at.desc"',
   'const allowed = "sapHeaderText,sapMovementADJUST,sapMovementIN,sapMovementOUT,sapPlantCode,sapStorageLocation"',
+  'postgrest("rem_analyzers?select=analyzer_type,current_stage,is_complete")',
+  'postgrest("rem_lvcc?select=is_complete")',
+  'case "rem_summary"',
+  "buildRemSummary(",
   'Deno.env.get("SUPABASE_SECRET_KEYS")',
   'Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")',
   'headers.Authorization = `Bearer ${serverKey.value}`',
@@ -101,6 +110,10 @@ requireTokens(edge, "edge boundary", [
 forbidTokens(edge, "edge boundary", [
   "select=*",
   "ip_address",
+  "serial_number",
+  "production_order",
+  "assigned_to",
+  "notes",
   'method: "POST"',
   'method: "PUT"',
   'method: "PATCH"',
