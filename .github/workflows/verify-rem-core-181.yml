@@ -1,0 +1,17 @@
+name: Verify REM Core #181
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-rem-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify exact implementation SHA
+        run: node scripts/verify-rem-core-181.mjs
