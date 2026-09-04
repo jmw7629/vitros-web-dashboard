@@ -1,0 +1,17 @@
+name: Verify Vercel Convex #144
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-vercel-convex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify exact implementation SHA
+        run: node scripts/verify-vercel-convex-144.mjs
