@@ -1,0 +1,17 @@
+name: Verify REM Workbook #136
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-rem-workbook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify exact implementation SHA
+        run: node scripts/verify-rem-workbook-136.mjs
