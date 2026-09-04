@@ -37,6 +37,8 @@ jobs:
         run: node scripts/rem-workbook-import-security-check.mjs
       - name: Secure role-session check
         run: node scripts/secure-role-session-check.mjs
+      - name: DHR atomic scanner security check
+        run: node scripts/dhr-scanner-atomic-security-check.mjs
       - name: Lint
         run: npm run lint || true
       - name: Git diff check
