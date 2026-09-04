@@ -73,6 +73,8 @@ export function useServerActions() {
   const applyDhrScanTransitionAction = useAction(api.dhrInventoryActions.applyScanTransition);
   const loadDhrScannerDataAction = useAction(api.dhrInventoryActions.loadScannerData);
   const loadDhrSessionResultsAction = useAction(api.dhrInventoryActions.loadSessionResults);
+  const createDhrScannerSessionAction = useAction(api.dhrInventoryActions.createScannerSession);
+  const setDhrScannerSessionLifecycleAction = useAction(api.dhrInventoryActions.setScannerSessionLifecycle);
   const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
@@ -127,6 +129,21 @@ export function useServerActions() {
     if (!sessionId.trim()) throw new Error("DHR session is required");
     return await loadDhrSessionResultsAction({ sessionId: sessionId.trim() }) as unknown as Record<string, unknown>[];
   }, [loadDhrSessionResultsAction]);
+
+  const createDhrScannerSession = useCallback(async (args: {
+    instrumentSn: string;
+    woNumber?: string;
+    analyzerModel: string;
+  }): Promise<Record<string, unknown>> => {
+    return await createDhrScannerSessionAction(args) as unknown as Record<string, unknown>;
+  }, [createDhrScannerSessionAction]);
+
+  const setDhrScannerSessionLifecycle = useCallback(async (args: {
+    sessionId: string;
+    status: "in_progress" | "completed";
+  }): Promise<Record<string, unknown>> => {
+    return await setDhrScannerSessionLifecycleAction(args) as unknown as Record<string, unknown>;
+  }, [setDhrScannerSessionLifecycleAction]);
 
   const applyDhrScanTransition = useCallback(async (args: {
     sessionId: string;
@@ -183,6 +200,8 @@ export function useServerActions() {
     sbUpload,
     loadDhrScannerData,
     loadDhrSessionResults,
+    createDhrScannerSession,
+    setDhrScannerSessionLifecycle,
     applyDhrScanTransition,
     applyDhrChecklistChange,
     ocrDhrPage,

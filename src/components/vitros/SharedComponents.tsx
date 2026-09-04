@@ -164,9 +164,14 @@ export function ProgressBar({ value, maxValue = 100, color = theme.accentBlue, h
 
 // ─── WebCard wrapper (dark) ───
 
-export function WebCard({ children, className, style }: { children: ReactNode; className?: string; style?: React.CSSProperties }) {
+export function WebCard({ children, className, style, onClick }: {
+  children: ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  onClick?: React.MouseEventHandler<HTMLDivElement>;
+}) {
   return (
-    <div className={cn("rounded-2xl", className)}
+    <div onClick={onClick} className={cn("rounded-2xl", className)}
       style={{ backgroundColor: theme.cardBg, border: `1px solid ${theme.cardBorder}`, ...style }}>
       {children}
     </div>
