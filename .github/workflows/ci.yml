@@ -35,6 +35,8 @@ jobs:
         run: node scripts/vercel-convex-coupling-check.mjs
       - name: REM workbook import security check
         run: node scripts/rem-workbook-import-security-check.mjs
+      - name: Secure role-session check
+        run: node scripts/secure-role-session-check.mjs
       - name: Lint
         run: npm run lint || true
       - name: Git diff check
