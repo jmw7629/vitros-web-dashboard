@@ -10,7 +10,7 @@ export function getJitteredRefreshDelay(
   const high = Math.max(low, Math.floor(Math.max(minMs, maxMs)));
   const raw = Number(random());
   const normalized = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0.5;
-  return low + Math.floor(normalized * (high - low + 1));
+  return low + Math.floor(normalized * (high - low));
 }
 
 export function createCoalescedRefreshRunner(run, options = {}) {
