@@ -1,0 +1,25 @@
+name: Verify Incoming Stock Secure 177
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch exact implementation head read-only
+        env:
+          TARGET_SHA: c69c6c278c97ad46746420ce089e62f0597f9622
+        run: git fetch --no-tags --depth=1 origin "$TARGET_SHA"
+      - name: Verify exact implementation head
+        run: node scripts/verify-incoming-secure-177.mjs
