@@ -59,14 +59,14 @@ esac
 
 "$OPENCODE_BIN_PATH" --version >/dev/null
 HELP="$($OPENCODE_BIN_PATH run --help 2>&1 || true)"
-for flag in --dir --format; do
+for flag in --dir --auto --format; do
   grep -q -- "$flag" <<<"$HELP" || {
     echo "OpenCode run is missing required flag: $flag" >&2
     exit 1
   }
 done
 
-python3 -m unittest "$ROOT/bridge/test_verifier_runner.py"
+python3 "$ROOT/bridge/test_verifier_runner.py"
 
 # Write only non-secret bridge defaults when an env file does not yet exist.
 if [[ ! -f "$ENV_FILE" ]]; then
