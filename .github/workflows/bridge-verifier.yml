@@ -26,8 +26,15 @@ jobs:
         run: python3 -m unittest bridge/test_verifier_runner.py
       - name: Shell syntax
         run: bash -n bridge/install_verifier.sh bridge/uninstall.sh bridge/install.sh
-      - name: No privileged verifier Git commands
+      - name: Verifier isolation policy
         run: |
-          ! grep -nE 'subprocess\.(run|Popen).*\b(commit|push|merge|rebase|reset|checkout)\b' bridge/verifier_runner.py
-          grep -q 'git", "worktree", "add", "--detach"' bridge/verifier_runner.py
+          grep -q '"clone", "--no-checkout", "--no-local"' bridge/verifier_runner.py
+          grep -q '"remote", "remove", "origin"' bridge/verifier_runner.py
+          grep -q "root / 'bridge' / 'safe-bin'" bridge/verifier_runner.py
+          grep -q 'SUPABASE_SERVICE_ROLE_KEY' bridge/verifier_runner.py
+          grep -q 'CONVEX_DEPLOY_KEY' bridge/verifier_runner.py
+          grep -q 'GH_CONFIG_DIR' bridge/verifier_runner.py
+          grep -q 'sandbox_head(sandbox)' bridge/verifier_runner.py
           grep -q 'resolve_pr(repo, pr_number, target_sha)' bridge/verifier_runner.py
+          grep -q 'NONCE=' bridge/verifier_runner.py
+          ! grep -q 'ReadWritePaths=.*\$ROOT' bridge/install_verifier.sh
