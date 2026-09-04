@@ -1,4 +1,4 @@
-const SAFE_DATASETS = new Set(["stock", "audit", "sap", "settings"]);
+const SAFE_DATASETS = new Set(["stock", "audit", "sap", "settings", "rem_summary"]);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -50,9 +50,6 @@ async function postgrest(path: string): Promise<unknown[]> {
     Accept: "application/json",
   };
 
-  // Modern sb_secret keys are API keys, not JWTs, and must not be sent as Bearer tokens.
-  // The legacy service-role key is JWT-based and retains its Authorization header only
-  // for migration compatibility until it is retired.
   if (serverKey.kind === "legacy_service_role") {
     headers.Authorization = `Bearer ${serverKey.value}`;
   }
@@ -92,6 +89,37 @@ function sanitizeAuditRow(row: Record<string, unknown>) {
       sap_status: typeof raw.sap_status === "string" ? raw.sap_status : "NOT_PUSHED",
     },
   };
+}
+
+function buildRemSummary(analyzers: Record<string, unknown>[], lvcc: Record<string, unknown>[]) {
+  const byType: Record<string, { total: number; completed: number }> = {};
+  const byStage: Record<string, number> = {};
+  let completed = 0;
+
+  for (const row of analyzers) {
+    const type = typeof row.analyzer_type === "string" && row.analyzer_type ? row.analyzer_type : "Unknown";
+    const stage = typeof row.current_stage === "string" && row.current_stage ? row.current_stage : "Unassigned";
+    const isComplete = row.is_complete === true;
+    if (!byType[type]) byType[type] = { total: 0, completed: 0 };
+    byType[type].total += 1;
+    if (isComplete) {
+      byType[type].completed += 1;
+      completed += 1;
+    } else {
+      byStage[stage] = (byStage[stage] || 0) + 1;
+    }
+  }
+
+  const lvccComplete = lvcc.filter((row) => row.is_complete === true).length;
+  return [{
+    total: analyzers.length,
+    completed,
+    active: analyzers.length - completed,
+    by_type: Object.entries(byType).map(([type, counts]) => ({ type, ...counts })),
+    by_stage: Object.entries(byStage).map(([stage, count]) => ({ stage, count })),
+    lvcc_total: lvcc.length,
+    lvcc_active: lvcc.length - lvccComplete,
+  }];
 }
 
 Deno.serve(async (request: Request) => {
@@ -146,6 +174,16 @@ Deno.serve(async (request: Request) => {
           `settings?select=key,value&key=in.(${allowed})&order=key.asc`,
         );
         return jsonResponse(rows);
+      }
+      case "rem_summary": {
+        const [analyzers, lvcc] = await Promise.all([
+          postgrest("rem_analyzers?select=analyzer_type,current_stage,is_complete"),
+          postgrest("rem_lvcc?select=is_complete"),
+        ]);
+        return jsonResponse(buildRemSummary(
+          analyzers as Record<string, unknown>[],
+          lvcc as Record<string, unknown>[],
+        ));
       }
       default:
         return jsonResponse({ error: "invalid_dataset" }, 400);
