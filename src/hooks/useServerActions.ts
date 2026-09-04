@@ -4,6 +4,27 @@ import { useAction } from "convex/react";
 import { useCallback } from "react";
 import { api } from "../../convex/_generated/api";
 
+export interface DhrTransitionReceipt {
+  success: boolean;
+  duplicate: boolean;
+  eventId: string;
+  resultId: string;
+  sessionId: string;
+  sectionId: string;
+  partNumber: string;
+  previousQty: number;
+  newQty: number;
+  delta: number;
+  revisionBefore: number;
+  revisionAfter: number;
+  mode: "IN" | "OUT" | null;
+  stockBefore?: number | null;
+  stockAfter?: number | null;
+  auditId?: string | null;
+  sapId?: string | null;
+  processedAt: string;
+}
+
 export function useServerActions() {
   const insertAuditLog = useAction(api.supabaseGateway.insertAuditLog);
   const insertSapStaging = useAction(api.supabaseGateway.insertSapStaging);
@@ -15,6 +36,8 @@ export function useServerActions() {
   const deleteDhrSession = useAction(api.supabaseGateway.deleteDhrSession);
   const deleteDhrSessionWithResults = useAction(api.supabaseGateway.deleteDhrSessionWithResults);
   const uploadToStorage = useAction(api.supabaseGateway.uploadToStorage);
+  const applyDhrScanTransitionAction = useAction(api.dhrInventoryActions.applyScanTransition);
+  const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
     switch (table) {
@@ -44,11 +67,8 @@ export function useServerActions() {
     if (filter.includes("session_id=eq.")) {
       const sessionId = filter.split("session_id=eq.")[1]?.split("&")[0];
       if (!sessionId) throw new Error(`Invalid session filter: ${filter}`);
-      if (table === "dhr_scan_results") {
-        return deleteDhrSessionWithResults({ sessionId });
-      }
+      if (table === "dhr_scan_results") return deleteDhrSessionWithResults({ sessionId });
     }
-
     const idMatch = filter.match(/id=eq\.([^&]+)/);
     const id = idMatch?.[1];
     if (!id) throw new Error(`Invalid filter: ${filter}`);
@@ -63,5 +83,26 @@ export function useServerActions() {
     return uploadToStorage({ bucket, path, data, contentType });
   }, [uploadToStorage]);
 
-  return { sbInsert, sbUpdate, sbDelete, sbUpload };
+  const applyDhrScanTransition = useCallback(async (args: {
+    sessionId: string;
+    sectionId: string;
+    partNumber: string;
+    expectedQty: number;
+    newQty: number;
+    category: string;
+    description: string;
+    correlationId: string;
+    expectedRevision: number;
+    analyzerSerial?: string;
+  }): Promise<DhrTransitionReceipt> => {
+    return await applyDhrScanTransitionAction(args) as unknown as DhrTransitionReceipt;
+  }, [applyDhrScanTransitionAction]);
+
+  const ocrDhrPage = useCallback(async (args: {
+    imageUrl: string;
+    prompt: string;
+    partList?: string[];
+  }): Promise<string> => ocrDhrPageAction(args), [ocrDhrPageAction]);
+
+  return { sbInsert, sbUpdate, sbDelete, sbUpload, applyDhrScanTransition, ocrDhrPage };
 }
