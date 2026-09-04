@@ -47,7 +47,7 @@ forbidAll(server, "server REM read", [
   'callerRole',
   'callerUser',
   'VITE_SUPABASE',
-  'remAnalyzers').collect(',
+  'ctx.db.query("remAnalyzers")',
 ]);
 
 requireAll(hook, "REM hook", [
