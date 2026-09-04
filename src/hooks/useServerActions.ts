@@ -4,6 +4,27 @@ import { useAction } from "convex/react";
 import { useCallback } from "react";
 import { api } from "../../convex/_generated/api";
 
+export interface DhrTransitionReceipt {
+  success: boolean;
+  duplicate: boolean;
+  eventId: string;
+  resultId: string;
+  sessionId: string;
+  sectionId: string;
+  partNumber: string;
+  previousQty: number;
+  newQty: number;
+  delta: number;
+  revisionBefore: number;
+  revisionAfter: number;
+  mode: "IN" | "OUT" | null;
+  stockBefore?: number | null;
+  stockAfter?: number | null;
+  auditId?: string | null;
+  sapId?: string | null;
+  processedAt: string;
+}
+
 export function useServerActions() {
   const insertAuditLog = useAction(api.supabaseGateway.insertAuditLog);
   const insertSapStaging = useAction(api.supabaseGateway.insertSapStaging);
@@ -16,6 +37,7 @@ export function useServerActions() {
   const deleteDhrSessionWithResults = useAction(api.supabaseGateway.deleteDhrSessionWithResults);
   const uploadToStorage = useAction(api.supabaseGateway.uploadToStorage);
   const applyDhrScanTransitionAction = useAction(api.dhrInventoryActions.applyScanTransition);
+  const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
     switch (table) {
@@ -75,7 +97,15 @@ export function useServerActions() {
     correlationId: string;
     expectedRevision: number;
     analyzerSerial?: string;
-  }) => applyDhrScanTransitionAction(args), [applyDhrScanTransitionAction]);
+  }): Promise<DhrTransitionReceipt> => {
+    return await applyDhrScanTransitionAction(args) as DhrTransitionReceipt;
+  }, [applyDhrScanTransitionAction]);
 
-  return { sbInsert, sbUpdate, sbDelete, sbUpload, applyDhrScanTransition };
+  const ocrDhrPage = useCallback(async (args: {
+    imageUrl: string;
+    prompt: string;
+    partList?: string[];
+  }): Promise<string> => ocrDhrPageAction(args), [ocrDhrPageAction]);
+
+  return { sbInsert, sbUpdate, sbDelete, sbUpload, applyDhrScanTransition, ocrDhrPage };
 }
