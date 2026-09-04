@@ -1,0 +1,17 @@
+name: Verify SAP Staging Scroll #110
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify-sap-scroll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify exact target SHA invariants
+        run: node scripts/verify-sap-staging-scroll-110.mjs
