@@ -31,7 +31,7 @@ export function Analyzers() {
 
       {data.error && (
         <WebCard className="p-4">
-          <div className="text-sm font-bold" style={{ color: theme.statusDanger }}>REM data unavailable</div>
+          <div className="text-sm font-bold" style={{ color: theme.statusOut }}>REM data unavailable</div>
           <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>The authoritative REM service could not be read. No empty-data fallback was substituted.</div>
           <button type="button" onClick={() => void data.refresh()} className="mt-3 px-3 py-1.5 rounded-lg text-xs font-bold" style={{ color: theme.textPrimary, border: `1px solid ${theme.cardBorder}` }}>Retry</button>
         </WebCard>
