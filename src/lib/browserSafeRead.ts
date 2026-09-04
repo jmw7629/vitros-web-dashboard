@@ -1,4 +1,4 @@
-export type BrowserSafeDataset = "stock" | "audit" | "sap" | "settings" | "rem_analyzers" | "rem_lvcc";
+export type BrowserSafeDataset = "stock" | "audit" | "sap" | "settings" | "rem_summary";
 
 function getBrowserSafeReadUrl(): string {
   const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/$/, "");
