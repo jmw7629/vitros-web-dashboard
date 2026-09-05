@@ -1,6 +1,12 @@
 -- Authoritative SAP staging review/export workflow.
 -- This migration does NOT post to SAP. It only records review/export state in VITROS.
 
+-- Production historically allowed pending/exported/failed/cancelled. Add the
+-- intermediate reviewed `ready` state as a strict superset without rewriting rows.
+alter table public.sap_staging drop constraint if exists sap_staging_export_status_check;
+alter table public.sap_staging add constraint sap_staging_export_status_check
+  check (export_status in ('pending', 'ready', 'exported', 'failed', 'cancelled'));
+
 create table if not exists public.sap_staging_status_events (
   id uuid primary key default uuid_generate_v4(),
   sap_staging_id uuid not null references public.sap_staging(id) on delete restrict,
@@ -29,7 +35,7 @@ $$;
 
 revoke all on function public.reject_sap_staging_status_event_mutation() from public;
 
-DROP TRIGGER IF EXISTS sap_staging_status_events_immutable ON public.sap_staging_status_events;
+drop trigger if exists sap_staging_status_events_immutable on public.sap_staging_status_events;
 create trigger sap_staging_status_events_immutable
 before update or delete on public.sap_staging_status_events
 for each row execute function public.reject_sap_staging_status_event_mutation();
