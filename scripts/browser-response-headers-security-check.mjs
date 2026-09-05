@@ -1,5 +1,6 @@
 import fs from "node:fs";
 
+// Keep this gate intentionally dependency-free so it can run before install/build work.
 const config = JSON.parse(fs.readFileSync("vercel.json", "utf8"));
 const globalRule = (config.headers || []).find((rule) => rule.source === "/(.*)");
 if (!globalRule || !Array.isArray(globalRule.headers)) {
