@@ -1,0 +1,27 @@
+name: Legacy REM Stub Read Security
+
+on:
+  pull_request:
+    paths:
+      - "convex/remBuildPlan.ts"
+      - "convex/remTracker.ts"
+      - "scripts/legacy-rem-stub-read-security-check.mjs"
+      - ".github/workflows/legacy-rem-stub-read-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify legacy REM stub read authorization boundaries
+        run: node scripts/legacy-rem-stub-read-security-check.mjs
