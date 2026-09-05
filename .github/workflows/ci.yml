@@ -39,6 +39,8 @@ jobs:
         run: node scripts/secure-role-session-check.mjs
       - name: DHR atomic scanner security check
         run: node scripts/dhr-scanner-atomic-security-check.mjs
+      - name: Incoming Stock PDF security check
+        run: node scripts/incoming-stock-pdf-security-check.mjs
       - name: Lint
         run: npm run lint || true
       - name: Git diff check
