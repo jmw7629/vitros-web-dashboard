@@ -7,6 +7,8 @@ import { requireCapability } from "./authGuard";
 
 declare const process: { env: Record<string, string | undefined> };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -25,11 +27,9 @@ async function sbFetch<T>(serviceKey: string, url: string, path: string, init?: 
     },
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message = (body as { message?: string; error?: string }).message
-      || (body as { message?: string; error?: string }).error
-      || `Supabase error ${res.status}`;
-    throw new Error(message);
+    // Provider-controlled PostgREST bodies may contain schema/constraint/policy details.
+    // Keep browser-visible failures status-scoped and deterministic.
+    throw new Error(`Supabase request failed (${res.status})`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -58,6 +58,47 @@ async function applyTransition(
       p_correlation_id: args.correlationId,
       p_analyzer_serial: args.analyzerSerial ?? null,
       p_batch_id: args.batchId ?? null,
+    }),
+  });
+}
+
+function validateSapIds(ids: string[]): string[] {
+  const normalized = ids.map((id) => id.trim());
+  if (normalized.length === 0 || normalized.length > 250) {
+    throw new Error("Select between 1 and 250 SAP staging rows");
+  }
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error("Duplicate SAP staging rows are not allowed");
+  }
+  if (normalized.some((id) => !UUID_RE.test(id))) {
+    throw new Error("Invalid SAP staging row id");
+  }
+  return normalized;
+}
+
+async function sapCorrelationId(targetStatus: "ready" | "exported", ids: string[]): Promise<string> {
+  const stableIntent = `${targetStatus}:${[...ids].sort().join(",")}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(stableIntent));
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `legacy-sap:${targetStatus}:${hash}`;
+}
+
+async function applySapStagingStatusTransition(
+  serviceKey: string,
+  url: string,
+  actorId: string,
+  ids: string[],
+  targetStatus: "ready" | "exported",
+) {
+  const normalizedIds = validateSapIds(ids);
+  const correlationId = await sapCorrelationId(targetStatus, normalizedIds);
+  return sbFetch<Record<string, unknown>>(serviceKey, url, "rpc/apply_sap_staging_status_transition", {
+    method: "POST",
+    body: JSON.stringify({
+      p_ids: normalizedIds,
+      p_target_status: targetStatus,
+      p_actor: actorId,
+      p_correlation_id: correlationId,
     }),
   });
 }
@@ -230,6 +271,10 @@ export const deleteStockItem = action({
   },
 });
 
+// Legacy wire-compatible SAP actions now route only through the reviewed,
+// atomic authoritative status RPC introduced by the parent SAP workflow PR.
+// They cannot directly PATCH sap_staging, invent exported actors/timestamps,
+// or transition rows back to pending/error.
 export const updateSapStatus = action({
   args: {
     id: v.string(),
@@ -237,16 +282,18 @@ export const updateSapStatus = action({
   },
   returns: v.any(),
   handler: async (ctx, { id, status }) => {
-    await requireCapability(ctx, "inventory.write");
+    const actorId = await requireCapability(ctx, "inventory.write");
+    if (status !== "ready" && status !== "posted") {
+      throw new Error("Legacy SAP status changes only support reviewed ready/exported transitions");
+    }
     const { url, serviceKey } = getSupabaseConfig();
-    const update: Record<string, unknown> = { export_status: status };
-    if (status === "posted") update.exported_at = new Date().toISOString();
-    await sbFetch<void>(serviceKey, url, `sap_staging?id=eq.${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify(update),
-    });
-    return { success: true };
+    return applySapStagingStatusTransition(
+      serviceKey,
+      url,
+      String(actorId),
+      [id],
+      status === "posted" ? "exported" : "ready",
+    );
   },
 });
 
@@ -254,14 +301,9 @@ export const markSapBatchReady = action({
   args: { ids: v.array(v.string()) },
   returns: v.any(),
   handler: async (ctx, { ids }) => {
-    await requireCapability(ctx, "inventory.write");
+    const actorId = await requireCapability(ctx, "inventory.write");
     const { url, serviceKey } = getSupabaseConfig();
-    await Promise.all(ids.map((id) => sbFetch<void>(serviceKey, url, `sap_staging?id=eq.${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ export_status: "ready" }),
-    })));
-    return { success: true, count: ids.length };
+    return applySapStagingStatusTransition(serviceKey, url, String(actorId), ids, "ready");
   },
 });
 
@@ -269,14 +311,8 @@ export const markSapBatchExported = action({
   args: { ids: v.array(v.string()) },
   returns: v.any(),
   handler: async (ctx, { ids }) => {
-    await requireCapability(ctx, "inventory.write");
+    const actorId = await requireCapability(ctx, "inventory.write");
     const { url, serviceKey } = getSupabaseConfig();
-    const now = new Date().toISOString();
-    await Promise.all(ids.map((id) => sbFetch<void>(serviceKey, url, `sap_staging?id=eq.${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ export_status: "posted", exported_at: now }),
-    })));
-    return { success: true, count: ids.length };
+    return applySapStagingStatusTransition(serviceKey, url, String(actorId), ids, "exported");
   },
 });
