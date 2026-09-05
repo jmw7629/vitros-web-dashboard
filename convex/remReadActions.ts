@@ -55,6 +55,80 @@ const weeklyNoteRow = v.object({
   notes: v.array(weeklyNote),
 });
 
+const trackerPlanningRow = v.object({
+  _id: v.string(),
+  year: v.number(),
+  product: v.string(),
+  quarter: v.string(),
+  weekNumber: v.number(),
+  weekStart: v.optional(v.string()),
+  plan: v.number(),
+  actual: v.optional(v.number()),
+  weeklyForecast: v.optional(v.number()),
+  accumulatedForecast: v.optional(v.number()),
+});
+
+const buildPlanRow = v.object({
+  _id: v.string(),
+  year: v.number(),
+  quarter: v.string(),
+  weekNumber: v.number(),
+  weekStart: v.optional(v.string()),
+  delivery: v.object({
+    analyzer3600: v.optional(v.number()),
+    analyzer5600: v.optional(v.number()),
+    analyzer7600: v.optional(v.number()),
+    vision: v.optional(v.number()),
+    electrometer: v.optional(v.number()),
+    irWash: v.optional(v.number()),
+    total: v.optional(v.number()),
+  }),
+  capacity: v.object({
+    meets: v.optional(v.number()),
+    exceeds: v.optional(v.number()),
+    capacity: v.optional(v.number()),
+    delta: v.optional(v.number()),
+    headCount: v.optional(v.number()),
+    onboarding: v.optional(v.number()),
+    inTraining: v.optional(v.number()),
+    holidays: v.optional(v.number()),
+    ptoDays: v.optional(v.number()),
+  }),
+  actuals: v.object({
+    analyzer3600: v.optional(v.number()),
+    analyzer5600: v.optional(v.number()),
+    analyzer7600: v.optional(v.number()),
+    vitrosVsPlan: v.optional(v.number()),
+    vision: v.optional(v.number()),
+    electrometer: v.optional(v.number()),
+    irWash: v.optional(v.number()),
+  }),
+});
+
+const namedValue = v.object({ name: v.string(), value: v.string() });
+const staffPlanningRow = v.object({
+  _id: v.string(),
+  name: v.string(),
+  role: v.optional(v.string()),
+  wwid: v.optional(v.string()),
+  fte: v.optional(v.number()),
+  started: v.optional(v.string()),
+  completeAfter: v.optional(v.string()),
+  trainingUntil: v.optional(v.string()),
+  comment: v.optional(v.string()),
+  skills: v.array(namedValue),
+  certifications: v.array(namedValue),
+});
+
+const targetPlanningRow = v.object({
+  _id: v.string(),
+  year: v.number(),
+  targetType: v.string(),
+  product: v.optional(v.string()),
+  targetValue: v.number(),
+  actualValue: v.number(),
+});
+
 function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -81,10 +155,26 @@ const numberOrZero = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const optionalString = (value: unknown) => {
-  const text = String(value ?? "").trim();
-  return text ? text : undefined;
+const optionalNumber = (value: unknown) => {
+  if (value === null || value === undefined || String(value).trim() === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 };
+
+const optionalString = (value: unknown, max = 2000) => {
+  const text = String(value ?? "").trim();
+  return text ? text.slice(0, max) : undefined;
+};
+
+const objectValue = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const namedValues = (value: unknown) => Object.entries(objectValue(value))
+  .slice(0, 40)
+  .map(([name, raw]) => ({ name: name.slice(0, 120), value: String(raw ?? "").slice(0, 300) }))
+  .filter((entry) => entry.value.trim().length > 0);
+
+const nestedNumbers = (value: unknown) => objectValue(value);
 
 // This is the authenticated row-level REM read boundary. The browser never gets
 // a Supabase credential and receives only the explicit fields required by the
@@ -187,5 +277,130 @@ export const listCore = action({
     });
 
     return { analyzers, lvccItems, weeklyNotes };
+  },
+});
+
+// Planning/staff reads intentionally tolerate the additive authoritative workbook
+// migration by reading the server-only rows and normalizing both legacy JSONB
+// storage and the newer promoted columns. This means the UI remains fail-safe
+// before and after the migration without ever exposing the service-role key.
+export const listPlanning = action({
+  args: {},
+  returns: v.object({
+    trackerWeekly: v.array(trackerPlanningRow),
+    buildPlan: v.array(buildPlanRow),
+    staff: v.array(staffPlanningRow),
+    targets: v.array(targetPlanningRow),
+  }),
+  handler: async (ctx) => {
+    await requireCapability(ctx, "rem.read");
+    const { url, serviceKey } = getSupabaseConfig();
+
+    const [trackerRows, buildRows, staffRows, targetRows] = await Promise.all([
+      readRows(url, serviceKey, "rem_tracker_weekly", "select=*&order=created_at.asc&limit=260"),
+      readRows(url, serviceKey, "rem_build_plan", "select=*&order=created_at.asc&limit=80"),
+      readRows(url, serviceKey, "rem_staff", "select=*&order=name.asc&limit=300"),
+      readRows(url, serviceKey, "rem_targets", "select=*&order=year.desc,target_type.asc&limit=100"),
+    ]);
+
+    const trackerWeekly = trackerRows.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      const data = objectValue(row.data);
+      return {
+        _id: String(row.id ?? ""),
+        year: numberOrZero(row.plan_year ?? data.year),
+        product: String(row.product ?? data.product ?? "").slice(0, 80),
+        quarter: String(row.quarter ?? data.quarter ?? "").slice(0, 8),
+        weekNumber: numberOrZero(row.week_number ?? data.weekNumber),
+        weekStart: optionalString(row.week_start ?? data.weekStart, 40),
+        plan: numberOrZero(data.plan),
+        actual: optionalNumber(data.actual),
+        weeklyForecast: optionalNumber(data.weeklyForecast),
+        accumulatedForecast: optionalNumber(data.accumulatedForecast),
+      };
+    }).filter((row) => row.weekNumber >= 1 && row.weekNumber <= 53 && row.product.length > 0)
+      .sort((a, b) => a.year - b.year || a.weekNumber - b.weekNumber || a.product.localeCompare(b.product));
+
+    const buildPlan = buildRows.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      const data = objectValue(row.data);
+      const delivery = nestedNumbers(data.delivery);
+      const capacity = nestedNumbers(data.capacity);
+      const actuals = nestedNumbers(data.actuals);
+      return {
+        _id: String(row.id ?? ""),
+        year: numberOrZero(row.plan_year ?? data.year),
+        quarter: String(row.quarter ?? data.quarter ?? "").slice(0, 8),
+        weekNumber: numberOrZero(row.week_number ?? data.weekNumber),
+        weekStart: optionalString(row.week_start ?? data.weekStart, 40),
+        delivery: {
+          analyzer3600: optionalNumber(delivery.analyzer3600),
+          analyzer5600: optionalNumber(delivery.analyzer5600),
+          analyzer7600: optionalNumber(delivery.analyzer7600),
+          vision: optionalNumber(delivery.vision),
+          electrometer: optionalNumber(delivery.electrometer),
+          irWash: optionalNumber(delivery.irWash),
+          total: optionalNumber(delivery.total),
+        },
+        capacity: {
+          meets: optionalNumber(capacity.meets),
+          exceeds: optionalNumber(capacity.exceeds),
+          capacity: optionalNumber(capacity.capacity),
+          delta: optionalNumber(capacity.delta),
+          headCount: optionalNumber(capacity.headCount),
+          onboarding: optionalNumber(capacity.onboarding),
+          inTraining: optionalNumber(capacity.inTraining),
+          holidays: optionalNumber(capacity.holidays),
+          ptoDays: optionalNumber(capacity.ptoDays),
+        },
+        actuals: {
+          analyzer3600: optionalNumber(actuals.analyzer3600),
+          analyzer5600: optionalNumber(actuals.analyzer5600),
+          analyzer7600: optionalNumber(actuals.analyzer7600),
+          vitrosVsPlan: optionalNumber(actuals.vitrosVsPlan),
+          vision: optionalNumber(actuals.vision),
+          electrometer: optionalNumber(actuals.electrometer),
+          irWash: optionalNumber(actuals.irWash),
+        },
+      };
+    }).filter((row) => row.weekNumber >= 1 && row.weekNumber <= 53)
+      .sort((a, b) => a.year - b.year || a.weekNumber - b.weekNumber);
+
+    const staff = staffRows.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      return {
+        _id: String(row.id ?? ""),
+        name: String(row.name ?? "").slice(0, 160),
+        role: optionalString(row.role, 120),
+        wwid: optionalString(row.wwid, 20),
+        fte: optionalNumber(row.fte),
+        started: optionalString(row.started, 80),
+        completeAfter: optionalString(row.complete_after, 80),
+        trainingUntil: optionalString(row.training_until, 80),
+        comment: optionalString(row.comment, 1000),
+        skills: namedValues(row.skills),
+        certifications: namedValues(row.certifications),
+      };
+    }).filter((row) => row.name.length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const targets = targetRows.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      const data = objectValue(row.data);
+      const targetType = String(row.target_type ?? "").slice(0, 160);
+      const product = optionalString(data.product, 80)
+        ?? optionalString(targetType.replace(/_ANNUAL_PLAN$/i, ""), 80);
+      return {
+        _id: String(row.id ?? ""),
+        year: numberOrZero(row.year),
+        targetType,
+        product,
+        targetValue: numberOrZero(row.target_value),
+        actualValue: numberOrZero(row.actual_value),
+      };
+    }).filter((row) => row.targetType.length > 0)
+      .sort((a, b) => b.year - a.year || a.targetType.localeCompare(b.targetType));
+
+    return { trackerWeekly, buildPlan, staff, targets };
   },
 });
