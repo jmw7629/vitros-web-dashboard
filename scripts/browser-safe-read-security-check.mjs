@@ -26,41 +26,27 @@ function forbidTokens(source, label, tokens) {
   }
 }
 
+// The compatibility helper may remain referenced by the data hook while older
+// callers are phased out, but it must never perform a browser network read.
 requireTokens(client, "browser client", [
   '"stock"',
   '"audit"',
   '"sap"',
   '"settings"',
   '"rem_summary"',
-  "/functions/v1/browser-safe-read",
-  'method: "GET"',
-  'cache: "no-store"',
+  'throw new Error("Authenticated server data is unavailable")',
 ]);
-
 forbidTokens(client, "browser client", [
-  "service_role",
-  "SUPABASE_SERVICE_ROLE",
+  "fetch(",
+  "/functions/v1/browser-safe-read",
+  "VITE_SUPABASE_URL",
   "VITE_SUPABASE_ANON_KEY",
   "Authorization",
-  "/rest/v1/stock",
-  "/rest/v1/audit_log",
-  "/rest/v1/sap_staging",
-  "/rest/v1/settings",
-  "/rest/v1/users",
-  "/rest/v1/rem_analyzers",
-  "/rest/v1/rem_lvcc",
-  "select=*",
-  'method: "POST"',
-  'method: "PUT"',
-  'method: "PATCH"',
-  'method: "DELETE"',
+  "/rest/v1/",
 ]);
 
-if (!/throw new Error\(/.test(client)) {
-  throw new Error("browser client must fail closed with explicit errors");
-}
-
-// Bind the application data hook itself to the safe-read boundary; checking the helper alone is insufficient.
+// Bind the application hook to the fail-closed helper and prevent direct
+// PostgREST/browser credentials from being reintroduced.
 requireTokens(hook, "browser data hook", [
   'import { browserSafeRead } from "../lib/browserSafeRead"',
   'browserSafeRead<any>("stock")',
@@ -70,7 +56,6 @@ requireTokens(hook, "browser data hook", [
   "setError(e instanceof Error ? e.message : \"Failed to load data\")",
   "userRows = [];",
 ]);
-
 forbidTokens(hook, "browser data hook", [
   "VITE_SUPABASE_ANON_KEY",
   "sbAnonQuery",
@@ -81,52 +66,37 @@ forbidTokens(hook, "browser data hook", [
   "/rest/v1/users",
   "/rest/v1/rem_analyzers",
   "/rest/v1/rem_lvcc",
-  "select=*",
   'browserSafeRead<any>("users")',
 ]);
-
 if (/browserSafeRead<any>\("stock"\)\.catch\s*\(/.test(hook)) {
-  throw new Error("critical stock safe-read must not be downgraded to an empty fallback");
+  throw new Error("critical stock read must fail closed rather than downgrade to empty data");
 }
 
-requireTokens(edge, "edge boundary", [
-  'new Set(["stock", "audit", "sap", "settings", "rem_summary"])',
+// The deployed compatibility endpoint is now a tombstone: no server secrets,
+// no database request construction, and no operational datasets may remain.
+requireTokens(edge, "edge tombstone", [
   '"Access-Control-Allow-Methods": "GET, OPTIONS"',
   '"Cache-Control": "no-store, max-age=0"',
-  'if (request.method !== "GET")',
-  '"stock?select=id,part_number,description,type,qty_on_hand,min_qty,max_qty,on_plan,bin_location,module,unit_cost,last_activity,status,updated_at&order=part_number.asc"',
-  '"audit_log?select=id,action,part_number,user_name,created_at,new_value&order=created_at.desc&limit=500"',
-  '"sap_staging?select=id,created_at,mode,part_number,description,qty_on_hand,qty_before,qty_after,movement_type,plant_code,storage_location,export_status&order=created_at.desc"',
-  'const allowed = "sapHeaderText,sapMovementADJUST,sapMovementIN,sapMovementOUT,sapPlantCode,sapStorageLocation"',
-  'postgrest("rem_analyzers?select=analyzer_type,current_stage,is_complete")',
-  'postgrest("rem_lvcc?select=is_complete")',
-  'case "rem_summary"',
-  "buildRemSummary(",
-  'Deno.env.get("SUPABASE_SECRET_KEYS")',
-  'Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")',
-  'headers.Authorization = `Bearer ${serverKey.value}`',
+  "status: 410",
+  "authenticated_server_boundary_required",
 ]);
-
-forbidTokens(edge, "edge boundary", [
-  "select=*",
-  "ip_address",
-  "serial_number",
-  "production_order",
-  "assigned_to",
-  "notes",
-  'method: "POST"',
-  'method: "PUT"',
-  'method: "PATCH"',
-  'method: "DELETE"',
+forbidTokens(edge, "edge tombstone", [
+  "Deno.env.get",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_SECRET_KEYS",
+  "/rest/v1/",
+  "postgrest(",
+  "SAFE_DATASETS",
+  "stock?select=",
+  "audit_log?select=",
+  "sap_staging?select=",
+  "rem_analyzers?select=",
+  "rem_lvcc?select=",
 ]);
-
-if (!/serverKey\.kind === "legacy_service_role"/.test(edge)) {
-  throw new Error("edge boundary must gate Bearer authorization to legacy service-role keys only");
-}
 
 requireTokens(config, "supabase function config", [
   "[functions.browser-safe-read]",
-  "verify_jwt = false",
+  "verify_jwt = true",
 ]);
 
-console.log("browser-safe-read security invariants: PASS");
+console.log("browser-safe-read retired security invariants: PASS");
