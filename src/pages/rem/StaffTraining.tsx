@@ -29,10 +29,12 @@ export function StaffTraining() {
       </div>
 
       {error && (
-        <WebCard className="p-4" role="alert">
-          <div className="text-sm font-bold" style={{ color: theme.statusCritical }}>Staffing data unavailable</div>
-          <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>{error}</div>
-        </WebCard>
+        <div role="alert">
+          <WebCard className="p-4">
+            <div className="text-sm font-bold" style={{ color: "#ef4444" }}>Staffing data unavailable</div>
+            <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>{error}</div>
+          </WebCard>
+        </div>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

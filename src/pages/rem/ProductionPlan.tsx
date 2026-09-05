@@ -73,10 +73,12 @@ export function ProductionPlan() {
       </div>
 
       {error && (
-        <WebCard className="p-4" role="alert">
-          <div className="text-sm font-bold" style={{ color: theme.statusCritical }}>Planning data unavailable</div>
-          <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>{error}</div>
-        </WebCard>
+        <div role="alert">
+          <WebCard className="p-4">
+            <div className="text-sm font-bold" style={{ color: "#ef4444" }}>Planning data unavailable</div>
+            <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>{error}</div>
+          </WebCard>
+        </div>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -140,7 +142,7 @@ export function ProductionPlan() {
             </div>
             <div className="rounded-xl p-3" style={{ backgroundColor: theme.cardBg }}>
               <div className="text-[10px]" style={{ color: theme.textMuted }}>Capacity Delta</div>
-              <div className="text-lg font-black" style={{ color: (currentBuild.capacity.delta ?? 0) >= 0 ? theme.statusOk : theme.statusCritical }}>
+              <div className="text-lg font-black" style={{ color: (currentBuild.capacity.delta ?? 0) >= 0 ? theme.statusOk : "#ef4444" }}>
                 {fmt(currentBuild.capacity.delta)}
               </div>
             </div>
@@ -171,7 +173,7 @@ export function ProductionPlan() {
                     <span className="text-right">{fmt(row.plan)}</span>
                     <span className="text-right">{fmt(row.actual)}</span>
                     <span className="text-right">{fmt(row.weeklyForecast)}</span>
-                    <span className="text-right font-bold" style={{ color: variance === undefined ? theme.textMuted : variance >= 0 ? theme.statusOk : theme.statusCritical }}>
+                    <span className="text-right font-bold" style={{ color: variance === undefined ? theme.textMuted : variance >= 0 ? theme.statusOk : "#ef4444" }}>
                       {variance === undefined ? "—" : `${variance >= 0 ? "+" : ""}${variance}`}
                     </span>
                   </div>
