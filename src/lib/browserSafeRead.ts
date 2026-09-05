@@ -1,33 +1,11 @@
 export type BrowserSafeDataset = "stock" | "audit" | "sap" | "settings" | "rem_summary";
 
-function getBrowserSafeReadUrl(): string {
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "").trim().replace(/\/$/, "");
-  if (!supabaseUrl) {
-    throw new Error("Browser data service is not configured");
-  }
-  return `${supabaseUrl}/functions/v1/browser-safe-read`;
-}
-
-export async function browserSafeRead<T>(dataset: BrowserSafeDataset): Promise<T[]> {
-  const url = new URL(getBrowserSafeReadUrl());
-  url.searchParams.set("dataset", dataset);
-
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Browser data service unavailable (${response.status})`);
-  }
-
-  const body: unknown = await response.json();
-  if (!Array.isArray(body)) {
-    throw new Error("Browser data service returned an invalid response");
-  }
-
-  return body as T[];
+/**
+ * Legacy compatibility hook. Inventory/REM/SAP reads are server-authoritative and
+ * must flow through authenticated Convex actions. The former unauthenticated
+ * Supabase Edge fallback is intentionally retired rather than silently exposing
+ * operational data when the authenticated server boundary is unavailable.
+ */
+export async function browserSafeRead<T>(_dataset: BrowserSafeDataset): Promise<T[]> {
+  throw new Error("Authenticated server data is unavailable");
 }
