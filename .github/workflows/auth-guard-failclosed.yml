@@ -1,0 +1,24 @@
+name: Auth Guard Fail-Closed Security
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/authGuard.ts"
+      - "scripts/auth-guard-failclosed-check.mjs"
+      - ".github/workflows/auth-guard-failclosed.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify unknown roles fail closed
+        run: node scripts/auth-guard-failclosed-check.mjs
+      - name: Diff hygiene
+        run: git diff --check HEAD^ HEAD
