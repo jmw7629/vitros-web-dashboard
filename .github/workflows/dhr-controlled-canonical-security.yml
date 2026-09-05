@@ -1,0 +1,26 @@
+name: DHR Controlled Canonical Security
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260905124500_dhr_controlled_canonical_transition.sql"
+      - "scripts/dhr-controlled-canonical-security-check.mjs"
+      - ".github/workflows/dhr-controlled-canonical-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify controlled canonical DHR consumption boundary
+        run: node scripts/dhr-controlled-canonical-security-check.mjs
