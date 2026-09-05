@@ -58,9 +58,14 @@ case "$(readlink -f "$OPENCODE_BIN_PATH")" in
 esac
 
 "$OPENCODE_BIN_PATH" --version >/dev/null
-HELP="$($OPENCODE_BIN_PATH run --help 2>&1 || true)"
-for flag in --dir --auto --format; do
-  grep -q -- "$flag" <<<"$HELP" || {
+GLOBAL_HELP="$($OPENCODE_BIN_PATH --help 2>&1 || true)"
+grep -q -- "--pure" <<<"$GLOBAL_HELP" || {
+  echo "OpenCode is missing the required global --pure isolation flag." >&2
+  exit 1
+}
+RUN_HELP="$($OPENCODE_BIN_PATH run --help 2>&1 || true)"
+for flag in --dir --auto --format --agent; do
+  grep -q -- "$flag" <<<"$RUN_HELP" || {
     echo "OpenCode run is missing required flag: $flag" >&2
     exit 1
   }
