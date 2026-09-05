@@ -9,6 +9,12 @@ function generateOTP() {
   return String(array[0] % 1000000).padStart(6, "0");
 }
 
+function providerFailure(status?: number) {
+  return new Error(status
+    ? `Email delivery provider failed (${status})`
+    : "Email delivery provider returned an invalid response");
+}
+
 async function sendEmail({
   email,
   token,
@@ -60,17 +66,22 @@ async function sendEmail({
     }),
   });
 
+  // Do not reflect provider response bodies into Convex Auth errors. Provider
+  // failures can contain operational metadata and, depending on the upstream,
+  // may echo request details. The browser only needs a stable fail-closed result.
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to send email: ${error}`);
+    throw providerFailure(response.status);
   }
 
-  const result = (await response.json()) as {
-    success: boolean;
-    error?: string;
-  };
-  if (!result.success) {
-    throw new Error(`Email sending failed: ${result.error}`);
+  let result: unknown;
+  try {
+    result = await response.json();
+  } catch {
+    throw providerFailure();
+  }
+
+  if (!result || typeof result !== "object" || (result as { success?: unknown }).success !== true) {
+    throw providerFailure();
   }
 }
 
