@@ -6,6 +6,8 @@ on:
       - "src/lib/browserSafeRead.ts"
       - "supabase/functions/browser-safe-read/index.ts"
       - "supabase/config.toml"
+      - "scripts/browser-safe-read-security-check.mjs"
+      - "scripts/browser-safe-read-staging-smoke.mjs"
       - "scripts/public-browser-data-retirement-security-check.mjs"
       - ".github/workflows/public-browser-data-retirement-security.yml"
   workflow_dispatch:
@@ -23,3 +25,5 @@ jobs:
           node-version: 22
       - name: Verify unauthenticated browser data proxy is retired
         run: node scripts/public-browser-data-retirement-security-check.mjs
+      - name: Verify retired staging boundary rejects anonymous operational reads
+        run: node scripts/browser-safe-read-staging-smoke.mjs
