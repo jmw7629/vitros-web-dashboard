@@ -21,7 +21,7 @@ function testAuthConfig(): { email: string; passwordHash: string } {
 async function verifyConfiguredTestCredential(password: string, passwordHash: string): Promise<boolean> {
   if (!password || password.length > 256) return false;
   try {
-    return await new Scrypt().verify(password, passwordHash);
+    return await new Scrypt().verify(passwordHash, password);
   } catch {
     return false;
   }
