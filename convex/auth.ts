@@ -93,7 +93,7 @@ async function verifySuperuserSecret(secret: string): Promise<RoleIdentity> {
 
   let valid = false;
   try {
-    valid = await new Scrypt().verify(secret, hash);
+    valid = await new Scrypt().verify(hash, secret);
   } catch {
     valid = false;
   }
@@ -152,6 +152,11 @@ function VitrosRoleCredentials() {
   });
 }
 
+const testAuthEnabled =
+  process.env.VIKTOR_SPACES_IS_PREVIEW === "true" &&
+  Boolean(process.env.VITROS_TEST_AUTH_EMAIL?.trim()) &&
+  Boolean(process.env.VITROS_TEST_AUTH_PASSWORD_HASH?.trim());
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
     VitrosRoleCredentials(),
@@ -159,7 +164,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       verify: ViktorSpacesEmail,
       reset: ViktorSpacesPasswordReset,
     }),
-    ...(process.env.VIKTOR_SPACES_IS_PREVIEW === "true" ? [TestCredentials] : []),
+    ...(testAuthEnabled ? [TestCredentials] : []),
   ],
   // Convex Auth applies this server-side to credential failures. It prevents
   // brute-force attempts without relying on browser timers/localStorage.
