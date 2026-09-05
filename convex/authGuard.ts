@@ -56,8 +56,10 @@ export async function requireCapability(
     ? await ctx.runQuery(internal.users.getUserRole, { userId })
     : await getUserRole(ctx, userId);
 
-  const caps = ROLE_CAPABILITIES[role] ?? ROLE_CAPABILITIES.viewer;
-  if (!caps.includes(capability)) {
+  // Fail closed for any stored role that is not part of the server allowlist.
+  // Unknown/corrupt/future role values must never inherit viewer access implicitly.
+  const caps = ROLE_CAPABILITIES[role];
+  if (!caps || !caps.includes(capability)) {
     throw new Error(`Missing capability: ${capability}`);
   }
   return userId;
