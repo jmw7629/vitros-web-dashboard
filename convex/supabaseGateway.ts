@@ -29,11 +29,10 @@ async function sbFetch<T>(serviceKey: string, url: string, path: string, init?: 
     headers: { ...sbHeaders(serviceKey), ...(init?.headers || {}) },
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const msg = (body as { message?: string; error?: string }).message
-      || (body as { message?: string; error?: string }).error
-      || `Supabase error ${res.status}`;
-    throw new Error(msg);
+    // Never surface PostgREST/provider-controlled bodies to a browser caller. Those
+    // bodies can contain schema, constraint, policy, SQL, or internal diagnostic
+    // details. Keep the HTTP status for server-side triage only.
+    throw new Error(`Supabase request failed (${res.status})`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -380,8 +379,7 @@ export const uploadToStorage = action({
       body: binary,
     });
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error((body as { message?: string }).message || `Storage upload failed: ${res.status}`);
+      throw new Error(`Storage upload failed (${res.status})`);
     }
     return { success: true, path };
   },
@@ -399,8 +397,7 @@ export const deleteFromStorage = action({
       body: JSON.stringify(paths),
     });
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error((body as { message?: string }).message || `Storage delete failed: ${res.status}`);
+      throw new Error(`Storage delete failed (${res.status})`);
     }
     return { success: true };
   },
