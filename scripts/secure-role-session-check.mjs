@@ -36,13 +36,14 @@ requireAll(auth, "auth", [
   'internal.auth.validateRoleSelection',
   'active=is.true',
   'VITROS_SUPERUSER_PASSWORD_HASH',
-  'new Scrypt().verify(secret, hash)',
+  'new Scrypt().verify(hash, secret)',
   'maxFailedAttempsPerHour: 6',
   'args.provider.id !== "vitros-role"',
   'await ctx.db.patch(args.userId',
 ]);
 forbidAll(auth, "auth", [
   '"12345"',
+  'new Scrypt().verify(secret, hash)',
   'VITE_VITROS_SUPERUSER_PASSWORD_HASH',
   'VITE_SUPERUSER_PASSWORD',
 ]);
