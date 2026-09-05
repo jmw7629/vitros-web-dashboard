@@ -119,11 +119,10 @@ async function applyConfirmedReceive(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    const message = body && typeof body === "object"
-      ? String((body as Record<string, unknown>).message ?? (body as Record<string, unknown>).error ?? "Receive failed")
-      : "Receive failed";
-    throw new Error(message);
+    // The PostgREST/RPC response body is provider-controlled and can contain schema,
+    // constraint, policy, SQL, or other internal diagnostics. Keep browser-visible
+    // failures status-only and never parse or reflect the provider error payload.
+    throw new Error(`Receive failed (${response.status})`);
   }
 
   const body = await response.json();
