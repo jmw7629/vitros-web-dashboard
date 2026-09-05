@@ -20,6 +20,7 @@ import type * as dhrInventoryActions from "../dhrInventoryActions.js";
 import type * as employees from "../employees.js";
 import type * as http from "../http.js";
 import type * as incomingStockActions from "../incomingStockActions.js";
+import type * as incomingStockPdfOcr from "../incomingStockPdfOcr.js";
 import type * as inventoryActions from "../inventoryActions.js";
 import type * as kits from "../kits.js";
 import type * as parts from "../parts.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   employees: typeof employees;
   http: typeof http;
   incomingStockActions: typeof incomingStockActions;
+  incomingStockPdfOcr: typeof incomingStockPdfOcr;
   inventoryActions: typeof inventoryActions;
   kits: typeof kits;
   parts: typeof parts;
