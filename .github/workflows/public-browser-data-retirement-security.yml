@@ -1,0 +1,25 @@
+name: Public Browser Data Retirement Security
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/browserSafeRead.ts"
+      - "supabase/functions/browser-safe-read/index.ts"
+      - "supabase/config.toml"
+      - "scripts/public-browser-data-retirement-security-check.mjs"
+      - ".github/workflows/public-browser-data-retirement-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify unauthenticated browser data proxy is retired
+        run: node scripts/public-browser-data-retirement-security-check.mjs
