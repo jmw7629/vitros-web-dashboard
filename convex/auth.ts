@@ -152,7 +152,7 @@ function VitrosRoleCredentials() {
   });
 }
 
-// Preview authentication is fail-closed unless all server-only test controls are configured.
+// Preview authentication is fail-closed: preview mode alone is never sufficient.
 const testAuthEnabled =
   process.env.VIKTOR_SPACES_IS_PREVIEW === "true" &&
   Boolean(process.env.VITROS_TEST_AUTH_EMAIL?.trim()) &&
