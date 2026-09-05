@@ -41,7 +41,7 @@ if (!review.includes('requiresHumanConfirmation: true')) {
 if (!review.includes('identityRule: "canonical_part_number_only"') || !review.includes('descriptionUsedForIdentity: false')) {
   failures.push("packing-list identity must remain canonical part-number only");
 }
-if (!commit.includes('p_mode: "RECEIVE"') || !commit.includes("applyConfirmedReceive")) {
+if (!receive.includes('p_mode: "RECEIVE"') || !commit.includes("applyConfirmedReceive")) {
   failures.push("confirmed line must keep using the atomic RECEIVE boundary");
 }
 if (!source.includes("SUPABASE_SERVICE_ROLE_KEY") || /VITE_[A-Z0-9_]*SERVICE/i.test(source)) {
