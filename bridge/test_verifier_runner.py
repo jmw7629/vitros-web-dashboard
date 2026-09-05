@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import unittest
 
@@ -85,11 +86,49 @@ class VerifierRunnerTests(unittest.TestCase):
         required = {
             "GH_TOKEN",
             "GITHUB_TOKEN",
+            "SUPABASE_ACCESS_TOKEN",
             "SUPABASE_SERVICE_ROLE_KEY",
             "VERCEL_TOKEN",
             "CONVEX_DEPLOY_KEY",
+            "CONVEX_SELF_HOSTED_ADMIN_KEY",
         }
         self.assertTrue(required.issubset(vr.OPEN_CODE_STRIPPED_ENV))
+
+    def test_static_permission_policy_denies_mutation_network_and_project_execution(self):
+        policy = vr.static_permission_policy()
+        self.assertEqual(policy["*"], "deny")
+        for capability in (
+            "edit",
+            "external_directory",
+            "task",
+            "webfetch",
+            "websearch",
+            "lsp",
+            "skill",
+            "question",
+        ):
+            self.assertEqual(policy[capability], "deny")
+        self.assertEqual(policy["bash"]["*"], "deny")
+        for command in (
+            "git status*",
+            "git diff*",
+            "git log*",
+            "git show*",
+            "git grep*",
+            "git ls-files*",
+            "git rev-parse*",
+            "git cat-file*",
+            "git ls-tree*",
+            "git merge-base*",
+        ):
+            self.assertEqual(policy["bash"][command], "allow")
+        for forbidden in ("npm *", "node *", "python *", "pnpm *", "yarn *", "git commit*", "gh *"):
+            self.assertNotIn(forbidden, policy["bash"])
+
+    def test_inline_config_applies_same_static_policy_to_build_agent(self):
+        payload = json.loads(vr.inline_opencode_config())
+        self.assertEqual(payload["permission"], vr.static_permission_policy())
+        self.assertEqual(payload["agent"]["build"]["permission"], vr.static_permission_policy())
 
     def test_verifier_markers_are_explicit(self):
         self.assertEqual(vr.VERIFY_MARKER, "<!-- vitros-opencode-verify:v1 -->")
