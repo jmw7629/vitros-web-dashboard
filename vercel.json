@@ -13,9 +13,14 @@
     {
       "source": "/(.*)",
       "headers": [
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
+        { "key": "Content-Security-Policy", "value": "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
         { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-XSS-Protection", "value": "0" },
+        { "key": "X-DNS-Prefetch-Control", "value": "off" },
+        { "key": "Origin-Agent-Cluster", "value": "?1" },
         { "key": "Permissions-Policy", "value": "camera=(self), microphone=(), geolocation=()" }
       ]
     }
