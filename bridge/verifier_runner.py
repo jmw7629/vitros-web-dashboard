@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Independent exact-head verifier worker for the VITROS OpenCode bridge.
 
-The verifier is deliberately isolated from the builder runner. It validates a
-trusted verifier issue, resolves the exact PR head, copies that head into a
-throw-away detached clone, removes GitHub/product credentials from the OpenCode
-process, and only publishes a terminal result that carries a per-run challenge.
+The verifier is isolated from the builder runner. It validates a trusted verifier
+issue, requires successful exact-head GitHub CI, copies the PR head into a
+throw-away detached clone, launches OpenCode under a static-review-only policy,
+and only publishes a terminal result carrying a per-run challenge.
 """
 from __future__ import annotations
 
@@ -160,9 +160,12 @@ def validate_opencode() -> str:
     version = run([resolved_path, "--version"], timeout=30).stdout.strip()
     if not version:
         raise BridgeError("OpenCode --version returned no version.")
-    help_text = run([resolved_path, "run", "--help"], check=False, timeout=30)
-    combined = f"{help_text.stdout}\n{help_text.stderr}"
-    for flag in ("--dir", "--auto", "--format"):
+    global_help = run([resolved_path, "--help"], check=False, timeout=30)
+    if "--pure" not in f"{global_help.stdout}\n{global_help.stderr}":
+        raise BridgeError("OpenCode is missing required global --pure isolation flag.")
+    run_help = run([resolved_path, "run", "--help"], check=False, timeout=30)
+    combined = f"{run_help.stdout}\n{run_help.stderr}"
+    for flag in ("--dir", "--auto", "--format", "--agent"):
         if flag not in combined:
             raise BridgeError(f"OpenCode run is missing required flag {flag}")
     return resolved_path
@@ -171,17 +174,8 @@ def validate_opencode() -> str:
 def list_tasks(repo: str) -> list[dict[str, Any]]:
     proc = run(
         [
-            "gh",
-            "issue",
-            "list",
-            "--repo",
-            repo,
-            "--state",
-            "open",
-            "--limit",
-            "100",
-            "--json",
-            "number,title,body,author,url,updatedAt",
+            "gh", "issue", "list", "--repo", repo, "--state", "open", "--limit", "100",
+            "--json", "number,title,body,author,url,updatedAt",
         ]
     )
     issues = json.loads(proc.stdout or "[]")
@@ -192,8 +186,6 @@ def list_tasks(repo: str) -> list[dict[str, Any]]:
         title = (issue.get("title") or "").strip()
         body = issue.get("body") or ""
         marker_ok = VERIFY_MARKER in body or LEGACY_VERIFY_MARKER in body
-        # Recovery worker intentionally handles exact-PR verifier jobs only.
-        # Historical production-head verifier issues without a PR are left alone.
         target_ok = PR_RE.search(body) is not None and SHA_RE.search(body) is not None
         if author in allowed and title.startswith("[VERIFY]") and marker_ok and target_ok:
             selected.append(issue)
@@ -207,21 +199,14 @@ def parse_target(body: str) -> tuple[int, str]:
     sha_matches = SHA_RE.findall(body)
     if not sha_matches:
         raise BridgeError("Verifier issue must include an exact 40-character target SHA.")
-    # Verifier templates put target SHA first; later SHAs may be base/history values.
     return int(pr_match.group(1)), sha_matches[0].lower()
 
 
 def resolve_pr(repo: str, pr_number: int, expected_sha: str) -> dict[str, str]:
     proc = run(
         [
-            "gh",
-            "pr",
-            "view",
-            str(pr_number),
-            "--repo",
-            repo,
-            "--json",
-            "headRefOid,baseRefOid,url,title,state",
+            "gh", "pr", "view", str(pr_number), "--repo", repo,
+            "--json", "headRefOid,baseRefOid,url,title,state",
         ]
     )
     raw = json.loads(proc.stdout or "{}")
@@ -239,18 +224,83 @@ def resolve_pr(repo: str, pr_number: int, expected_sha: str) -> dict[str, str]:
     }
 
 
-def comment(repo: str, issue_number: int, text: str) -> None:
-    run(
+def exact_ci_evidence(repo: str, target_sha: str) -> str:
+    proc = run(
         [
-            "gh",
-            "issue",
-            "comment",
-            str(issue_number),
-            "--repo",
-            repo,
-            "--body",
-            sanitize(text),
+            "gh", "api", "--method", "GET",
+            f"repos/{repo}/actions/runs?head_sha={target_sha}&event=pull_request&per_page=50",
         ]
+    )
+    payload = json.loads(proc.stdout or "{}")
+    runs = [
+        item for item in (payload.get("workflow_runs") or [])
+        if str(item.get("head_sha") or "").lower() == target_sha
+    ]
+    ci_runs = [item for item in runs if item.get("name") == "CI"]
+    if not ci_runs:
+        raise BridgeError(f"Exact-head GitHub CI has no pull-request run for {target_sha}.")
+    latest_ci = max(ci_runs, key=lambda item: int(item.get("run_number") or 0))
+    status = str(latest_ci.get("status") or "unknown")
+    conclusion = str(latest_ci.get("conclusion") or "pending")
+    if status != "completed" or conclusion != "success":
+        raise BridgeError(
+            f"Exact-head GitHub CI is not green for {target_sha}: {status}/{conclusion}."
+        )
+    successful = sorted(
+        {
+            str(item.get("name"))
+            for item in runs
+            if item.get("status") == "completed" and item.get("conclusion") == "success" and item.get("name")
+        }
+    )
+    return ", ".join(successful) or "CI"
+
+
+def comment(repo: str, issue_number: int, text: str) -> None:
+    run(["gh", "issue", "comment", str(issue_number), "--repo", repo, "--body", sanitize(text)])
+
+
+def static_permission_policy() -> dict[str, Any]:
+    bash = {
+        "*": "deny",
+        "git status*": "allow",
+        "git diff*": "allow",
+        "git log*": "allow",
+        "git show*": "allow",
+        "git grep*": "allow",
+        "git ls-files*": "allow",
+        "git rev-parse*": "allow",
+        "git cat-file*": "allow",
+        "git ls-tree*": "allow",
+        "git merge-base*": "allow",
+    }
+    return {
+        "*": "deny",
+        "read": {"*": "allow", "*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"},
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "bash": bash,
+        "edit": "deny",
+        "external_directory": "deny",
+        "task": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "lsp": "deny",
+        "skill": "deny",
+        "question": "deny",
+    }
+
+
+def inline_opencode_config() -> str:
+    policy = static_permission_policy()
+    return json.dumps(
+        {
+            "$schema": "https://opencode.ai/config.json",
+            "permission": policy,
+            "agent": {"build": {"permission": policy}},
+        },
+        separators=(",", ":"),
     )
 
 
@@ -260,16 +310,19 @@ def build_prompt(
     target_sha: str,
     base_sha: str,
     nonce: str,
+    ci_evidence: str,
 ) -> str:
     first, second = nonce[:16], nonce[16:]
-    return f"""You are the independent read-only verifier for VITROS PR #{pr_number}.
+    return f"""You are the independent static code/security verifier for VITROS PR #{pr_number}.
 
 You are checked out at exact target SHA {target_sha}; base SHA is {base_sha or 'unknown'}.
-Read AGENTS.md first. Inspect the implementation and run relevant read-only/static/build/test checks requested by the approved verifier issue below. Do not edit source files, commit, push, create branches/tags, merge, deploy, change database state, or post SAP. Git/GitHub mutation paths are blocked or isolated by policy. If a requested production mutation would be needed, mark that item BLOCKED rather than performing it. Never reveal credentials, tokens, environment secret values, or full private payloads.
+The runner independently confirmed successful exact-head GitHub workflow evidence before launching you: {ci_evidence}.
 
-Before concluding, run `git status --porcelain` and `git rev-parse HEAD`. Treat any source mutation or HEAD movement you caused as failure. The runner will independently enforce both checks.
+Read AGENTS.md and inspect code/diffs. Do not execute project build/test/package scripts: dynamic execution is supplied by exact-head GitHub CI, while your job is independent source-level verification. Do not edit files, commit, push, create refs, merge, deploy, access external directories, access environment files, use network tools, change database state, or post SAP. The runtime policy explicitly denies those actions. If a verifier issue requests a production mutation, mark that specific requirement BLOCKED; do not perform it.
 
-For the final terminal result, output one line beginning with VERIFY, followed by the exact target SHA, followed by a NONCE made by concatenating these two challenge halves with no separator: `{first}` then `{second}`. Use PASS only when every required gate you can safely execute passes; otherwise use FAIL or BLOCKED and a concise REASON. Do not copy any terminal example from the verifier issue body because it lacks this run challenge.
+Before concluding, use only read/grep/glob/list and permitted read-only git commands. The runner independently enforces unchanged HEAD and clean sandbox status.
+
+For the final terminal result, output one line beginning with VERIFY, followed by exact target SHA, followed by a NONCE formed by concatenating these two challenge halves with no separator: `{first}` then `{second}`. PASS means source-level requirements are satisfied and the runner-supplied exact-head CI evidence is green. Otherwise use FAIL or BLOCKED with a concise REASON. Do not copy terminal examples from the issue body because they do not contain this active run challenge.
 
 --- BEGIN APPROVED VERIFIER ISSUE ---
 {issue.get('body') or ''}
@@ -278,9 +331,6 @@ For the final terminal result, output one line beginning with VERIFY, followed b
 
 
 def extract_terminal(stdout: str, stderr: str, target_sha: str, nonce: str) -> tuple[str, str]:
-    # Raw JSON events may embed assistant text in JSON strings. A per-run nonce that
-    # is absent from the approved issue prevents an echoed issue template from
-    # being accepted as a terminal verifier result.
     matches = list(TERMINAL_RE.finditer(f"{stdout}\n{stderr}"))
     if not matches:
         return "BLOCKED", "OpenCode did not emit the required challenged terminal verifier line."
@@ -308,17 +358,11 @@ def prepare_sandbox(root: Path, sandbox: Path, pr_number: int, target_sha: str) 
     if sandbox.exists():
         shutil.rmtree(sandbox)
     sandbox.parent.mkdir(parents=True, exist_ok=True)
-
-    # A standalone clone prevents local commits/refs in the verifier from touching
-    # the control checkout or the builder's worktrees.
     run(["git", "clone", "--no-checkout", "--no-local", str(root), str(sandbox)], cwd=root)
     remote = origin_url(root)
     run(["git", "fetch", "--no-tags", remote, f"pull/{pr_number}/head"], cwd=sandbox)
     run(["git", "checkout", "--detach", target_sha], cwd=sandbox)
-    # Remove the local-origin remote before OpenCode starts; it has no legitimate
-    # reason to push anywhere during verification.
     run(["git", "remote", "remove", "origin"], cwd=sandbox, check=False)
-
     if sandbox_head(sandbox) != target_sha:
         raise BridgeError("Verifier sandbox did not resolve to the exact target SHA.")
     if sandbox_status(sandbox):
@@ -331,25 +375,43 @@ def verifier_env(root: Path, sandbox: Path) -> dict[str, str]:
     real_gh = shutil.which("gh")
     if not real_git or not real_gh:
         raise BridgeError("Cannot locate real git/gh binaries.")
-
     for key in OPEN_CODE_STRIPPED_ENV:
         env.pop(key, None)
     env.pop("SSH_AUTH_SOCK", None)
     env["BRIDGE_REAL_GIT"] = real_git
     env["BRIDGE_REAL_GH"] = real_gh
-    # Safe wrappers come from the trusted control checkout, never the PR head.
     env["PATH"] = f"{root / 'bridge' / 'safe-bin'}:{env.get('PATH', '')}"
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GIT_ASKPASS"] = "/bin/false"
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = "/dev/null"
-    # Even an absolute `gh` invocation receives an empty config directory and no
-    # GitHub token. The runner's own gh process is outside this environment.
     gh_config = sandbox.parent / ".verifier-gh-empty"
     gh_config.mkdir(parents=True, exist_ok=True)
     env["GH_CONFIG_DIR"] = str(gh_config)
+    env["OPENCODE_CONFIG_CONTENT"] = inline_opencode_config()
+    env["OPENCODE_DISABLE_AUTOUPDATE"] = "true"
     env["CI"] = "1"
     return env
+
+
+def record_blocked(
+    repo: str,
+    issue_number: int,
+    task_key: str,
+    target_sha: str,
+    state: dict[str, Any],
+    state_path: Path,
+    retry: dict[str, Any],
+    reason: str,
+) -> None:
+    attempts = int(retry.get("attempts", 0)) + 1
+    state["retry"][task_key] = {
+        "attempts": attempts,
+        "next": int(time.time()) + min(3600, 300 * max(1, attempts)),
+        "reason": sanitize(reason)[:900],
+    }
+    save_state(state_path, state)
+    comment(repo, issue_number, f"VERIFY=BLOCKED SHA={target_sha} REASON={sanitize(reason)[:900]}")
 
 
 def execute_task(
@@ -362,12 +424,10 @@ def execute_task(
     opencode_bin: str,
 ) -> None:
     issue_number = int(issue["number"])
-    body = issue.get("body") or ""
-    pr_number, target_sha = parse_target(body)
+    pr_number, target_sha = parse_target(issue.get("body") or "")
     task_key = f"{issue_number}:{pr_number}:{target_sha}"
     if task_key in state["completed"]:
         return
-
     retry = state["retry"].get(task_key) or {}
     if int(retry.get("next", 0)) > int(time.time()):
         return
@@ -375,19 +435,21 @@ def execute_task(
     pr = resolve_pr(repo, pr_number, target_sha)
     if pr["state"] != "OPEN":
         state["completed"][task_key] = {
-            "status": "STALE",
-            "issue": issue_number,
-            "pr": pr_number,
-            "sha": target_sha,
-            "time": int(time.time()),
+            "status": "STALE", "issue": issue_number, "pr": pr_number,
+            "sha": target_sha, "time": int(time.time()),
         }
         state["retry"].pop(task_key, None)
         save_state(state_path, state)
         return
 
+    try:
+        ci_evidence = exact_ci_evidence(repo, target_sha)
+    except Exception as exc:
+        record_blocked(repo, issue_number, task_key, target_sha, state, state_path, retry, str(exc))
+        return
+
     sandbox = sandbox_root / f"verify-{issue_number}-{target_sha[:10]}"
     prepare_sandbox(root, sandbox, pr_number, target_sha)
-    # Close the race between initial PR resolution and the fetched sandbox.
     pr = resolve_pr(repo, pr_number, target_sha)
     if pr["state"] != "OPEN":
         shutil.rmtree(sandbox, ignore_errors=True)
@@ -401,24 +463,25 @@ def execute_task(
         comment(
             repo,
             issue_number,
-            f"Verifier accepted PR #{pr_number} exact head `{target_sha}`. Isolated read-only checks are running; no merge/deploy/database mutation is permitted.",
+            f"Verifier accepted PR #{pr_number} exact head `{target_sha}` after green exact-head CI. Isolated static checks are running; no project execution, merge, deploy, database mutation, or SAP posting is permitted.",
         )
         command = [
             opencode_bin,
+            "--pure",
             "run",
             "--dir",
             str(sandbox),
             "--auto",
             "--format",
             "json",
+            "--agent",
+            "build",
             "--title",
             f"VITROS verify PR #{pr_number}",
         ]
         if os.getenv("OPENCODE_MODEL", "").strip():
             command += ["--model", os.getenv("OPENCODE_MODEL", "").strip()]
-        if os.getenv("OPENCODE_AGENT", "").strip():
-            command += ["--agent", os.getenv("OPENCODE_AGENT", "").strip()]
-        command.append(build_prompt(issue, pr_number, target_sha, pr["base"], nonce))
+        command.append(build_prompt(issue, pr_number, target_sha, pr["base"], nonce, ci_evidence))
 
         proc = run(command, cwd=sandbox, check=False, env=verifier_env(root, sandbox))
         log.write_text(
@@ -430,7 +493,7 @@ def execute_task(
         dirty = sandbox_status(sandbox)
         head = sandbox_head(sandbox)
         if head != target_sha:
-            status, reason = "FAIL", "Verifier moved HEAD away from the exact target; sandbox was discarded."
+            status, reason = "FAIL", "Verifier moved HEAD away from exact target; sandbox was discarded."
         elif dirty:
             status, reason = "FAIL", "Verifier mutated tracked/unignored files; sandbox was discarded."
         elif proc.returncode != 0:
@@ -448,12 +511,8 @@ def execute_task(
 
         if status in {"PASS", "FAIL"}:
             state["completed"][task_key] = {
-                "status": status,
-                "issue": issue_number,
-                "pr": pr_number,
-                "sha": target_sha,
-                "log": str(log),
-                "time": int(time.time()),
+                "status": status, "issue": issue_number, "pr": pr_number,
+                "sha": target_sha, "log": str(log), "time": int(time.time()),
             }
             state["retry"].pop(task_key, None)
         else:
