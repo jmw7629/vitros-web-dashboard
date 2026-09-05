@@ -109,7 +109,6 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [documentRef, setDocumentRef] = useState("");
-  const [filename, setFilename] = useState("");
   const [lines, setLines] = useState<PdfReviewLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [commitBusy, setCommitBusy] = useState(false);
@@ -128,12 +127,11 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
 
     setBusy(true);
     setStatus("Reading every page of the packing-list PDF…");
-    setFilename(file.name);
     try {
       const pdfBase64 = await pdfToBase64(file);
       const raw = await ocrPackingListPdf({
         pdfBase64,
-        filename: file.name,
+        filename: file.name.slice(0, 120),
         partList,
         prompt: "Extract every physical inventory line from every page of this Incoming Stock packing list PDF. Preserve repeated part lines. Use SHIP QTY when ordered and shipped quantities both exist. Do not interpret line numbers, page numbers, GTIN, tracking numbers, or weights as receive quantities.",
       });
@@ -145,11 +143,11 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
       const effectiveRef = documentRef.trim()
         || (typeof extractedRef === "string" ? extractedRef.trim() : "")
         || (typeof extractedPo === "string" ? extractedPo.trim() : "");
-      if (!documentRef && effectiveRef) setDocumentRef(effectiveRef);
+      if (!documentRef && effectiveRef) setDocumentRef(effectiveRef.slice(0, 200));
 
       const review = await reviewPackingListDraft({
         ocrJson: JSON.stringify(draft),
-        documentRef: effectiveRef || undefined,
+        documentRef: effectiveRef ? effectiveRef.slice(0, 200) : undefined,
       }) as unknown as ReviewResponse;
       if (!review.requiresHumanConfirmation || review.descriptionUsedForIdentity || review.identityRule !== "canonical_part_number_only") {
         throw new Error("Server review returned an unsafe identity contract");
@@ -197,7 +195,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
           partNumber: line.resolvedPartNumber ?? line.partNumberOcr,
           qty: line.qtyOcr ?? 0,
           confirmationId: line.confirmationId,
-          documentRef: documentRef.trim() || filename || undefined,
+          documentRef: documentRef.trim() || undefined,
           lineNo: line.lineNo,
         }) as unknown as { receipt?: Record<string, unknown> };
         const duplicate = Boolean(result.receipt?.duplicate);
@@ -300,9 +298,9 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
                     {line.selected && <Check className="h-3 w-3 text-white" />}
                   </button>
                   <span className="text-xs" style={{ color: theme.textSecondary }}>{line.lineNo}</span>
-                  <span className="text-xs font-bold" style={{ color: theme.accentBlue }}>{line.resolvedPartNumber ?? line.partNumberOcr || "—"}</span>
+                  <span className="text-xs font-bold" style={{ color: theme.accentBlue }}>{(line.resolvedPartNumber ?? line.partNumberOcr) || "—"}</span>
                   <span className="text-xs font-bold" style={{ color: theme.textPrimary }}>{line.qtyOcr ?? "—"}</span>
-                  <span className="truncate text-xs" title={line.stockDescription ?? line.descriptionOcr} style={{ color: theme.textSecondary }}>{line.stockDescription ?? line.descriptionOcr || "—"}</span>
+                  <span className="truncate text-xs" title={line.stockDescription ?? line.descriptionOcr} style={{ color: theme.textSecondary }}>{(line.stockDescription ?? line.descriptionOcr) || "—"}</span>
                   <span className="text-xs font-bold" style={{ color: theme.textPrimary }}>{line.qtyOnHand ?? "—"}</span>
                   <span className="text-xs" style={{ color: theme.textSecondary }}>{line.confidence == null ? "—" : `${Math.round(line.confidence * 100)}%`}</span>
                   <span className="text-[10px] font-bold" style={{ color: line.commitStatus === "failed" ? "#ef4444" : presentation.color }}>
