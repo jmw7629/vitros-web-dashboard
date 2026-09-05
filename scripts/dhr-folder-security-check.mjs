@@ -39,9 +39,14 @@ requireMatch(
   /export const deleteFolder = mutation\([\s\S]*?requireCapability\(ctx, ["']inventory\.admin["']\)/m,
   "deleteFolder must require inventory.admin",
 );
-
-forbid(/requireCapability\(ctx, ["']inventory\.read["']\)[\s\S]*?ctx\.db\.delete\(/m, "Destructive DHR folder deletion must not be authorized by inventory.read");
-forbid(/requireCapability\(ctx, ["']inventory\.write["']\)[\s\S]*?export const deleteFolder/m, "deleteFolder must retain a distinct admin-only authorization boundary");
+forbid(
+  /export const deleteFolder = mutation\([\s\S]*?requireCapability\(ctx, ["']inventory\.read["']\)/m,
+  "Destructive DHR folder deletion must not be authorized by inventory.read",
+);
+forbid(
+  /export const deleteFolder = mutation\([\s\S]*?requireCapability\(ctx, ["']inventory\.write["']\)/m,
+  "deleteFolder must retain a distinct admin-only authorization boundary",
+);
 
 console.log("DHR_FOLDER_READ_AUTHZ=PASS");
 console.log("DHR_FOLDER_WRITE_AUTHZ=PASS");
