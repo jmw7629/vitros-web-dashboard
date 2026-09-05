@@ -14,7 +14,7 @@ for (const signature of ["tracker", "build plan", "staff", "notes - issues"]) {
   if (!parser.includes(`\"${signature}\"`)) throw new Error(`Parser must require internal ${signature} signature`);
 }
 requireMatch(parser, /inferPlanYear\(workbook\)/, "Parser must derive plan year from workbook structure");
-requireMatch(parser, /20\\d\{2\} summary/, "Parser must identify year from internal summary sheet");
+requireMatch(parser, /match\(\/\^\(20\\d\{2\}\) summary\$\//, "Parser must identify year from internal summary sheet");
 requireMatch(parser, /latestVitrosWip\(workbook\)/, "Parser must select the latest VITROS WIP sheet by schema");
 if (/fileName[^\n]{0,120}(includes|match|startsWith|endsWith)/.test(parser)) {
   throw new Error("Parser must not identify the authoritative workbook by filename");
