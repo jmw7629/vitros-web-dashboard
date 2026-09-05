@@ -1,0 +1,23 @@
+name: AI Gateway Containment Security
+
+on:
+  pull_request:
+    paths:
+      - "convex/aiGateway.ts"
+      - "scripts/ai-gateway-containment-security-check.mjs"
+      - ".github/workflows/ai-gateway-containment-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify AI gateway containment
+        run: node scripts/ai-gateway-containment-security-check.mjs
