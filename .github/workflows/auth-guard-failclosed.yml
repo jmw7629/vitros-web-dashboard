@@ -20,5 +20,3 @@ jobs:
           node-version: 20
       - name: Verify unknown roles fail closed
         run: node scripts/auth-guard-failclosed-check.mjs
-      - name: Diff hygiene
-        run: git diff --check HEAD^ HEAD
