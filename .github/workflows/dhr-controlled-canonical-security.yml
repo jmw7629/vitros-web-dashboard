@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - "supabase/migrations/20260905124500_dhr_controlled_canonical_transition.sql"
+      - "supabase/migrations/20260905191500_dhr_legacy_baseline_guard.sql"
       - "scripts/dhr-controlled-canonical-security-check.mjs"
+      - "scripts/dhr-legacy-baseline-security-check.mjs"
       - ".github/workflows/dhr-controlled-canonical-security.yml"
   workflow_dispatch:
 
@@ -24,3 +26,5 @@ jobs:
           node-version: "22"
       - name: Verify controlled canonical DHR consumption boundary
         run: node scripts/dhr-controlled-canonical-security-check.mjs
+      - name: Verify legacy DHR baseline quarantine
+        run: node scripts/dhr-legacy-baseline-security-check.mjs
