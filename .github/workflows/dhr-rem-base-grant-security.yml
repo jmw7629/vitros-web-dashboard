@@ -1,0 +1,24 @@
+name: DHR REM Base Grant Security
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260905053000_dhr_rem_base_grant_containment.sql"
+      - "scripts/dhr-rem-base-grant-security-check.mjs"
+      - ".github/workflows/dhr-rem-base-grant-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dhr-rem-base-grant-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify DHR/REM base-table grant containment
+        run: node scripts/dhr-rem-base-grant-security-check.mjs
