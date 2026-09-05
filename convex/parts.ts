@@ -1,12 +1,16 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { requireCapability } from "./authGuard";
 
 // NOTE: Production data is now in Supabase. These functions are kept
-// for backward compatibility with the dev Convex instance.
+// for backward compatibility with the dev Convex instance. Keep this
+// compatibility surface authenticated so it cannot become an alternate
+// anonymous part-master or quantity mutation path.
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "inventory.read");
     return await ctx.db.query("parts").collect();
   },
 });
@@ -27,6 +31,7 @@ export const updatePart = mutation({
     unitCost: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireCapability(ctx, "inventory.admin");
     const { id, ...updates } = args;
     const clean: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(updates)) {
@@ -39,6 +44,7 @@ export const updatePart = mutation({
 export const deletePart = mutation({
   args: { id: v.id("parts") },
   handler: async (ctx, { id }) => {
+    await requireCapability(ctx, "inventory.admin");
     await ctx.db.delete(id);
   },
 });
@@ -60,6 +66,7 @@ export const createPart = mutation({
     unitCost: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireCapability(ctx, "inventory.admin");
     await ctx.db.insert("parts", {
       partNumber: args.partNumber,
       description: args.description,
