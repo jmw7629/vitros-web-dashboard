@@ -12,6 +12,7 @@ declare const process: { env: Record<string, string | undefined> };
 export const listAnalyzers = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "rem.read");
     return await ctx.db.query("remAnalyzers").collect();
   },
 });
@@ -19,6 +20,7 @@ export const listAnalyzers = query({
 export const getAnalyzerBySerial = query({
   args: { serialNumber: v.string() },
   handler: async (ctx, { serialNumber }) => {
+    await requireCapability(ctx, "rem.read");
     return await ctx.db
       .query("remAnalyzers")
       .withIndex("by_serialNumber", (q) => q.eq("serialNumber", serialNumber))
@@ -29,6 +31,7 @@ export const getAnalyzerBySerial = query({
 export const listLvccItems = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "rem.read");
     return await ctx.db.query("lvccItems").collect();
   },
 });
@@ -36,6 +39,7 @@ export const listLvccItems = query({
 export const listTargets = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "rem.read");
     return await ctx.db.query("annualTargets").collect();
   },
 });
@@ -43,6 +47,7 @@ export const listTargets = query({
 export const listStaff = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "rem.read");
     return await ctx.db.query("staffMembers").collect();
   },
 });
@@ -50,6 +55,7 @@ export const listStaff = query({
 export const listWeeklyNotes = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "rem.read");
     return await ctx.db.query("weeklyNotes").order("desc").collect();
   },
 });
@@ -57,6 +63,7 @@ export const listWeeklyNotes = query({
 export const listEmployees = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "rem.read");
     return await ctx.db.query("employees").collect();
   },
 });
@@ -64,6 +71,7 @@ export const listEmployees = query({
 export const listCycleSchedules = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "inventory.read");
     return await ctx.db.query("cycleSchedules").collect();
   },
 });
@@ -71,6 +79,7 @@ export const listCycleSchedules = query({
 export const listIncomingBatches = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "inventory.read");
     return await ctx.db.query("incomingBatches").collect();
   },
 });
