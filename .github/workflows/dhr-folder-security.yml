@@ -1,0 +1,26 @@
+name: DHR Folder Security
+
+on:
+  pull_request:
+    paths:
+      - "convex/dhr.ts"
+      - "scripts/dhr-folder-security-check.mjs"
+      - ".github/workflows/dhr-folder-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify legacy DHR folder authorization boundaries
+        run: node scripts/dhr-folder-security-check.mjs
