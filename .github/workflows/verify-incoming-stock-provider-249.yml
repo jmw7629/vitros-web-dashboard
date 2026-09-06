@@ -1,0 +1,36 @@
+name: Verify Incoming Stock Provider #249
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/incomingStockActions.ts"
+      - "scripts/incoming-stock-provider-error-containment-check.mjs"
+      - ".github/workflows/incoming-stock-provider-error-containment.yml"
+      - "scripts/verify-incoming-stock-provider-249.py"
+      - ".github/workflows/verify-incoming-stock-provider-249.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact PR 249 target invariants
+        run: python3 scripts/verify-incoming-stock-provider-249.py
+      - name: Run Incoming Stock provider containment gate
+        run: node scripts/incoming-stock-provider-error-containment-check.mjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
