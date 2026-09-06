@@ -86,6 +86,26 @@ async function callAtomicDhrRpc(
   return response.json() as Promise<Record<string, unknown>>;
 }
 
+async function callDhrLifecycleRpc(
+  serviceKey: string,
+  url: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${url}/rest/v1/rpc/apply_dhr_session_lifecycle`, {
+    method: "POST",
+    headers: supabaseHeaders(serviceKey),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const message = (payload as { message?: string; error?: string }).message
+      || (payload as { message?: string; error?: string }).error
+      || `DHR lifecycle transition failed (${response.status})`;
+    throw new Error(message);
+  }
+  return response.json() as Promise<Record<string, unknown>>;
+}
+
 async function resolveAuditActor(
   ctx: ActionCtx,
   userId: Id<"users">,
@@ -145,7 +165,7 @@ export const loadScannerData = action({
       readSupabaseRows<Record<string, unknown>>(
         serviceKey,
         url,
-        "dhr_scan_sessions?select=id,instrument_sn,wo_number,analyzer_model,started_at,completed_at,status,started_by,notes&order=created_at.desc&limit=250",
+        "dhr_scan_sessions?select=id,instrument_sn,wo_number,analyzer_model,started_at,completed_at,status,started_by,notes,revision&order=created_at.desc&limit=250",
       ),
       readSupabaseRows<Record<string, unknown>>(
         serviceKey,
@@ -219,7 +239,10 @@ export const createScannerSession = action({
   },
 });
 
-/** Finalize or reopen a DHR session. Inventory is never moved by lifecycle changes. */
+/**
+ * Finalize or reopen a DHR session through an immutable, revision-checked lifecycle
+ * event. This path never moves inventory; quantity changes remain in applyScanTransition.
+ */
 export const setScannerSessionLifecycle = action({
   args: {
     sessionId: v.string(),
@@ -227,21 +250,50 @@ export const setScannerSessionLifecycle = action({
   },
   returns: v.any(),
   handler: async (ctx, args) => {
-    await requireCapability(ctx, "inventory.write");
+    const userId = await requireCapability(ctx, "inventory.write");
     const sessionId = validateUuid(args.sessionId, "DHR session id");
     const { url, serviceKey } = getSupabaseConfig();
-    const rows = await writeSupabaseRows<Record<string, unknown>>(
+    const actor = await resolveAuditActor(ctx, userId, serviceKey, url);
+
+    const rows = await readSupabaseRows<{ id?: string; status?: string | null; revision?: number }>(
       serviceKey,
       url,
-      `dhr_scan_sessions?id=eq.${encodeURIComponent(sessionId)}`,
-      "PATCH",
-      {
-        status: args.status,
-        completed_at: args.status === "completed" ? new Date().toISOString() : null,
-      },
+      `dhr_scan_sessions?select=id,status,revision&id=eq.${encodeURIComponent(sessionId)}&limit=2`,
     );
-    if (rows.length !== 1) throw new Error("DHR session was not found");
-    return rows[0];
+    if (rows.length !== 1 || rows[0].id !== sessionId) throw new Error("DHR session was not found");
+    const revision = rows[0].revision;
+    if (!Number.isInteger(revision) || (revision as number) < 0) {
+      throw new Error("DHR session revision is unavailable");
+    }
+    const currentStatus = (rows[0].status || "in_progress").trim().toLowerCase();
+    if (currentStatus !== "in_progress" && currentStatus !== "completed") {
+      throw new Error("DHR session has unsupported lifecycle status");
+    }
+
+    // If a prior call committed but its response was lost, or another authenticated
+    // operator already achieved the requested lifecycle state, return that real
+    // immutable event as a duplicate/no-op. Do not mint another revision merely
+    // because the browser retried.
+    if (currentStatus === args.status) {
+      const events = await readSupabaseRows<Record<string, unknown>>(
+        serviceKey,
+        url,
+        `dhr_scan_session_events?select=id,session_id,from_status,to_status,revision_before,revision_after,actor,created_at&session_id=eq.${encodeURIComponent(sessionId)}&to_status=eq.${encodeURIComponent(args.status)}&revision_after=eq.${revision}&order=revision_after.desc&limit=1`,
+      );
+      if (events.length !== 1) {
+        throw new Error("DHR lifecycle state is already applied but immutable event history is missing");
+      }
+      return { ...events[0], duplicate: true };
+    }
+
+    const correlationId = `dhr-lifecycle:${sessionId}:${revision}:${args.status}`;
+    return callDhrLifecycleRpc(serviceKey, url, {
+      p_session_id: sessionId,
+      p_target_status: args.status,
+      p_actor: actor,
+      p_correlation_id: correlationId,
+      p_expected_revision: revision,
+    });
   },
 });
 
