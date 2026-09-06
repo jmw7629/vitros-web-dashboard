@@ -1,0 +1,51 @@
+name: Verify Preview Test Auth Containment PR 213
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: d5c655b0041a79ce2eaa82a2e60f12eeb58622d1
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d5c655b0041a79ce2eaa82a2e60f12eeb58622d1"
+          git diff --name-only 7037474ee409cd5b5b870be24b148f0ca0b42089 d5c655b0041a79ce2eaa82a2e60f12eeb58622d1 | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/preview-test-auth-security.yml
+          convex/auth.ts
+          convex/seedTestUser.ts
+          convex/testAuth.ts
+          scripts/preview-test-auth-security-check.mjs
+          scripts/secure-role-session-check.mjs
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify preview test auth containment
+        run: node scripts/preview-test-auth-security-check.mjs
+      - name: Verify secure role session invariants
+        run: node scripts/secure-role-session-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
