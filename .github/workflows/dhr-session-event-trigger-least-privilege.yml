@@ -1,0 +1,24 @@
+name: DHR Session Event Trigger Least Privilege
+
+on:
+  pull_request:
+    paths:
+      - "database/migrations/20260906_dhr_session_event_trigger_least_privilege.sql"
+      - "scripts/dhr-session-event-trigger-least-privilege-check.mjs"
+      - ".github/workflows/dhr-session-event-trigger-least-privilege.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify DHR trigger helper privilege boundary
+        run: node scripts/dhr-session-event-trigger-least-privilege-check.mjs
