@@ -1,0 +1,54 @@
+name: Verify REM Legacy Query PR 217
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 82b5764991544968be08bc02c3f6d335997b83fa
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "82b5764991544968be08bc02c3f6d335997b83fa"
+          test "$(git diff --name-only 3f8b41f759a5ef84ae95e51e0b57e675f4f9491d 82b5764991544968be08bc02c3f6d335997b83fa)" = "convex/rem.ts"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify REM compatibility RBAC
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const s = fs.readFileSync('convex/rem.ts','utf8');
+          const rem = ['listAnalyzers','getAnalyzerBySerial','listLvccItems','listTargets','listStaff','listWeeklyNotes','listEmployees'];
+          for (const name of rem) {
+            const re = new RegExp(`export const ${name} = query\\([\\s\\S]*?requireCapability\\(ctx, ["']rem\\.read["']\\)`);
+            if (!re.test(s)) throw new Error(`${name} missing rem.read`);
+          }
+          for (const name of ['listCycleSchedules','listIncomingBatches']) {
+            const re = new RegExp(`export const ${name} = query\\([\\s\\S]*?requireCapability\\(ctx, ["']inventory\\.read["']\\)`);
+            if (!re.test(s)) throw new Error(`${name} missing inventory.read`);
+          }
+          console.log('REM_LEGACY_QUERY_RBAC=PASS');
+          NODE
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
