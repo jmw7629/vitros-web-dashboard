@@ -27,3 +27,5 @@ jobs:
       - run: node scripts/sap-staging-authoritative-security-check.mjs
       - run: npm run typecheck
       - run: npm run build
+
+# Harmless touch to retrigger exact-head preview after Vercel quota recovery.
