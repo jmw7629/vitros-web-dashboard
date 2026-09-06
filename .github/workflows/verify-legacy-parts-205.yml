@@ -1,0 +1,46 @@
+name: Verify Legacy Parts PR 205
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 2a8a2b3956e3448374f4d8b4120d08d65e26cbfe
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2a8a2b3956e3448374f4d8b4120d08d65e26cbfe"
+          git diff --name-only d653360602a273988168737edba43440a62247af 2a8a2b3956e3448374f4d8b4120d08d65e26cbfe | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/legacy-parts-security.yml
+          convex/parts.ts
+          scripts/legacy-parts-security-check.mjs
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify legacy parts authorization boundaries
+        run: node scripts/legacy-parts-security-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
