@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { requireCapability } from "./authGuard";
 
 const lineValidator = v.object({
   id: v.string(),
@@ -22,6 +23,7 @@ const lineValidator = v.object({
 export const listFolders = query({
   args: {},
   handler: async (ctx) => {
+    await requireCapability(ctx, "inventory.read");
     return await ctx.db.query("dhrFolders").collect();
   },
 });
@@ -29,6 +31,7 @@ export const listFolders = query({
 export const getFolder = query({
   args: { id: v.id("dhrFolders") },
   handler: async (ctx, { id }) => {
+    await requireCapability(ctx, "inventory.read");
     return await ctx.db.get(id);
   },
 });
@@ -41,6 +44,7 @@ export const createFolder = mutation({
     woNumber: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireCapability(ctx, "inventory.write");
     const now = Date.now();
     return await ctx.db.insert("dhrFolders", {
       instrumentSN: args.instrumentSN,
@@ -61,6 +65,7 @@ export const addLinesToFolder = mutation({
     scanId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    await requireCapability(ctx, "inventory.write");
     const folder = await ctx.db.get(args.id);
     if (!folder) throw new Error("Folder not found");
     const newScanIds = args.scanId
@@ -89,6 +94,7 @@ export const updateLine = mutation({
     }),
   },
   handler: async (ctx, args) => {
+    await requireCapability(ctx, "inventory.write");
     const folder = await ctx.db.get(args.folderId);
     if (!folder) throw new Error("Folder not found");
     const lines = folder.lines.map((l) =>
@@ -104,6 +110,7 @@ export const removeLine = mutation({
     lineId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireCapability(ctx, "inventory.write");
     const folder = await ctx.db.get(args.folderId);
     if (!folder) throw new Error("Folder not found");
     const lines = folder.lines.filter((l) => l.id !== args.lineId);
@@ -122,6 +129,7 @@ export const updateFolder = mutation({
     wipSentAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    await requireCapability(ctx, "inventory.write");
     const { id, ...updates } = args;
     const filtered = Object.fromEntries(
       Object.entries(updates).filter(([, val]) => val !== undefined)
@@ -133,6 +141,7 @@ export const updateFolder = mutation({
 export const deleteFolder = mutation({
   args: { id: v.id("dhrFolders") },
   handler: async (ctx, { id }) => {
+    await requireCapability(ctx, "inventory.admin");
     await ctx.db.delete(id);
   },
 });
