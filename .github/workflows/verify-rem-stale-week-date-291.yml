@@ -1,0 +1,80 @@
+name: Verify REM Stale Week Date PR 291
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 3a26718588d67063fd4c4d12fc1926b5f4328973
+          fetch-depth: 0
+      - name: Assert exact head and bounded implementation diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3a26718588d67063fd4c4d12fc1926b5f4328973"
+          expected=$'.github/workflows/rem-stale-week-date-repair.yml\nscripts/rem-stale-week-date-repair-check.mjs\nsupabase/migrations/20260906180000_rem_stale_prior_year_week_start_repair.sql'
+          test "$(git diff --name-only c8a1ddbaa2eeee7e3c8610d1bef0162c3bfb4194 3a26718588d67063fd4c4d12fc1926b5f4328973)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independent stale-date repair verification
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const sql = fs.readFileSync('supabase/migrations/20260906180000_rem_stale_prior_year_week_start_repair.sql','utf8');
+          const must=(re,msg)=>{if(!re.test(sql)) throw new Error(msg)};
+          const forbid=(re,msg)=>{if(re.test(sql)) throw new Error(msg)};
+          must(/create or replace function public\.enforce_rem_iso_week_start\(\)/i,'trigger helper not replaced');
+          must(/set search_path = public, pg_temp/i,'search_path not pinned');
+          must(/v_shifted_week_start := \(v_week_start \+ interval '1 year'\)::date/i,'repair is not exactly one calendar year');
+          must(/extract\(isoyear from v_week_start\)::integer = new\.plan_year - 1/i,'source is not constrained to exactly prior ISO year');
+          must(/extract\(isoyear from v_shifted_week_start\)::integer = new\.plan_year/i,'shifted date is not constrained to plan year');
+          must(/extract\(week from v_shifted_week_start\)::integer = v_week_number::integer/i,'shifted date is not constrained to plan week');
+          must(/new\.week_start := v_shifted_week_start::text/i,'validated repair is not persisted through BEFORE trigger NEW row');
+          must(/raise exception 'rem_week_start_iso_mismatch/i,'arbitrary mismatches no longer fail closed');
+          must(/revoke all on function public\.enforce_rem_iso_week_start\(\) from public, anon, authenticated/i,'browser EXECUTE revocation missing');
+          must(/grant execute on function public\.enforce_rem_iso_week_start\(\) to service_role/i,'service role execution missing');
+          forbid(/\b(?:delete\s+from|truncate|drop\s+table|update\s+public\.rem_|insert\s+into\s+public\.rem_)\b/i,'migration rewrites REM business rows');
+
+          const iso=(s)=>{
+            const d=new Date(`${s}T00:00:00Z`);
+            const day=d.getUTCDay()||7;
+            d.setUTCDate(d.getUTCDate()+4-day);
+            const year=d.getUTCFullYear();
+            const yearStart=new Date(Date.UTC(year,0,1));
+            const week=Math.ceil((((d-yearStart)/86400000)+1)/7);
+            return {year,week};
+          };
+          const plusYear=(s)=>{const [y,m,d]=s.split('-').map(Number);return `${y+1}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`};
+          const good=iso('2025-12-29');
+          if(good.year!==2026||good.week!==1) throw new Error('valid ISO spillover control failed');
+          const stale='2025-01-05', shifted=plusYear(stale), repaired=iso(shifted);
+          if(iso(stale).year!==2025||repaired.year!==2026||repaired.week!==2||shifted!=='2026-01-05') throw new Error('known stale week-2 pattern does not deterministically repair');
+          const unrelated=plusYear('2024-01-07'), unrelatedIso=iso(unrelated);
+          if(unrelatedIso.year===2026&&unrelatedIso.week===2) throw new Error('unrelated mismatch unexpectedly qualifies');
+          console.log('REM_STALE_WEEK_DATE_INDEPENDENT=PASS');
+          NODE
+      - name: Focused regression gates
+        run: |
+          node scripts/rem-stale-week-date-repair-check.mjs
+          node scripts/rem-week-start-integrity-check.mjs
+          node scripts/rem-authoritative-workbook-security-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
