@@ -6,6 +6,7 @@
 -- incoming date by exactly one calendar year when that shifted date resolves to
 -- the supplied ISO plan_year/week_number. No existing REM business rows are
 -- rewritten by this migration.
+-- Production PostgreSQL compile/behavior probing is transaction-wrapped and rolled back.
 
 create or replace function public.enforce_rem_iso_week_start()
 returns trigger
