@@ -1,0 +1,36 @@
+name: Verify Legacy SAP Authoritative #247
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/inventoryActions.ts"
+      - "scripts/legacy-sap-authoritative-security-check.mjs"
+      - ".github/workflows/legacy-sap-authoritative-security.yml"
+      - "scripts/verify-sap-legacy-authoritative-247.py"
+      - ".github/workflows/verify-sap-legacy-authoritative-247.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact PR 247 target invariants
+        run: python3 scripts/verify-sap-legacy-authoritative-247.py
+      - name: Run legacy SAP authoritative security gate
+        run: node scripts/legacy-sap-authoritative-security-check.mjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
