@@ -1,0 +1,46 @@
+name: Verify Browser Read View Least Privilege PR 243
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: fdd11bf71c8ce0bb290a6a661232fd9de520e8de
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "fdd11bf71c8ce0bb290a6a661232fd9de520e8de"
+          git diff --name-only f399b9a52a42ff26ed4e3baf54f1904c13a509c5 fdd11bf71c8ce0bb290a6a661232fd9de520e8de | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/browser-read-view-least-privilege.yml
+          scripts/browser-read-view-least-privilege-check.mjs
+          supabase/migrations/20260905190000_browser_read_views_least_privilege.sql
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify browser read-view least privilege
+        run: node scripts/browser-read-view-least-privilege-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
