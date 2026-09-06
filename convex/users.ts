@@ -48,50 +48,36 @@ export const getMyProfile = query({
   },
 });
 
+// Identity fields participate in enterprise attribution and authentication. They
+// must not be writable directly by a browser session, even by the account owner.
+// Preserve the public function and wire shape for compatibility, but fail closed
+// until the reviewed admin identity lifecycle owns these changes with RBAC/audit.
 export const updateMyProfile = mutation({
   args: {
     name: v.optional(v.string()),
     email: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const updates: { name?: string; email?: string } = {};
-    if (args.name !== undefined) updates.name = args.name;
-    if (args.email !== undefined) updates.email = args.email;
-
-    if (Object.keys(updates).length > 0) {
-      await ctx.db.patch(userId, updates);
-    }
-    return { success: true };
+    throw new Error(
+      "Profile identity changes are disabled. Use the reviewed enterprise user-management workflow.",
+    );
   },
 });
 
+// Account deletion removes authentication identity and sessions and is therefore
+// a destructive enterprise lifecycle operation. Keep the endpoint fail-closed so
+// legacy clients receive a deterministic error instead of deleting identity data.
 export const deleteAccount = mutation({
   args: {},
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const authAccounts = await ctx.db
-      .query("authAccounts")
-      .filter((q) => q.eq(q.field("userId"), userId))
-      .collect();
-    for (const account of authAccounts) {
-      await ctx.db.delete(account._id);
-    }
-
-    const authSessions = await ctx.db
-      .query("authSessions")
-      .filter((q) => q.eq(q.field("userId"), userId))
-      .collect();
-    for (const session of authSessions) {
-      await ctx.db.delete(session._id);
-    }
-
-    await ctx.db.delete(userId);
-
-    return { success: true };
+    throw new Error(
+      "Account deletion is disabled. Use a reviewed, audited enterprise user-lifecycle workflow.",
+    );
   },
 });

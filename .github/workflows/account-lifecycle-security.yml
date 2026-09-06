@@ -1,0 +1,26 @@
+name: Account Lifecycle Security
+
+on:
+  pull_request:
+    paths:
+      - "convex/users.ts"
+      - "scripts/account-lifecycle-security-check.mjs"
+      - ".github/workflows/account-lifecycle-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify enterprise account lifecycle containment
+        run: node scripts/account-lifecycle-security-check.mjs
