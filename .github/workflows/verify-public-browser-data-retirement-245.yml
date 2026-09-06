@@ -14,14 +14,14 @@ jobs:
       - name: Checkout exact implementation head
         uses: actions/checkout@v4
         with:
-          ref: 922ba938e3df4a41cc987245c74547e591931cbe
+          ref: 3e9ddfe58087879b2cf3a4d6166c557a8e4524cf
           fetch-depth: 0
       - name: Assert exact target and bounded diff
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "922ba938e3df4a41cc987245c74547e591931cbe"
-          git diff --name-only ee4518e3333befa1ef3eb5a899263ede3482730e 922ba938e3df4a41cc987245c74547e591931cbe | sort > /tmp/actual
+          test "$(git rev-parse HEAD)" = "3e9ddfe58087879b2cf3a4d6166c557a8e4524cf"
+          git diff --name-only ee4518e3333befa1ef3eb5a899263ede3482730e 3e9ddfe58087879b2cf3a4d6166c557a8e4524cf | sort > /tmp/actual
           cat > /tmp/expected <<'EOF'
           .github/workflows/public-browser-data-retirement-security.yml
           scripts/browser-safe-read-security-check.mjs
