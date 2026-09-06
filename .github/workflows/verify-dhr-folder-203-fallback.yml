@@ -1,0 +1,47 @@
+name: Verify DHR Folder PR 203 Fallback
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5e3a4204c46bc42771c4753a843df74a59d99d7a
+          fetch-depth: 0
+      - name: Assert exact implementation head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "5e3a4204c46bc42771c4753a843df74a59d99d7a"
+          expected=$'.github/workflows/dhr-folder-security.yml\nconvex/dhr.ts\nscripts/dhr-folder-security-check.mjs'
+          test "$(git diff --name-only fda9fe051ebab131783543a96e8956e6119b9378 5e3a4204c46bc42771c4753a843df74a59d99d7a)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independent authorization review
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const s=fs.readFileSync('convex/dhr.ts','utf8');
+          const must=(r,m)=>{if(!r.test(s))throw new Error(m)};
+          const forbid=(r,m)=>{if(r.test(s))throw new Error(m)};
+          must(/import\s+\{\s*requireCapability\s*\}\s+from\s+["']\.\/authGuard["']/, 'shared server capability guard missing');
+          for (const n of ['listFolders','getFolder']) must(new RegExp(`export const ${n} = query\\([\\s\\S]*?requireCapability\\(ctx, ["']inventory\\.read["']\\)`), `${n} is not inventory.read guarded`);
+          for (const n of ['createFolder','addLinesToFolder','updateLine','removeLine','updateFolder']) must(new RegExp(`export const ${n} = mutation\\([\\s\\S]*?requireCapability\\(ctx, ["']inventory\\.write["']\\)`), `${n} is not inventory.write guarded`);
+          must(/export const deleteFolder = mutation\([\s\S]*?requireCapability\(ctx, ["']inventory\.admin["']\)/, 'deleteFolder is not inventory.admin guarded');
+          forbid(/export const deleteFolder = mutation\([\s\S]*?requireCapability\(ctx, ["']inventory\.(?:read|write)["']\)/, 'deleteFolder accepts weaker capability');
+          forbid(/process\.env|SUPABASE_SERVICE_ROLE_KEY|CONVEX_DEPLOY_KEY|SAP|fetch\s*\(/i, 'unexpected credential/network/SAP path in legacy DHR folder module');
+          console.log('DHR_FOLDER_INDEPENDENT_VERIFICATION=PASS');
+          NODE
+      - run: node scripts/dhr-folder-security-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
