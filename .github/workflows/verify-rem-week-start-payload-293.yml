@@ -1,0 +1,51 @@
+name: Verify REM Week Start Payload PR 293
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cf210c150416a5de7ca9bd65dffac887f5d5b42b
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "cf210c150416a5de7ca9bd65dffac887f5d5b42b"
+          expected=$'.github/workflows/rem-week-start-payload-sync.yml\nscripts/rem-week-start-payload-sync-check.mjs\nsupabase/migrations/20260906183000_rem_week_start_payload_sync.sql'
+          test "$(git diff --name-only a97a77c5181516ba2a5048396c83f2b283bdd449 cf210c150416a5de7ca9bd65dffac887f5d5b42b)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independent payload consistency checks
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const s=fs.readFileSync('supabase/migrations/20260906183000_rem_week_start_payload_sync.sql','utf8');
+          const must=(r,m)=>{if(!r.test(s))throw new Error(m)};
+          const forbid=(r,m)=>{if(r.test(s))throw new Error(m)};
+          must(/tg_table_name in \('rem_tracker_weekly', 'rem_build_plan'\)/i,'sync scope wrong');
+          must(/new\.data := jsonb_set\([\s\S]*?'\{weekStart\}'[\s\S]*?to_jsonb\(new\.week_start\)/i,'nested weekStart not server-synced');
+          must(/extract\(isoyear from v_week_start\)::integer = new\.plan_year - 1/i,'prior-year repair guard missing');
+          must(/extract\(week from v_shifted_week_start\)::integer = v_week_number::integer/i,'shifted week guard missing');
+          must(/raise exception 'rem_week_start_iso_mismatch/i,'arbitrary mismatch not fail-closed');
+          must(/revoke all on function public\.enforce_rem_iso_week_start\(\) from public, anon, authenticated/i,'browser execute revocation missing');
+          forbid(/\b(?:delete\s+from|truncate|drop\s+table|update\s+public\.rem_|insert\s+into\s+public\.rem_)\b/i,'existing REM rows rewritten');
+          console.log('REM_WEEK_START_PAYLOAD_INDEPENDENT=PASS');
+          NODE
+      - run: node scripts/rem-week-start-payload-sync-check.mjs
+      - run: node scripts/rem-stale-week-date-repair-check.mjs
+      - run: node scripts/rem-week-start-integrity-check.mjs
+      - run: node scripts/rem-authoritative-workbook-security-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
