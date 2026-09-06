@@ -1,0 +1,27 @@
+name: DHR Legacy Mutation Retirement
+
+on:
+  pull_request:
+    paths:
+      - "convex/supabaseGateway.ts"
+      - "convex/dhrInventoryActions.ts"
+      - "src/hooks/useServerActions.ts"
+      - "src/pages/inventory/DhrScanner.tsx"
+      - "scripts/dhr-legacy-mutation-retirement-check.mjs"
+      - ".github/workflows/dhr-legacy-mutation-retirement.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify legacy DHR mutations cannot bypass authoritative path
+        run: node scripts/dhr-legacy-mutation-retirement-check.mjs
