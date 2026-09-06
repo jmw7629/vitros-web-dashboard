@@ -1,0 +1,49 @@
+name: Verify Account Lifecycle PR 227 Fallback
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3031084ffa86f524e8e1b9dd9577456a695b00a1
+          fetch-depth: 0
+      - name: Assert exact implementation head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3031084ffa86f524e8e1b9dd9577456a695b00a1"
+          expected=$'.github/workflows/account-lifecycle-security.yml\nconvex/users.ts\nscripts/account-lifecycle-security-check.mjs'
+          test "$(git diff --name-only fda9fe051ebab131783543a96e8956e6119b9378 3031084ffa86f524e8e1b9dd9577456a695b00a1)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independent lifecycle containment review
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const s=fs.readFileSync('convex/users.ts','utf8');
+          const must=(r,m)=>{if(!r.test(s))throw new Error(m)};
+          const segment=(name,next)=>{const start=s.indexOf(`export const ${name}`); const end=next? s.indexOf(`export const ${next}`,start+1):s.length; if(start<0) throw new Error(`${name} missing`); return s.slice(start,end<0?s.length:end)};
+          const profile=segment('updateMyProfile','deleteAccount');
+          const deletion=segment('deleteAccount',null);
+          must(/getAuthUserId\(ctx\)/, 'auth helper missing');
+          must(/Profile identity changes are disabled/, 'profile mutation not fail-closed');
+          must(/Account deletion is disabled/, 'account deletion not fail-closed');
+          if(/ctx\.db\.(?:patch|insert|replace|delete)\s*\(/.test(profile)) throw new Error('profile endpoint mutates identity');
+          if(/ctx\.db\.(?:patch|insert|replace|delete)\s*\(/.test(deletion)) throw new Error('delete endpoint mutates auth/identity');
+          if(/ctx\.db\.query\(["']auth(?:Accounts|Sessions)["']\)/.test(deletion)) throw new Error('delete endpoint enumerates auth records');
+          console.log('ACCOUNT_LIFECYCLE_INDEPENDENT_VERIFICATION=PASS');
+          NODE
+      - run: node scripts/account-lifecycle-security-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
