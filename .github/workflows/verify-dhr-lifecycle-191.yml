@@ -1,0 +1,17 @@
+name: Verify DHR Lifecycle #191
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: python3 scripts/verify-dhr-lifecycle-191.py
+      - run: node scripts/dhr-session-lifecycle-security-check.mjs
