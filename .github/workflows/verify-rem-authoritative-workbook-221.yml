@@ -1,0 +1,33 @@
+name: Verify REM Authoritative Workbook #221
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/remWorkbookActions.ts"
+      - "src/lib/remWorkbookAuthoritative.ts"
+      - "src/pages/rem/BulkImport.tsx"
+      - "supabase/migrations/20260905074500_rem_authoritative_workbook_parity.sql"
+      - "scripts/rem-authoritative-workbook-security-check.mjs"
+      - "scripts/rem-workbook-import-security-check.mjs"
+      - "scripts/verify-rem-authoritative-workbook-221.py"
+      - ".github/workflows/rem-authoritative-workbook-security.yml"
+      - ".github/workflows/verify-rem-authoritative-workbook-221.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact PR 221 schema/import invariants
+        run: python3 scripts/verify-rem-authoritative-workbook-221.py
+      - name: Run authoritative workbook regression gate
+        run: node scripts/rem-authoritative-workbook-security-check.mjs
+      - name: Run existing REM workbook import boundary gate
+        run: node scripts/rem-workbook-import-security-check.mjs
