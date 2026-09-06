@@ -4,6 +4,26 @@ import { useAction } from "convex/react";
 import { useCallback } from "react";
 import { api } from "../../convex/_generated/api";
 
+export type EditableSettingKey =
+  | "sapPlantCode"
+  | "sapStorageLocation"
+  | "sapMovementIN"
+  | "sapMovementOUT"
+  | "sapMovementADJUST"
+  | "sapHeaderText";
+
+export interface EnterpriseSettingRow {
+  key: EditableSettingKey;
+  value: string;
+  version: number;
+  updatedAt: string;
+}
+
+export interface EnterpriseSettingUpdateReceipt extends EnterpriseSettingRow {
+  eventId: number;
+  duplicate: boolean;
+}
+
 export interface DhrTransitionReceipt {
   success: boolean;
   duplicate: boolean;
@@ -76,6 +96,8 @@ export function useServerActions() {
   const createDhrScannerSessionAction = useAction(api.dhrInventoryActions.createScannerSession);
   const setDhrScannerSessionLifecycleAction = useAction(api.dhrInventoryActions.setScannerSessionLifecycle);
   const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
+  const listEditableSettingsAction = useAction(api.adminSettingsActions.listEditableSettings);
+  const updateEditableSettingAction = useAction(api.adminSettingsActions.updateEditableSetting);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
     switch (table) {
@@ -120,6 +142,20 @@ export function useServerActions() {
   const sbUpload = useCallback(async (bucket: string, path: string, data: string, contentType: string) => {
     return uploadToStorage({ bucket, path, data, contentType });
   }, [uploadToStorage]);
+
+  const listEditableSettings = useCallback(async (): Promise<EnterpriseSettingRow[]> => {
+    return await listEditableSettingsAction({}) as unknown as EnterpriseSettingRow[];
+  }, [listEditableSettingsAction]);
+
+  const updateEditableSetting = useCallback(async (args: {
+    key: EditableSettingKey;
+    value: string;
+    expectedVersion: number;
+    correlationId: string;
+    reason?: string;
+  }): Promise<EnterpriseSettingUpdateReceipt> => {
+    return await updateEditableSettingAction(args) as unknown as EnterpriseSettingUpdateReceipt;
+  }, [updateEditableSettingAction]);
 
   const loadDhrScannerData = useCallback(async (): Promise<DhrScannerBootstrap> => {
     return await loadDhrScannerDataAction({}) as unknown as DhrScannerBootstrap;
@@ -198,6 +234,8 @@ export function useServerActions() {
     sbUpdate,
     sbDelete,
     sbUpload,
+    listEditableSettings,
+    updateEditableSetting,
     loadDhrScannerData,
     loadDhrSessionResults,
     createDhrScannerSession,

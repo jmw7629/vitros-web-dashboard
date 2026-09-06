@@ -1,0 +1,27 @@
+name: Admin Settings UI Integration
+
+on:
+  pull_request:
+    paths:
+      - "convex/_generated/api.d.ts"
+      - "src/hooks/useServerActions.ts"
+      - "src/pages/Settings.tsx"
+      - "scripts/admin-settings-ui-integration-check.mjs"
+      - ".github/workflows/admin-settings-ui-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-admin-settings-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify enterprise settings integration invariants
+        run: node scripts/admin-settings-ui-integration-check.mjs
