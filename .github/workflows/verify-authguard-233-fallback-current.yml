@@ -1,0 +1,50 @@
+name: Verify Auth Guard PR 233 Fallback Current
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a5af8cb8a9c2680fa631c53e8a9037fac5540204
+          fetch-depth: 0
+      - name: Assert exact implementation head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "a5af8cb8a9c2680fa631c53e8a9037fac5540204"
+          expected=$'.github/workflows/auth-guard-failclosed.yml\nconvex/authGuard.ts\nscripts/auth-guard-failclosed-check.mjs'
+          test "$(git diff --name-only 7c2097900220e7408d45122b313555fb5c7942e9 a5af8cb8a9c2680fa631c53e8a9037fac5540204)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independently verify server authorization fails closed
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const s = fs.readFileSync('convex/authGuard.ts', 'utf8');
+          if (!/await requireAuth\(ctx\)/.test(s)) throw new Error('authentication precondition missing');
+          if (!/const caps = ROLE_CAPABILITIES\[role\];/.test(s)) throw new Error('explicit allowlist lookup missing');
+          if (!/if \(!caps \|\| !caps\.includes\(capability\)\)/.test(s)) throw new Error('unknown roles do not fail closed');
+          if (/ROLE_CAPABILITIES\[role\]\s*(\?\?|\|\|)\s*ROLE_CAPABILITIES(?:\.|\[)["']?viewer/.test(s)) throw new Error('viewer fallback remains');
+          for (const role of ['superuser', 'engineer', 'viewer']) {
+            if (!new RegExp(`${role}:`).test(s)) throw new Error(`known role mapping missing: ${role}`);
+          }
+          if (!/return user\?\.role \?\? ["']viewer["']/.test(s)) throw new Error('missing-role compatibility changed');
+          console.log('AUTH_GUARD_EXACT_HEAD_INDEPENDENT_VERIFICATION=PASS');
+          NODE
+      - run: node scripts/auth-guard-failclosed-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
