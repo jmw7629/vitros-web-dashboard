@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { browserSafeRead } from "../lib/browserSafeRead";
+import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
 
 // ─── Convex HTTP helpers (for REM data still on Convex production backend) ───
 const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
@@ -376,6 +377,10 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
+  const mountedRef = useRef(true);
+  const performLoadAllRef = useRef<() => Promise<void>>(async () => {});
+  const refreshRunnerRef = useRef<ReturnType<typeof createCoalescedRefreshRunner> | null>(null);
+  const mutationRefreshTimerRef = useRef<number | null>(null);
 
   // Convex action hooks for server-side data access
   const convexListStock = useAction(api.supabaseGateway.listStock);
@@ -384,7 +389,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexListUsers = useAction(api.supabaseGateway.listUsers);
   const convexListSettings = useAction(api.supabaseGateway.listSettings);
 
-  const loadAll = useCallback(async () => {
+  const performLoadAll = useCallback(async () => {
+    if (!mountedRef.current) return;
     if (!hasLoadedOnce.current) setIsLoading(true);
     setError(null);
     try {
@@ -415,6 +421,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         // Employee identity is server-authoritative only; never anonymously query users.
         userRows = [];
       }
+
+      if (!mountedRef.current) return;
 
       const mappedParts = stockRows.map(mapStockToPart);
       const mappedTx = auditRows.map(mapAuditToTransaction);
@@ -451,6 +459,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         safeConvexQuery<any[]>(CONVEX_URL, "employees:list", []),
         safeConvexQuery<any[]>(CONVEX_URL, "kits:list", []),
       ]);
+
+      if (!mountedRef.current) return;
 
       if (convexEmployees.length > 0) {
         const mapped: Employee[] = convexEmployees.map((e: any) => ({
@@ -495,6 +505,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         safeConvexQuery<WeeklyBuildPlan[]>(CONVEX_URL, "remBuildPlan:list", []),
         safeConvexQuery<TrackerWeekly[]>(CONVEX_URL, "remTracker:listWeekly", []),
       ]);
+
+      if (!mountedRef.current) return;
       setAnalyzers(an); setLvccItems(lv); setAnnualTargets(at2); setStaffMembers(sm);
       setWeeklyNotes(wn); setWeeklyBuildPlan(wb); setTrackerWeekly(tw);
 
@@ -502,21 +514,58 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         safeConvexQuery<CycleSchedule[]>(CYCLE_CONVEX_URL, "cycleCount:listSchedules", []),
         safeConvexQuery<CycleResult[]>(CYCLE_CONVEX_URL, "cycleCount:listResults", []),
       ]);
+
+      if (!mountedRef.current) return;
       setCycleSchedules(cs); setCycleResults(cr);
 
       hasLoadedOnce.current = true;
       setIsLoading(false);
     } catch (e) {
+      if (!mountedRef.current) return;
       setError(e instanceof Error ? e.message : "Failed to load data");
       hasLoadedOnce.current = true;
       setIsLoading(false);
     }
   }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListSettings]);
 
+  performLoadAllRef.current = performLoadAll;
+  if (refreshRunnerRef.current === null) {
+    refreshRunnerRef.current = createCoalescedRefreshRunner(
+      () => performLoadAllRef.current(),
+      { isActive: () => mountedRef.current },
+    );
+  }
+
+  const loadAll = useCallback(
+    () => refreshRunnerRef.current?.request() ?? Promise.resolve(),
+    [],
+  );
+
   useEffect(() => {
-    loadAll();
-    const interval = setInterval(loadAll, 15000);
-    return () => clearInterval(interval);
+    mountedRef.current = true;
+    const scheduler = createRefreshScheduler({
+      requestRefresh: loadAll,
+      isVisible: () => document.visibilityState === "visible",
+      setTimeoutFn: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      clearTimeoutFn: (timerId) => window.clearTimeout(timerId),
+    });
+    const handleVisibilityChange = () => scheduler.handleVisibilityChange();
+    const handleOnline = () => scheduler.handleOnline();
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+    scheduler.start();
+
+    return () => {
+      mountedRef.current = false;
+      scheduler.dispose();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
+      if (mutationRefreshTimerRef.current !== null) {
+        window.clearTimeout(mutationRefreshTimerRef.current);
+        mutationRefreshTimerRef.current = null;
+      }
+    };
   }, [loadAll]);
 
   const totalSKUs = parts.length;
@@ -556,10 +605,16 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     return result;
   };
 
-  // Debounced loadAll
+  // Debounced mutation refreshes still use the shared coalescing runner.
   const debouncedLoadAll = useCallback(() => {
-    if ((debouncedLoadAll as any)._t) clearTimeout((debouncedLoadAll as any)._t);
-    (debouncedLoadAll as any)._t = setTimeout(() => loadAll(), 300);
+    if (!mountedRef.current) return;
+    if (mutationRefreshTimerRef.current !== null) {
+      window.clearTimeout(mutationRefreshTimerRef.current);
+    }
+    mutationRefreshTimerRef.current = window.setTimeout(() => {
+      mutationRefreshTimerRef.current = null;
+      void loadAll();
+    }, 300);
   }, [loadAll]);
 
   const updatePart = async (id: string, updates: Record<string, unknown>) => {
