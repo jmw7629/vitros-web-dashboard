@@ -1,0 +1,38 @@
+name: Verify Admin Settings #193
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/adminSettingsActions.ts"
+      - "convex/authGuard.ts"
+      - "database/migrations/20260904_enterprise_admin_settings_registry.sql"
+      - "package.json"
+      - "scripts/admin-settings-security-check.mjs"
+      - "scripts/verify-admin-settings-193.py"
+      - ".github/workflows/verify-admin-settings-193.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact PR 193 target invariants
+        run: python3 scripts/verify-admin-settings-193.py
+      - name: Run admin settings security gate
+        run: node scripts/admin-settings-security-check.mjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
