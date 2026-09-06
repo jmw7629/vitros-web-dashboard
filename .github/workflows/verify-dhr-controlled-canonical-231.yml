@@ -1,0 +1,31 @@
+name: Verify DHR Controlled Canonical #231
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/20260905124500_dhr_controlled_canonical_transition.sql"
+      - "supabase/migrations/20260905191500_dhr_legacy_baseline_guard.sql"
+      - "scripts/dhr-controlled-canonical-security-check.mjs"
+      - "scripts/dhr-legacy-baseline-security-check.mjs"
+      - "scripts/verify-dhr-controlled-canonical-231.py"
+      - ".github/workflows/dhr-controlled-canonical-security.yml"
+      - ".github/workflows/verify-dhr-controlled-canonical-231.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact PR 231 authority and quarantine invariants
+        run: python3 scripts/verify-dhr-controlled-canonical-231.py
+      - name: Run controlled DHR regression gate
+        run: node scripts/dhr-controlled-canonical-security-check.mjs
+      - name: Run legacy baseline quarantine gate
+        run: node scripts/dhr-legacy-baseline-security-check.mjs
