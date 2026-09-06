@@ -1,0 +1,47 @@
+name: Verify DHR Legacy Mutation Retirement PR 273
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 6961eae9dde6c30b03602ac8389d7424194ec427
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "6961eae9dde6c30b03602ac8389d7424194ec427"
+          git diff --name-only bb28a97ec98e758736af31cd065f26f6d31ca3ee 6961eae9dde6c30b03602ac8389d7424194ec427 | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/dhr-legacy-mutation-retirement.yml
+          convex/supabaseGateway.ts
+          package.json
+          scripts/dhr-legacy-mutation-retirement-check.mjs
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify DHR legacy mutation retirement
+        run: node scripts/dhr-legacy-mutation-retirement-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
