@@ -1,0 +1,46 @@
+name: Bridge Verifier CI
+
+on:
+  pull_request:
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-verifier.yml"
+  push:
+    branches: [main]
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-verifier.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python3 -m py_compile bridge/verifier_runner.py bridge/test_verifier_runner.py
+      - name: Verifier runner tests
+        run: python3 -m unittest bridge/test_verifier_runner.py
+      - name: Shell syntax
+        run: bash -n bridge/install_verifier.sh bridge/uninstall.sh bridge/install.sh
+      - name: Verifier isolation policy
+        run: |
+          grep -q 'exact_ci_evidence' bridge/verifier_runner.py
+          grep -q '"clone", "--no-checkout", "--no-local"' bridge/verifier_runner.py
+          grep -q '"remote", "remove", "origin"' bridge/verifier_runner.py
+          grep -q "root / 'bridge' / 'safe-bin'" bridge/verifier_runner.py
+          grep -q 'OPENCODE_CONFIG_CONTENT' bridge/verifier_runner.py
+          grep -q 'static_permission_policy' bridge/verifier_runner.py
+          grep -q '"--pure"' bridge/verifier_runner.py
+          grep -q 'SUPABASE_SERVICE_ROLE_KEY' bridge/verifier_runner.py
+          grep -q 'CONVEX_DEPLOY_KEY' bridge/verifier_runner.py
+          grep -q 'GH_CONFIG_DIR' bridge/verifier_runner.py
+          grep -q 'sandbox_head(sandbox)' bridge/verifier_runner.py
+          grep -q 'resolve_pr(repo, pr_number, target_sha)' bridge/verifier_runner.py
+          grep -q 'NONCE=' bridge/verifier_runner.py
+          grep -q 'for flag in --dir --auto --format --agent' bridge/install_verifier.sh
+          grep -q -- '--pure' bridge/install_verifier.sh
+          ! grep -q 'ReadWritePaths=.*\$ROOT' bridge/install_verifier.sh

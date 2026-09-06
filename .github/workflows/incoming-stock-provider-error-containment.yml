@@ -1,0 +1,29 @@
+name: Incoming Stock Provider Error Containment
+
+on:
+  pull_request:
+    paths:
+      - "convex/incomingStockActions.ts"
+      - "scripts/incoming-stock-provider-error-containment-check.mjs"
+      - ".github/workflows/incoming-stock-provider-error-containment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify Incoming Stock provider error containment
+        run: node scripts/incoming-stock-provider-error-containment-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
