@@ -1,0 +1,39 @@
+name: Verify REM Week Start #264
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/20260906020000_rem_week_start_iso_integrity.sql"
+      - "scripts/rem-week-start-integrity-check.mjs"
+      - ".github/workflows/rem-week-start-integrity.yml"
+      - "scripts/verify-rem-week-start-264.py"
+      - ".github/workflows/verify-rem-week-start-264.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify exact PR 264 target invariants
+        run: python3 scripts/verify-rem-week-start-264.py
+      - name: Run dedicated REM week-start gate
+        run: node scripts/rem-week-start-integrity-check.mjs
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret pattern check
+        run: node scripts/check-secrets.mjs
