@@ -9,6 +9,7 @@
  */
 
 import type * as ViktorSpacesEmail from "../ViktorSpacesEmail.js";
+import type * as adminSettingsActions from "../adminSettingsActions.js";
 import type * as aiGateway from "../aiGateway.js";
 import type * as auth from "../auth.js";
 import type * as authGuard from "../authGuard.js";
@@ -50,6 +51,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   ViktorSpacesEmail: typeof ViktorSpacesEmail;
+  adminSettingsActions: typeof adminSettingsActions;
   aiGateway: typeof aiGateway;
   auth: typeof auth;
   authGuard: typeof authGuard;
