@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
 
+// Server-authoritative Cycle Count boundary; browser and iOS callers retain their existing wire shapes.
 const MAX_SCHEDULE_NAME = 160;
 const MAX_ASSIGNEE = 160;
 const MAX_PARTS_PER_SCHEDULE = 2_000;
