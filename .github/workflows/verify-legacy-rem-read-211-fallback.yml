@@ -1,0 +1,58 @@
+name: Verify Legacy REM Read PR 211 Fallback
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cd52c83cb6d1ccd30cbfafae2f6785db5adfb331
+          fetch-depth: 0
+      - name: Assert exact implementation head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "cd52c83cb6d1ccd30cbfafae2f6785db5adfb331"
+          expected=$'.github/workflows/legacy-rem-read-security.yml\nconvex/remAnalyzers.ts\nconvex/remLvcc.ts\nconvex/remStaffing.ts\nconvex/remTargets.ts\nconvex/remWeeklyNotes.ts\nscripts/legacy-rem-read-security-check.mjs'
+          test "$(git diff --name-only d3f5419cc749b17cb5f011ca54e01185e43d4182 cd52c83cb6d1ccd30cbfafae2f6785db5adfb331)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independently review legacy REM authorization boundaries
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const modules = [
+            ['convex/remAnalyzers.ts', 'list', 'remAnalyzers'],
+            ['convex/remLvcc.ts', 'list', 'lvccItems'],
+            ['convex/remWeeklyNotes.ts', 'list', 'weeklyNotes'],
+            ['convex/remStaffing.ts', 'getTrainingMatrix', 'staffMembers'],
+            ['convex/remTargets.ts', 'list', 'annualTargets'],
+          ];
+          for (const [path, exportName, table] of modules) {
+            const s = fs.readFileSync(path, 'utf8');
+            if (!/import\s+\{\s*requireCapability\s*\}\s+from\s+["']\.\/authGuard["']/.test(s)) throw new Error(`${path}: shared guard missing`);
+            if (!new RegExp(`export const ${exportName} = query\\([\\s\\S]*?requireCapability\\(ctx, ["']rem\\.read["']\\)[\\s\\S]*?ctx\\.db\\.query\\(["']${table}["']\\)`).test(s)) throw new Error(`${path}: rem.read boundary/data source mismatch`);
+            if (/\bmutation\s*\(|ctx\.db\.(insert|patch|replace|delete)\s*\(/.test(s)) throw new Error(`${path}: compatibility module must remain read-only`);
+          }
+          const notes = fs.readFileSync('convex/remWeeklyNotes.ts','utf8');
+          if (!/query\(["']weeklyNotes["']\)\.order\(["']desc["']\)/.test(notes)) throw new Error('weekly-note ordering changed');
+          const guard = fs.readFileSync('convex/authGuard.ts','utf8');
+          if (!/rem\.read/.test(guard)) throw new Error('shared authorization guard no longer defines rem.read');
+          console.log('LEGACY_REM_READ_EXACT_HEAD_INDEPENDENT_VERIFICATION=PASS');
+          NODE
+      - run: node scripts/legacy-rem-read-security-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
