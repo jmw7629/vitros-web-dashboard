@@ -1,4 +1,5 @@
 name: Verify Public Browser Data Retirement PR 245
+# Verification-only workflow: checks out the implementation SHA, never the verifier branch.
 
 on:
   pull_request:
