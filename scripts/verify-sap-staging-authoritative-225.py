@@ -6,7 +6,7 @@ import re
 import subprocess
 import sys
 
-TARGET = "d1a432c9ad50bc3f8709d54695674ff50b8f8eb9"
+TARGET = "fbbc98a341510f7a079fcba3a494040937e3e6f8"
 BASE = "8f8d16bc48779b25937efc6444acdcf5a33c374f"
 EXPECTED_TARGET_FILES = {
     ".github/workflows/sap-staging-authoritative.yml",
