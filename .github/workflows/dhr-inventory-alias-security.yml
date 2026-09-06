@@ -1,0 +1,26 @@
+name: DHR Inventory Alias Security
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260906131500_dhr_controlled_inventory_alias.sql"
+      - "scripts/dhr-inventory-alias-security-check.mjs"
+      - ".github/workflows/dhr-inventory-alias-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify controlled DHR inventory alias boundary
+        run: node scripts/dhr-inventory-alias-security-check.mjs
