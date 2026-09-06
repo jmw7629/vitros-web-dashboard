@@ -1,0 +1,23 @@
+name: Browser Read View Least Privilege
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260905190000_browser_read_views_least_privilege.sql"
+      - "scripts/browser-read-view-least-privilege-check.mjs"
+      - ".github/workflows/browser-read-view-least-privilege.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify browser read-view least privilege
+        run: node scripts/browser-read-view-least-privilege-check.mjs
