@@ -1,0 +1,24 @@
+name: REM Week Start Payload Sync
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260906183000_rem_week_start_payload_sync.sql"
+      - "scripts/rem-week-start-payload-sync-check.mjs"
+      - ".github/workflows/rem-week-start-payload-sync.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/rem-week-start-payload-sync-check.mjs
+      - run: node scripts/rem-stale-week-date-repair-check.mjs
+      - run: node scripts/rem-week-start-integrity-check.mjs
+      - run: node scripts/rem-authoritative-workbook-security-check.mjs
+      - run: node scripts/check-secrets.mjs
