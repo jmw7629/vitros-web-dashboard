@@ -1,0 +1,28 @@
+name: REM Stale Week Date Repair
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260906180000_rem_stale_prior_year_week_start_repair.sql"
+      - "scripts/rem-stale-week-date-repair-check.mjs"
+      - ".github/workflows/rem-stale-week-date-repair.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify narrow server-side date repair
+        run: node scripts/rem-stale-week-date-repair-check.mjs
+      - name: Verify existing REM week-date guard remains present
+        run: node scripts/rem-week-start-integrity-check.mjs
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
