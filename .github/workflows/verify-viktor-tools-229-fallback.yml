@@ -1,0 +1,50 @@
+name: Verify Viktor Tools PR 229 Fallback
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: bdba237fab8d41f1242351d58a3e109656f98e20
+          fetch-depth: 0
+      - name: Assert exact implementation head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "bdba237fab8d41f1242351d58a3e109656f98e20"
+          expected=$'.github/workflows/viktor-tools-security.yml\nconvex/viktorTools.ts\nscripts/viktor-tools-security-check.mjs'
+          test "$(git diff --name-only fda9fe051ebab131783543a96e8956e6119b9378 bdba237fab8d41f1242351d58a3e109656f98e20)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independent secret-backed tool containment review
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const s=fs.readFileSync('convex/viktorTools.ts','utf8');
+          const must=(r,m)=>{if(!r.test(s))throw new Error(m)};
+          const forbid=(r,m)=>{if(r.test(s))throw new Error(m)};
+          must(/quickAiSearch[\s\S]*?requireCapability\(ctx,\s*["']ai\.ocr["']\)/, 'quickAiSearch auth gate missing');
+          must(/generateImage[\s\S]*?requireCapability\(ctx,\s*["']ai\.ocr["']\)/, 'generateImage auth gate missing');
+          must(/MAX_SEARCH_QUERY_LENGTH\s*=\s*1000/, 'search bound missing');
+          must(/MAX_IMAGE_PROMPT_LENGTH\s*=\s*4000/, 'image bound missing');
+          must(/process\.env\.VIKTOR_SPACES_PROJECT_SECRET/, 'server secret source missing');
+          must(/if \(!response\.ok\)[\s\S]*?Viktor tool request failed/, 'HTTP failures not sanitized');
+          forbid(/VITE_/i, 'privileged browser variable introduced');
+          forbid(/await response\.text\(\)/, 'provider response body surfaced');
+          forbid(/json\.error/, 'provider tool error surfaced');
+          console.log('VIKTOR_TOOLS_INDEPENDENT_VERIFICATION=PASS');
+          NODE
+      - run: node scripts/viktor-tools-security-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
