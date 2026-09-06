@@ -1,0 +1,59 @@
+name: Verify DHR REM Base Grant PR 215
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 7b1a5478d0e1a067c4bed8bad23552ae3b4a0938
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "7b1a5478d0e1a067c4bed8bad23552ae3b4a0938"
+          expected=$'.github/workflows/dhr-rem-base-grant-security.yml\nscripts/dhr-rem-base-grant-security-check.mjs\nsupabase/migrations/20260905053000_dhr_rem_base_grant_containment.sql'
+          test "$(git diff --name-only f9b0c33fb30673683bee0931bc1311700f1b9b2a 7b1a5478d0e1a067c4bed8bad23552ae3b4a0938)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Independently verify grant containment
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path = 'supabase/migrations/20260905053000_dhr_rem_base_grant_containment.sql';
+          const sql = fs.readFileSync(path, 'utf8').toLowerCase();
+          const tables = [
+            'dhr_checklist_sections','dhr_expected_parts','dhr_folders','dhr_scan_sessions','dhr_scan_results','dhr_scan_result_events',
+            'rem_analyzers','rem_build_plan','rem_import_runs','rem_lvcc','rem_staff','rem_targets','rem_tracker_weekly','rem_weekly_notes'
+          ];
+          for (const table of tables) {
+            if (!sql.includes(`alter table public.${table} enable row level security;`)) throw new Error(`${table} RLS enable missing`);
+            if (!sql.includes(`revoke all privileges on table public.${table} from anon, authenticated;`)) throw new Error(`${table} browser-role revoke missing`);
+          }
+          if (/\b(create|alter|drop)\s+policy\b/.test(sql)) throw new Error('RLS policy mutation is not allowed');
+          if (/\bgrant\s+[^;]+\s+to\s+(anon|authenticated|service_role)\b/.test(sql)) throw new Error('unexpected grant');
+          if (/\brevoke\s+[^;]+\s+from\s+service_role\b/.test(sql)) throw new Error('service_role revoke is not allowed');
+          if (/\b(insert|update|delete|truncate)\b/.test(sql.replace(/^--.*$/gm,''))) throw new Error('business-data mutation token found');
+          console.log('DHR_REM_BASE_GRANT_INDEPENDENT=PASS');
+          NODE
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
