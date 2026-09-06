@@ -1,0 +1,30 @@
+name: REM Planning Read Security
+
+on:
+  pull_request:
+    paths:
+      - "convex/remReadActions.ts"
+      - "src/hooks/useRemPlanningData.ts"
+      - "src/pages/rem/ProductionPlan.tsx"
+      - "src/pages/rem/StaffTraining.tsx"
+      - "scripts/rem-planning-read-security-check.mjs"
+      - ".github/workflows/rem-planning-read-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/rem-planning-read-security-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
