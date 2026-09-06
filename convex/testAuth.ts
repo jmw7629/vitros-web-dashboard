@@ -3,10 +3,28 @@ import { createAccount, retrieveAccount } from "@convex-dev/auth/server";
 import { Scrypt } from "lucia";
 import type { DataModel } from "./_generated/dataModel";
 
+declare const process: { env: Record<string, string | undefined> };
+
 const TEST_EMAIL_DOMAIN = "test.local";
 
-function isTestEmail(email: string): boolean {
-  return email.endsWith(`@${TEST_EMAIL_DOMAIN}`);
+function testAuthConfig(): { email: string; passwordHash: string } {
+  const email = process.env.VITROS_TEST_AUTH_EMAIL?.trim().toLowerCase() ?? "";
+  const passwordHash = process.env.VITROS_TEST_AUTH_PASSWORD_HASH?.trim() ?? "";
+
+  if (!email || !email.endsWith(`@${TEST_EMAIL_DOMAIN}`) || !passwordHash) {
+    throw new Error("Test authentication is disabled");
+  }
+
+  return { email, passwordHash };
+}
+
+async function verifyConfiguredTestCredential(password: string, passwordHash: string): Promise<boolean> {
+  if (!password || password.length > 256) return false;
+  try {
+    return await new Scrypt().verify(passwordHash, password);
+  } catch {
+    return false;
+  }
 }
 
 export const TestCredentials = ConvexCredentials<DataModel>({
@@ -20,16 +38,17 @@ export const TestCredentials = ConvexCredentials<DataModel>({
     },
   },
   authorize: async (params, ctx) => {
-    const email = params.email as string;
-    const password = params.password as string;
-    const flow = params.flow as string;
+    const email = typeof params.email === "string" ? params.email.trim().toLowerCase() : "";
+    const password = typeof params.password === "string" ? params.password : "";
+    const flow = typeof params.flow === "string" ? params.flow : "";
+    const config = testAuthConfig();
 
-    if (!email || !isTestEmail(email)) {
-      throw new Error("Only @test.local emails allowed for test auth");
+    if (email !== config.email) {
+      throw new Error("Test authentication failed");
     }
 
-    if (!password || password.length < 6) {
-      throw new Error("Password must be at least 6 characters");
+    if (!(await verifyConfiguredTestCredential(password, config.passwordHash))) {
+      throw new Error("Test authentication failed");
     }
 
     if (flow === "signUp") {
@@ -43,7 +62,7 @@ export const TestCredentials = ConvexCredentials<DataModel>({
         });
         return { userId: existing.user._id };
       } catch {
-        // Account doesn't exist or password doesn't match, create new
+        // The configured preview identity does not exist yet; create only that identity.
       }
 
       const { user } = await createAccount(ctx, {
@@ -54,7 +73,7 @@ export const TestCredentials = ConvexCredentials<DataModel>({
         },
         profile: {
           email,
-          name: (params.name as string) || "Test User",
+          name: "Preview Test User",
           emailVerificationTime: Date.now(),
         },
         shouldLinkViaEmail: false,
