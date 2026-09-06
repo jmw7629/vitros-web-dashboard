@@ -24,6 +24,10 @@ function sbHeaders(serviceKey: string) {
 }
 
 async function sbFetch<T>(serviceKey: string, url: string, path: string, init?: RequestInit): Promise<T> {
+  const method = String(init?.method || "GET").toUpperCase();
+  if (method !== "GET" && /^dhr_scan_(?:sessions|results)(?:\?|$)/.test(path)) {
+    throw new Error("Legacy direct DHR mutation is retired; use the authoritative DHR workflow");
+  }
   const res = await fetch(`${url}/rest/v1/${path}`, {
     ...init,
     headers: { ...sbHeaders(serviceKey), ...(init?.headers || {}) },

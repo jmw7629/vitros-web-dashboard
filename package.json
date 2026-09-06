@@ -10,7 +10,7 @@
     "check": "biome check .",
     "format": "biome check --write .",
     "lint": "biome lint .",
-    "pretypecheck": "node scripts/admin-settings-security-check.mjs",
+    "pretypecheck": "node scripts/admin-settings-security-check.mjs && node scripts/dhr-legacy-mutation-retirement-check.mjs",
     "typecheck": "tsc --noEmit",
     "sync": "bunx convex dev --once",
     "sync:build": "bunx convex dev --once && bun run build",
