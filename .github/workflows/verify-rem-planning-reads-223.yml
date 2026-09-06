@@ -1,0 +1,39 @@
+name: Verify REM Planning Reads #223
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/remReadActions.ts"
+      - "src/hooks/useRemPlanningData.ts"
+      - "src/pages/rem/ProductionPlan.tsx"
+      - "src/pages/rem/StaffTraining.tsx"
+      - "scripts/rem-planning-read-security-check.mjs"
+      - ".github/workflows/rem-planning-read-security.yml"
+      - "scripts/verify-rem-planning-reads-223.py"
+      - ".github/workflows/verify-rem-planning-reads-223.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact PR 223 target invariants
+        run: python3 scripts/verify-rem-planning-reads-223.py
+      - name: Run REM planning read security gate
+        run: node scripts/rem-planning-read-security-check.mjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
