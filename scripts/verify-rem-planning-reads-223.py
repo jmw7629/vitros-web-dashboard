@@ -75,12 +75,12 @@ def main() -> int:
 
     require_all(plan, [
         "useRemPlanningData",
-        "Annual Plan",
-        "Annual Actual",
-        "Attainment",
-        "Reporting Week",
+        'label="VITROS PLAN"',
+        'label="VITROS ACTUAL"',
+        'label="ATTAINMENT"',
+        'label="REPORTING WEEK"',
         "Recent VITROS Weekly Plan",
-        "Weekly Forecast",
+        "Forecast",
         "Capacity Delta",
     ], "Production Plan")
     require("useConvexData" not in plan, "Production Plan still uses legacy aggregate")
