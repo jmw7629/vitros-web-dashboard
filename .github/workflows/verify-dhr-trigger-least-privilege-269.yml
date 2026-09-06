@@ -1,0 +1,46 @@
+name: Verify DHR Trigger Least Privilege PR 269
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: b78e25a8e3e68b1473cd27c80cb31bd76284590e
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b78e25a8e3e68b1473cd27c80cb31bd76284590e"
+          git diff --name-only aa81b597925cf43b85573ab592ccb9693d208148 b78e25a8e3e68b1473cd27c80cb31bd76284590e | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/dhr-session-event-trigger-least-privilege.yml
+          database/migrations/20260906_dhr_session_event_trigger_least_privilege.sql
+          scripts/dhr-session-event-trigger-least-privilege-check.mjs
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify least-privilege migration
+        run: node scripts/dhr-session-event-trigger-least-privilege-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
