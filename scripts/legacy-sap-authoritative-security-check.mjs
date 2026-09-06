@@ -11,6 +11,10 @@ function rejectMatch(input, pattern, message) {
   if (pattern.test(input)) throw new Error(message);
 }
 
+function requireText(input, text, message) {
+  if (!input.includes(text)) throw new Error(message);
+}
+
 requireMatch(source, /rpc\/apply_sap_staging_status_transition/, "legacy SAP actions must use authoritative status RPC");
 requireMatch(source, /requireCapability\(ctx,\s*"inventory\.write"\)/, "SAP status actions must enforce server-side inventory.write");
 requireMatch(source, /p_actor:\s*actorId/, "authoritative SAP RPC actor must be server-derived");
@@ -32,19 +36,23 @@ if (/res\.(json|text)\(/.test(failureBlock)) {
   throw new Error("provider-controlled Supabase error bodies must not be reflected");
 }
 
-requireMatch(
+requireText(
   gateway,
-  /method !== "GET" && \/\^sap_staging\(\?:\\\\\?\|\$\)\/\.test\(path\)/,
+  'if (method !== "GET" && /^sap_staging(?:\\?|$)/.test(path)) {',
   "Supabase gateway must fail closed on every direct non-GET sap_staging request",
 );
-requireMatch(
+requireText(
   gateway,
-  /Legacy direct SAP staging mutation is retired; use the authoritative SAP staging workflow/,
+  "Legacy direct SAP staging mutation is retired; use the authoritative SAP staging workflow",
   "Supabase gateway retirement boundary must direct callers to the authoritative workflow",
 );
 requireMatch(gateway, /export const insertSapStaging = action\(/, "legacy insertSapStaging wire name must remain fail-closed compatible");
 requireMatch(gateway, /export const updateSapStaging = action\(/, "legacy updateSapStaging wire name must remain fail-closed compatible");
-requireMatch(gateway, /return sbFetch<any\[\]>\(serviceKey, url, "sap_staging\?select=\*&order=created_at\.desc"\)/, "authorized SAP staging read compatibility must remain intact");
+requireText(
+  gateway,
+  'return sbFetch<any[]>(serviceKey, url, "sap_staging?select=*&order=created_at.desc");',
+  "authorized SAP staging read compatibility must remain intact",
+);
 rejectMatch(gateway, /fetch\(`\$\{url\}\/rest\/v1\/sap_staging/, "SAP staging mutations must not bypass the guarded Supabase gateway");
 
 console.log("LEGACY_SAP_AUTHORITATIVE_RPC=PASS");
