@@ -1,0 +1,39 @@
+name: Verify Incoming Stock PDF #199
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ci.yml"
+      - "convex/_generated/api.d.ts"
+      - "convex/incomingStockPdfOcr.ts"
+      - "scripts/incoming-stock-pdf-security-check.mjs"
+      - "src/App.tsx"
+      - "src/pages/inventory/IncomingStockDocument.tsx"
+      - "scripts/verify-incoming-stock-pdf-199.py"
+      - ".github/workflows/verify-incoming-stock-pdf-199.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact PR 199 target invariants
+        run: python3 scripts/verify-incoming-stock-pdf-199.py
+      - name: Run Incoming Stock PDF security gate
+        run: node scripts/incoming-stock-pdf-security-check.mjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
