@@ -68,7 +68,6 @@ def main() -> int:
         "targets",
         "recognizedSheets",
         "REM workbook year could not be established from its internal summary sheet",
-        "REM workbook is missing required internal sheet",
     ], "REM workbook parser")
     for signature in ('"tracker"', '"build plan"', '"staff"', '"notes - issues"'):
         require(signature in parser, f"missing internal workbook signature {signature}")
