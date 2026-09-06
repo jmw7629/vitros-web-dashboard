@@ -76,13 +76,11 @@ def main() -> int:
         "TO service_role",
     ], "controlled transition")
 
-    # Browser-carried compatibility metadata must not be authoritative in the body.
     require(transition.count("p_expected_qty") == 1, "caller expected quantity is still consumed")
     require(transition.count("p_category") == 1, "caller category is still consumed")
     require(transition.count("p_description") == 1, "caller description is still consumed")
     require(transition.count("p_analyzer_serial") == 1, "caller analyzer serial is still consumed")
 
-    # Exact retry must be resolved before lifecycle rejection so a committed request remains replay-safe.
     retry_pos = transition.index("WHERE correlation_id = p_correlation_id")
     lifecycle_pos = transition.index("DHR session is not open for inventory consumption")
     require(retry_pos < lifecycle_pos, "idempotent replay is checked after lifecycle rejection")
@@ -103,8 +101,9 @@ def main() -> int:
     ], "legacy baseline quarantine")
 
     require_all(security, [
-        "dhr-controlled-canonical",
         "apply_dhr_scan_transition",
+        "dhr_expected_parts",
+        "service_role",
     ], "controlled security regression")
     require_all(baseline_security, [
         "legacy",
