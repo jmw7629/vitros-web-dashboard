@@ -1,0 +1,30 @@
+name: Verify Bridge Verifier Recovery #195
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "bridge/**"
+      - "scripts/verify-bridge-verifier-recovery-195.py"
+      - ".github/workflows/bridge-verifier.yml"
+      - ".github/workflows/verify-bridge-verifier-recovery-195.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify PR 195 exact target and isolation invariants
+        run: python3 scripts/verify-bridge-verifier-recovery-195.py
+      - name: Compile exact target verifier runner
+        run: python3 -m py_compile bridge/verifier_runner.py bridge/test_verifier_runner.py
+      - name: Run exact target verifier regression suite
+        run: python3 -m unittest bridge/test_verifier_runner.py
+      - name: Check verifier installer shell syntax
+        run: bash -n bridge/install_verifier.sh bridge/uninstall.sh
