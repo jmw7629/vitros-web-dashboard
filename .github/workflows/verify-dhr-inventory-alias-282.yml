@@ -1,0 +1,46 @@
+name: Verify DHR Inventory Alias PR 282
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 08fa5bfcf996885120d9779844014cac983ff56f
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "08fa5bfcf996885120d9779844014cac983ff56f"
+          git diff --name-only d653360602a273988168737edba43440a62247af 08fa5bfcf996885120d9779844014cac983ff56f | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/dhr-inventory-alias-security.yml
+          scripts/dhr-inventory-alias-security-check.mjs
+          supabase/migrations/20260906131500_dhr_controlled_inventory_alias.sql
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify DHR inventory alias security boundary
+        run: node scripts/dhr-inventory-alias-security-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
