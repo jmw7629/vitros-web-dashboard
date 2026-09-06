@@ -28,6 +28,9 @@ async function sbFetch<T>(serviceKey: string, url: string, path: string, init?: 
   if (method !== "GET" && /^dhr_scan_(?:sessions|results)(?:\?|$)/.test(path)) {
     throw new Error("Legacy direct DHR mutation is retired; use the authoritative DHR workflow");
   }
+  if (method !== "GET" && /^sap_staging(?:\?|$)/.test(path)) {
+    throw new Error("Legacy direct SAP staging mutation is retired; use the authoritative SAP staging workflow");
+  }
   const res = await fetch(`${url}/rest/v1/${path}`, {
     ...init,
     headers: { ...sbHeaders(serviceKey), ...(init?.headers || {}) },
