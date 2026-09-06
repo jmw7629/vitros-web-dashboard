@@ -32,6 +32,7 @@ import type * as remStaffing from "../remStaffing.js";
 import type * as remTargets from "../remTargets.js";
 import type * as remTracker from "../remTracker.js";
 import type * as remWeeklyNotes from "../remWeeklyNotes.js";
+import type * as remWorkbookActions from "../remWorkbookActions.js";
 import type * as seed from "../seed.js";
 import type * as seedTestUser from "../seedTestUser.js";
 import type * as supabaseGateway from "../supabaseGateway.js";
@@ -71,6 +72,7 @@ declare const fullApi: ApiFromModules<{
   remTargets: typeof remTargets;
   remTracker: typeof remTracker;
   remWeeklyNotes: typeof remWeeklyNotes;
+  remWorkbookActions: typeof remWorkbookActions;
   seed: typeof seed;
   seedTestUser: typeof seedTestUser;
   supabaseGateway: typeof supabaseGateway;
