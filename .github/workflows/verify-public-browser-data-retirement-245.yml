@@ -1,0 +1,52 @@
+name: Verify Public Browser Data Retirement PR 245
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 922ba938e3df4a41cc987245c74547e591931cbe
+          fetch-depth: 0
+      - name: Assert exact target and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "922ba938e3df4a41cc987245c74547e591931cbe"
+          git diff --name-only ee4518e3333befa1ef3eb5a899263ede3482730e 922ba938e3df4a41cc987245c74547e591931cbe | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/public-browser-data-retirement-security.yml
+          scripts/browser-safe-read-security-check.mjs
+          scripts/browser-safe-read-staging-smoke.mjs
+          scripts/public-browser-data-retirement-security-check.mjs
+          src/lib/browserSafeRead.ts
+          supabase/config.toml
+          supabase/functions/browser-safe-read/index.ts
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run exact-head retirement gates
+        run: |
+          node scripts/public-browser-data-retirement-security-check.mjs
+          node scripts/browser-safe-read-security-check.mjs
+          node scripts/browser-safe-read-staging-smoke.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: npm run security:scan
