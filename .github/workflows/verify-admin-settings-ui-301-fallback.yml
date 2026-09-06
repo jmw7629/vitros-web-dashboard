@@ -1,0 +1,70 @@
+name: Verify Admin Settings UI PR 301 Fallback
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d9680c3bd236e2a8d0d5ad7677c4194382adf7cb
+          fetch-depth: 0
+      - name: Assert exact implementation head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d9680c3bd236e2a8d0d5ad7677c4194382adf7cb"
+          expected=$'.github/workflows/admin-settings-ui-integration.yml\nconvex/_generated/api.d.ts\nscripts/admin-settings-ui-integration-check.mjs\nsrc/hooks/useServerActions.ts\nsrc/pages/Settings.tsx'
+          test "$(git diff --name-only 59861c2be9a6769aa37debec9f0717dc833a846f d9680c3bd236e2a8d0d5ad7677c4194382adf7cb)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Independent authorization and integration review
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const action=fs.readFileSync('convex/adminSettingsActions.ts','utf8');
+          const api=fs.readFileSync('convex/_generated/api.d.ts','utf8');
+          const hook=fs.readFileSync('src/hooks/useServerActions.ts','utf8');
+          const page=fs.readFileSync('src/pages/Settings.tsx','utf8');
+          const must=(source,re,message)=>{if(!re.test(source))throw new Error(message)};
+          const forbid=(source,re,message)=>{if(re.test(source))throw new Error(message)};
+
+          must(action,/listEditableSettings[\s\S]*?requireCapability\(ctx,\s*["']admin\.system_settings\.manage["']\)/,'authoritative settings read capability missing');
+          must(action,/updateEditableSetting[\s\S]*?requireCapability\(ctx,\s*["']admin\.system_settings\.manage["']\)/,'authoritative settings write capability missing');
+          must(action,/p_expected_version:\s*args\.expectedVersion/,'database transition must receive optimistic version');
+          must(action,/p_actor:\s*String\(actorId\)/,'database transition actor must come from server identity');
+          must(action,/p_correlation_id:\s*correlationId/,'database transition must receive correlation id');
+          must(action,/rpc\/apply_admin_setting_change/,'versioned audited settings RPC missing');
+
+          must(api,/adminSettingsActions:\s*typeof adminSettingsActions/,'generated API does not expose reviewed module');
+          must(hook,/useAction\(api\.adminSettingsActions\.listEditableSettings\)/,'client wrapper does not bind authoritative read');
+          must(hook,/useAction\(api\.adminSettingsActions\.updateEditableSetting\)/,'client wrapper does not bind authoritative update');
+          forbid(hook,/SUPABASE_SERVICE_ROLE_KEY|VITE_SUPABASE_SERVICE/i,'privileged database credential leaked into browser hook');
+
+          must(page,/role === ["']superuser["']/,'superuser presentation gate missing');
+          must(page,/listEditableSettings\(\)/,'authoritative settings load missing');
+          must(page,/updateEditableSetting\(\{[\s\S]*?expectedVersion:\s*current\.version[\s\S]*?correlationId:/,'versioned settings save contract missing');
+          must(page,/crypto\.randomUUID\(\)/,'unique edit correlation missing');
+          must(page,/Reset All Data — Unavailable/,'destructive reset is not explicitly unavailable');
+          const resetAt=page.indexOf('Reset All Data — Unavailable');
+          const resetWindow=page.slice(Math.max(0, resetAt-700), resetAt+100);
+          must(resetWindow,/\bdisabled\b/,'destructive reset is not disabled');
+          forbid(resetWindow,/onClick=/,'destructive reset unexpectedly has a click mutation handler');
+          forbid(page,/SUPABASE_SERVICE_ROLE_KEY|VITE_SUPABASE_SERVICE/i,'privileged database credential leaked into page');
+          console.log('ADMIN_SETTINGS_EXACT_HEAD_INDEPENDENT_VERIFICATION=PASS');
+          NODE
+      - run: node scripts/admin-settings-ui-integration-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
