@@ -1,0 +1,47 @@
+name: Verify REM Stub PR 219
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: 2a8e0aaeac3f738abc4357da245a387821b00b24
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2a8e0aaeac3f738abc4357da245a387821b00b24"
+          git diff --name-only 3f8b41f759a5ef84ae95e51e0b57e675f4f9491d 2a8e0aaeac3f738abc4357da245a387821b00b24 | sort > /tmp/actual
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/legacy-rem-stub-read-security.yml
+          convex/remBuildPlan.ts
+          convex/remTracker.ts
+          scripts/legacy-rem-stub-read-security-check.mjs
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          diff -u /tmp/expected /tmp/actual
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify legacy REM stub RBAC
+        run: node scripts/legacy-rem-stub-read-security-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
