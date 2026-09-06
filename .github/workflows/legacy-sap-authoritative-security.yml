@@ -24,3 +24,5 @@ jobs:
       - run: node scripts/legacy-sap-authoritative-security-check.mjs
       - run: npm run typecheck
       - run: npm run build
+
+# Exact-head integration touch after parent #225 landed on main.
