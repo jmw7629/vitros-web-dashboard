@@ -1,6 +1,6 @@
 # Per-function runtime configuration.
-# browser-safe-read is intentionally public and returns only explicit field/dataset allowlists.
-# The browser helper sends no Authorization header, so JWT verification must be disabled
-# for this function or Supabase will reject every request before the handler executes.
+# browser-safe-read is retired. Production browser data must flow through the
+# authenticated Convex server boundary; JWT verification remains enabled as an
+# additional fail-closed layer on the tombstone function.
 [functions.browser-safe-read]
-verify_jwt = false
+verify_jwt = true
