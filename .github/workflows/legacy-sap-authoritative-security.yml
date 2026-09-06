@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "convex/inventoryActions.ts"
+      - "convex/supabaseGateway.ts"
       - "scripts/legacy-sap-authoritative-security-check.mjs"
       - ".github/workflows/legacy-sap-authoritative-security.yml"
   workflow_dispatch:
