@@ -1,0 +1,40 @@
+name: Verify SAP Staging Authoritative #225
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/sapStagingWorkflow.ts"
+      - "database/migrations/20260905_sap_staging_authoritative_workflow.sql"
+      - "src/hooks/useSapStagingWorkflow.ts"
+      - "src/pages/inventory/SapStaging.tsx"
+      - "scripts/sap-staging-authoritative-security-check.mjs"
+      - ".github/workflows/sap-staging-authoritative.yml"
+      - "docs/REBUILD_AUDIT.md"
+      - "scripts/verify-sap-staging-authoritative-225.py"
+      - ".github/workflows/verify-sap-staging-authoritative-225.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact PR 225 target invariants
+        run: python3 scripts/verify-sap-staging-authoritative-225.py
+      - name: Run SAP staging authoritative security gate
+        run: node scripts/sap-staging-authoritative-security-check.mjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs
