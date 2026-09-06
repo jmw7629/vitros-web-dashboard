@@ -1,0 +1,80 @@
+name: Verify Cycle Count PR 201
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact implementation head
+        uses: actions/checkout@v4
+        with:
+          ref: d2c766b255d8f056a2a3e5ac4c28948b8c4c32e4
+          fetch-depth: 0
+      - name: Assert exact head and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d2c766b255d8f056a2a3e5ac4c28948b8c4c32e4"
+          expected=$'.github/workflows/cycle-count-security.yml\nconvex/cycleCount.ts\nscripts/cycle-count-security-check.mjs'
+          test "$(git diff --name-only 8abb947b252f1b4c0bc62f336fa8869668f381b7 d2c766b255d8f056a2a3e5ac4c28948b8c4c32e4)" = "$expected"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Independently verify Cycle Count authorization and integrity
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const src = fs.readFileSync('convex/cycleCount.ts', 'utf8');
+          const must = (re, msg) => { if (!re.test(src)) throw new Error(msg); };
+          const forbid = (re, msg) => { if (re.test(src)) throw new Error(msg); };
+
+          must(/import\s+\{\s*requireCapability\s*\}\s+from\s+["']\.\/authGuard["']/, 'shared auth guard missing');
+          for (const name of ['listSchedules','listResults','getSchedule','getResultsBySchedule']) {
+            must(new RegExp(`export const ${name} = query\\([\\s\\S]*?requireCapability\\(ctx, ["']inventory\\.read["']\\)`, 'm'), `${name} lacks inventory.read`);
+          }
+          for (const name of ['createSchedule','updateSchedule','submitCount','createResult']) {
+            must(new RegExp(`export const ${name} = mutation\\([\\s\\S]*?requireCapability\\(ctx, ["']inventory\\.write["']\\)`, 'm'), `${name} lacks inventory.write`);
+          }
+          for (const name of ['deleteSchedule','deleteResult']) {
+            must(new RegExp(`export const ${name} = mutation\\([\\s\\S]*?requireCapability\\(ctx, ["']inventory\\.admin["']\\)`, 'm'), `${name} lacks inventory.admin`);
+          }
+
+          must(/const\s+actorName\s*=\s*await\s+resolveServerActor\(ctx,\s*userId\)/, 'server actor resolution missing');
+          must(/countedBy:\s*actorName/, 'persisted actor is not server-derived');
+          forbid(/countedBy:\s*args\.countedBy/, 'caller countedBy is persisted');
+          must(/variance:\s*countedQty\s*-\s*systemQty/, 'variance is not server recomputed');
+          must(/Number\.isSafeInteger\(value\)\s*\|\|\s*value\s*<\s*0/, 'non-negative safe-integer validation missing');
+          must(/MAX_PARTS_PER_SCHEDULE\s*=\s*2_000/, 'schedule bound missing');
+          must(/MAX_RESULTS_PER_SUBMISSION\s*=\s*2_000/, 'result bound missing');
+          must(/VALID_FREQUENCIES/, 'frequency allowlist missing');
+          must(/VALID_COUNT_TYPES/, 'count-type allowlist missing');
+          must(/VALID_RESULT_STATUSES/, 'result-status allowlist missing');
+          must(/if\s*\(!schedule\)\s*throw new Error\(["']Cycle count schedule not found["']\)/, 'missing-schedule rejection missing');
+          must(/const id = await ctx\.db\.insert\(["']cycleResults["'], doc\);[\s\S]*?await ctx\.db\.patch\(schedule\._id/, 'result and schedule lifecycle are not one mutation path');
+          forbid(/Failed to update schedule nextDue/, 'schedule lifecycle failure is swallowed');
+          forbid(/try\s*\{[\s\S]*?ctx\.db\.patch\(schedule\._id[\s\S]*?catch\s*\(/, 'schedule lifecycle patch is swallowed in try/catch');
+          forbid(/ctx\.db\.(?:insert|patch|replace|delete)\([^\n]*["']stock["']/i, 'direct stock mutation introduced');
+          forbid(/ctx\.db\.insert\(["']transactions["']/, 'parallel transaction ledger introduced');
+          forbid(/fetch\s*\(/, 'unexpected outbound network path introduced');
+
+          console.log('CYCLE_COUNT_INDEPENDENT=PASS');
+          NODE
+      - name: Existing focused security regression
+        run: node scripts/cycle-count-security-check.mjs
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs
