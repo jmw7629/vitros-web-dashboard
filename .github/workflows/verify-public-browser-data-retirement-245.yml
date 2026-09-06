@@ -49,4 +49,4 @@ jobs:
       - name: Build
         run: npm run build
       - name: Secret scan
-        run: npm run security:scan
+        run: node scripts/check-secrets.mjs
