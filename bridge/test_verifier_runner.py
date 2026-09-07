@@ -166,6 +166,17 @@ class VerifierRunnerTests(unittest.TestCase):
                 vr.resolve_pr("jmw7629/vitros-web-dashboard", 314, expected)
         self.assertIn("head moved", str(ctx.exception))
 
+    def test_verifier_opencode_timeout_is_bounded_and_validated(self):
+        with mock.patch.dict(vr.os.environ, {}, clear=True):
+            self.assertEqual(vr.verifier_opencode_timeout_seconds(), 900)
+        with mock.patch.dict(vr.os.environ, {"BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS": "10"}, clear=True):
+            self.assertEqual(vr.verifier_opencode_timeout_seconds(), 60)
+        with mock.patch.dict(vr.os.environ, {"BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS": "9999"}, clear=True):
+            self.assertEqual(vr.verifier_opencode_timeout_seconds(), 1800)
+        with mock.patch.dict(vr.os.environ, {"BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS": "nope"}, clear=True):
+            with self.assertRaises(vr.BridgeError):
+                vr.verifier_opencode_timeout_seconds()
+
     def test_verifier_markers_are_explicit(self):
         self.assertEqual(vr.VERIFY_MARKER, "<!-- vitros-opencode-verify:v1 -->")
         self.assertEqual(vr.LEGACY_VERIFY_MARKER, "joeos-opencode-bridge:v1")

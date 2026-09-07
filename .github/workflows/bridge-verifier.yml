@@ -49,4 +49,6 @@ jobs:
           grep -q -- '--pure' bridge/install_verifier.sh
           grep -q '^export PYTHONDONTWRITEBYTECODE=1$' bridge/install_verifier.sh
           grep -q '^Environment=PYTHONDONTWRITEBYTECODE=1$' bridge/install_verifier.sh
+          grep -q 'BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS=900' bridge/install_verifier.sh
+          grep -q 'timeout=verifier_opencode_timeout_seconds()' bridge/verifier_runner.py
           ! grep -q 'ReadWritePaths=.*\$ROOT' bridge/install_verifier.sh

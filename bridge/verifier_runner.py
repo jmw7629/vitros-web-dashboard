@@ -106,6 +106,15 @@ def trusted_authors() -> set[str]:
     }
 
 
+def verifier_opencode_timeout_seconds() -> int:
+    raw = os.getenv("BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS", "900").strip() or "900"
+    try:
+        seconds = int(raw)
+    except ValueError as exc:
+        raise BridgeError("BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS must be an integer") from exc
+    return max(60, min(1800, seconds))
+
+
 def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"completed": {}, "retry": {}}
@@ -483,7 +492,24 @@ def execute_task(
             command += ["--model", os.getenv("OPENCODE_MODEL", "").strip()]
         command.append(build_prompt(issue, pr_number, target_sha, pr["base"], nonce, ci_evidence))
 
-        proc = run(command, cwd=sandbox, check=False, env=verifier_env(root, sandbox))
+        try:
+            proc = run(
+                command,
+                cwd=sandbox,
+                check=False,
+                env=verifier_env(root, sandbox),
+                timeout=verifier_opencode_timeout_seconds(),
+            )
+        except BridgeError as exc:
+            reason = sanitize(str(exc))[:900]
+            log.write_text(
+                f"$ {shlex.join(command[:-1])} <PROMPT>\n\nVERIFY_RUN_BLOCKED\n{reason}\n"
+            )
+            os.chmod(log, 0o600)
+            record_blocked(
+                repo, issue_number, task_key, target_sha, state, state_path, retry, reason
+            )
+            return
         log.write_text(
             f"$ {shlex.join(command[:-1])} <PROMPT>\n\nexit={proc.returncode}\n\nSTDOUT\n"
             f"{sanitize(proc.stdout or '')}\n\nSTDERR\n{sanitize(proc.stderr or '')}\n"
