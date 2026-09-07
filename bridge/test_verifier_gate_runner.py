@@ -1,11 +1,16 @@
 import importlib.util
 import json
 import pathlib
+import sys
 import types
 import unittest
 from unittest import mock
 
-MODULE_PATH = pathlib.Path(__file__).with_name("verifier_gate_runner.py")
+BRIDGE_DIR = pathlib.Path(__file__).resolve().parent
+if str(BRIDGE_DIR) not in sys.path:
+    sys.path.insert(0, str(BRIDGE_DIR))
+
+MODULE_PATH = BRIDGE_DIR / "verifier_gate_runner.py"
 SPEC = importlib.util.spec_from_file_location("vitros_verifier_gate_runner", MODULE_PATH)
 vg = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
