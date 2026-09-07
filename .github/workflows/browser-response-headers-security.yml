@@ -1,0 +1,30 @@
+name: Browser Response Headers Security
+
+on:
+  pull_request:
+    paths:
+      - "vercel.json"
+      - "scripts/browser-response-headers-security-check.mjs"
+      - ".github/workflows/browser-response-headers-security.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "vercel.json"
+      - "scripts/browser-response-headers-security-check.mjs"
+      - ".github/workflows/browser-response-headers-security.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  browser-response-headers-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify conservative browser response headers
+        run: node scripts/browser-response-headers-security-check.mjs
