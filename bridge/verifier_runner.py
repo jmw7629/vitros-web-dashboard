@@ -203,22 +203,22 @@ def parse_target(body: str) -> tuple[int, str]:
 
 
 def resolve_pr(repo: str, pr_number: int, expected_sha: str) -> dict[str, str]:
+    # Use the stable REST payload instead of `gh pr view --json` fields. Older
+    # gh versions on the VPS do not expose baseRefOid even though the GitHub API
+    # always provides exact head/base SHAs for a pull request.
     proc = run(
-        [
-            "gh", "pr", "view", str(pr_number), "--repo", repo,
-            "--json", "headRefOid,baseRefOid,url,title,state",
-        ]
+        ["gh", "api", "--method", "GET", f"repos/{repo}/pulls/{pr_number}"]
     )
     raw = json.loads(proc.stdout or "{}")
-    head = str(raw.get("headRefOid") or "").lower()
+    head = str(((raw.get("head") or {}).get("sha") or "")).lower()
     if head != expected_sha:
         raise BridgeError(
             f"PR #{pr_number} head moved: expected {expected_sha}, current {head or 'unknown'}"
         )
     return {
         "head": head,
-        "base": str(raw.get("baseRefOid") or "").lower(),
-        "url": str(raw.get("url") or ""),
+        "base": str(((raw.get("base") or {}).get("sha") or "")).lower(),
+        "url": str(raw.get("html_url") or ""),
         "title": str(raw.get("title") or ""),
         "state": str(raw.get("state") or "").upper(),
     }
