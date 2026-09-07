@@ -70,6 +70,8 @@ begin
 
   if found then
     if coalesce(v_audit.user_name, '') <> btrim(p_actor)
+       or coalesce(btrim(v_audit.old_value->>'stage'), '') <> btrim(p_expected_stage)
+       or coalesce(btrim(v_audit.old_value->>'notes'), '') <> v_expected_notes
        or coalesce(v_audit.new_value->>'stage', '') <> btrim(p_stage)
        or coalesce(v_audit.new_value->>'notes', '') <> coalesce(v_notes, '') then
       raise exception 'REM idempotency conflict';
