@@ -5,6 +5,7 @@ on:
     paths:
       - "convex/remOperationalActions.ts"
       - "convex/_generated/api.d.ts"
+      - "src/pages/rem/BulkImport.tsx"
       - "src/pages/rem/EngineerKiosk.tsx"
       - "src/pages/rem/KanbanBoard.tsx"
       - "src/pages/rem/GanttTimeline.tsx"
