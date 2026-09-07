@@ -9,6 +9,9 @@ declare const process: { env: Record<string, string | undefined> };
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_PROMPT_LENGTH = 10000;
+const MAX_REFERENCE_PARTS = 1000;
+const MAX_PART_NUMBER_LENGTH = 128;
+const MAX_REFERENCE_PART_CHARS = 50000;
 
 function getOpenAIKey(): string {
   const key = process.env.OPENAI_API_KEY;
@@ -16,12 +19,33 @@ function getOpenAIKey(): string {
   return key;
 }
 
-function sanitizeError(err: unknown): string {
-  const msg = err instanceof Error ? err.message : "Unknown error";
-  return msg
-    .replace(/sk-[a-zA-Z0-9]+/g, "[REDACTED]")
-    .replace(/key[_\s]*[:=]\s*[^\s,]+/gi, "key=[REDACTED]")
-    .slice(0, 200);
+function normalizeReferenceParts(partList?: string[]): string[] | undefined {
+  if (!partList?.length) return undefined;
+  if (partList.length > MAX_REFERENCE_PARTS) {
+    throw new Error(`Too many reference parts (max ${MAX_REFERENCE_PARTS})`);
+  }
+
+  let totalChars = 0;
+  return partList.map((part, index) => {
+    const normalized = part.trim();
+    if (!normalized) throw new Error(`Reference part ${index + 1} is blank`);
+    if (normalized.length > MAX_PART_NUMBER_LENGTH) {
+      throw new Error(`Reference part ${index + 1} is too long (max ${MAX_PART_NUMBER_LENGTH} chars)`);
+    }
+    totalChars += normalized.length;
+    if (totalChars > MAX_REFERENCE_PART_CHARS) {
+      throw new Error(`Reference part list is too large (max ${MAX_REFERENCE_PART_CHARS} chars)`);
+    }
+    return normalized;
+  });
+}
+
+function safeOpenAIError(err: unknown): string {
+  if (!(err instanceof Error)) return "OpenAI request failed";
+  if (err.message === "OpenAI request timed out") return err.message;
+  if (err.message === "OpenAI returned an invalid response") return err.message;
+  if (/^OpenAI request failed with status [1-5]\d\d$/.test(err.message)) return err.message;
+  return "OpenAI request failed";
 }
 
 async function callOpenAI(
@@ -38,17 +62,19 @@ async function callOpenAI(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    clearTimeout(timer);
     if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      const msg = (errBody as any).error?.message || `OpenAI error ${res.status}`;
-      throw new Error(msg);
+      throw new Error(`OpenAI request failed with status ${res.status}`);
     }
-    return res.json();
+    try {
+      return await res.json();
+    } catch {
+      throw new Error("OpenAI returned an invalid response");
+    }
   } catch (e: any) {
-    clearTimeout(timer);
-    if (e.name === "AbortError") throw new Error("OpenAI request timed out");
+    if (e?.name === "AbortError") throw new Error("OpenAI request timed out");
     throw e;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -65,8 +91,9 @@ export const ocrPackingList = action({
     if (prompt.length > MAX_PROMPT_LENGTH) throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
 
     const apiKey = getOpenAIKey();
-    const knownParts = partList?.length
-      ? `Known inventory part numbers (reference only; never invent a match): ${partList.join(", ")}`
+    const referenceParts = normalizeReferenceParts(partList);
+    const knownParts = referenceParts?.length
+      ? `Known inventory part numbers (reference only; never invent a match): ${referenceParts.join(", ")}`
       : "No inventory reference list was supplied.";
     const systemPrompt = `You are a document OCR assistant for VITROS Incoming Stock receiving. Read packing lists and order packing lists as receiving documents, not DHR/checklist documents.
 
@@ -121,7 +148,7 @@ Rules:
         if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
       }
     }
-    throw new Error(`OCR failed after 3 attempts: ${sanitizeError(lastError)}`);
+    throw new Error(`OCR failed after 3 attempts: ${safeOpenAIError(lastError)}`);
   },
 });
 
@@ -141,7 +168,8 @@ export const ocrDhrPage = action({
     if (imageUrl && (!/^https:\/\//i.test(imageUrl) || imageUrl.length > 2048)) throw new Error("Invalid DHR image URL");
 
     const apiKey = getOpenAIKey();
-    const systemPrompt = `You are an OCR assistant for DHR (Device History Record) page analysis. Extract structured data from the document image. ${partList?.length ? `Valid part numbers: ${partList.join(", ")}` : ""} Return results as JSON.`;
+    const referenceParts = normalizeReferenceParts(partList);
+    const systemPrompt = `You are an OCR assistant for DHR (Device History Record) page analysis. Extract structured data from the document image. ${referenceParts?.length ? `Valid part numbers: ${referenceParts.join(", ")}` : ""} Return results as JSON.`;
     const source = imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : imageUrl!;
 
     let lastError: Error | null = null;
@@ -167,6 +195,6 @@ export const ocrDhrPage = action({
         if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
       }
     }
-    throw new Error(`OCR failed after 3 attempts: ${sanitizeError(lastError)}`);
+    throw new Error(`OCR failed after 3 attempts: ${safeOpenAIError(lastError)}`);
   },
 });
