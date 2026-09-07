@@ -48,6 +48,8 @@ requireText(action, /p_actor:\s*String\(userId\)/, "server-derived actor");
 requireText(action, /publishRealtimePulse/, "post-commit realtime invalidation publisher");
 requireText(action, /const payload = await response\.json\(\);[\s\S]*await publishRealtimePulse\(ctx\);[\s\S]*return payload/, "REM operational pulse after committed RPC receipt");
 rejectText(action, /VITE_.*SERVICE|args\.(?:actor|role|userName)/, "browser/caller supplied authority");
+rejectText(action, /const\s+body\s*=\s*await\s+response\.(?:json|text)\s*\(/, "provider-controlled REM error body parsing");
+requireText(action, /if\s*\(!response\.ok\)\s*\{\s*throw new Error\(`REM analyzer update failed \(\$\{response\.status\}\)`\);\s*\}/, "status-only REM mutation failure");
 
 requireText(migration, /security definer/i, "SECURITY DEFINER RPC");
 requireText(migration, /set search_path = pg_catalog, public/i, "locked search_path");

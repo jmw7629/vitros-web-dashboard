@@ -115,11 +115,7 @@ export const updateAnalyzerOperational = action({
     });
 
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      const message = (body as { message?: string; error?: string }).message
-        || (body as { message?: string; error?: string }).error
-        || `REM analyzer update failed (${response.status})`;
-      throw new Error(message);
+      throw new Error(`REM analyzer update failed (${response.status})`);
     }
 
     const payload = await response.json();
