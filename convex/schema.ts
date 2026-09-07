@@ -25,6 +25,14 @@ export default defineSchema({
   ...authTables,
   users,
 
+  // Payload-free cross-client invalidation for Supabase-backed authoritative data.
+  // Business rows and actor details never enter this table.
+  realtimeSignals: defineTable({
+    key: v.string(),
+    version: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
   // ============ INVENTORY MODULE ============
   // NOTE: Production data is now in Supabase. This schema is kept for
   // backward compatibility with the dev Convex instance only.

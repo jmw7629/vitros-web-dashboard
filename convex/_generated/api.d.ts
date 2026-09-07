@@ -25,6 +25,7 @@ import type * as incomingStockPdfOcr from "../incomingStockPdfOcr.js";
 import type * as inventoryActions from "../inventoryActions.js";
 import type * as kits from "../kits.js";
 import type * as parts from "../parts.js";
+import type * as realtimePulse from "../realtimePulse.js";
 import type * as rem from "../rem.js";
 import type * as remAnalyzers from "../remAnalyzers.js";
 import type * as remBuildPlan from "../remBuildPlan.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   inventoryActions: typeof inventoryActions;
   kits: typeof kits;
   parts: typeof parts;
+  realtimePulse: typeof realtimePulse;
   rem: typeof rem;
   remAnalyzers: typeof remAnalyzers;
   remBuildPlan: typeof remBuildPlan;

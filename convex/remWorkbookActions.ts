@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { requireCapability } from "./authGuard";
+import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -249,6 +250,8 @@ export const applyAuthoritativeWorkbookImport = action({
         || `REM authoritative import failed (${response.status})`;
       throw new Error(message);
     }
-    return await response.json();
+    const result = await response.json();
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });

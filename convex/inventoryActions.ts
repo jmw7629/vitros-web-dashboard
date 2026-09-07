@@ -4,6 +4,7 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
+import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -138,7 +139,7 @@ export const scanStockTransition = action({
     }
 
     const { url, serviceKey } = getSupabaseConfig();
-    return applyTransition(serviceKey, url, {
+    const result = await applyTransition(serviceKey, url, {
       partNumber: args.partNumber,
       mode: args.mode,
       qty: args.qty,
@@ -147,6 +148,8 @@ export const scanStockTransition = action({
       analyzerSerial: args.analyzerSerial,
       batchId: args.batchId,
     });
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });
 
@@ -195,6 +198,7 @@ export const createStockItem = action({
         updated_at: now,
       }),
     });
+    await publishRealtimePulse(ctx);
     return rows[0];
   },
 });
@@ -256,6 +260,7 @@ export const updateStockItem = action({
         body: JSON.stringify(mapped),
       });
     }
+    await publishRealtimePulse(ctx);
     return { success: true };
   },
 });
@@ -267,6 +272,7 @@ export const deleteStockItem = action({
     await requireCapability(ctx, "inventory.admin");
     const { url, serviceKey } = getSupabaseConfig();
     await sbFetch<void>(serviceKey, url, `stock?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+    await publishRealtimePulse(ctx);
     return { success: true };
   },
 });
@@ -287,13 +293,15 @@ export const updateSapStatus = action({
       throw new Error("Legacy SAP status changes only support reviewed ready/exported transitions");
     }
     const { url, serviceKey } = getSupabaseConfig();
-    return applySapStagingStatusTransition(
+    const result = await applySapStagingStatusTransition(
       serviceKey,
       url,
       String(actorId),
       [id],
       status === "posted" ? "exported" : "ready",
     );
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });
 
@@ -303,7 +311,9 @@ export const markSapBatchReady = action({
   handler: async (ctx, { ids }) => {
     const actorId = await requireCapability(ctx, "inventory.write");
     const { url, serviceKey } = getSupabaseConfig();
-    return applySapStagingStatusTransition(serviceKey, url, String(actorId), ids, "ready");
+    const result = await applySapStagingStatusTransition(serviceKey, url, String(actorId), ids, "ready");
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });
 
@@ -313,6 +323,8 @@ export const markSapBatchExported = action({
   handler: async (ctx, { ids }) => {
     const actorId = await requireCapability(ctx, "inventory.write");
     const { url, serviceKey } = getSupabaseConfig();
-    return applySapStagingStatusTransition(serviceKey, url, String(actorId), ids, "exported");
+    const result = await applySapStagingStatusTransition(serviceKey, url, String(actorId), ids, "exported");
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });
