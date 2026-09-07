@@ -94,6 +94,37 @@ def sanitize(value: str) -> str:
     return text[-6000:]
 
 
+def opencode_failure_reason(proc: subprocess.CompletedProcess[str]) -> str:
+    """Return a bounded, sanitized diagnostic without reflecting provider payloads wholesale."""
+    detail = sanitize(proc.stderr or "").strip()
+    if not detail:
+        for line in reversed((proc.stdout or "").splitlines()[-50:]):
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            error = payload.get("error") if isinstance(payload, dict) else None
+            data = error.get("data") if isinstance(error, dict) else None
+            message = data.get("message") if isinstance(data, dict) else None
+            if not message and isinstance(error, dict):
+                message = error.get("message")
+            if isinstance(message, str) and message.strip():
+                detail = sanitize(message).strip()
+                break
+    if not detail:
+        detail = sanitize(proc.stdout or "").strip()
+    detail = re.sub(
+        r"https://opencode\.ai/workspace/[^/\s]+/billing",
+        "OpenCode billing page",
+        detail,
+        flags=re.IGNORECASE,
+    )
+    detail = " ".join(detail.split())
+    if not detail:
+        detail = "no diagnostic output"
+    return f"OpenCode exited with code {proc.returncode}: {detail[:760]}"[:900]
+
+
 def repo_key(repo: str) -> str:
     return repo.replace("/", "__")
 
@@ -104,6 +135,15 @@ def trusted_authors() -> set[str]:
         for item in os.getenv("BRIDGE_TRUSTED_AUTHORS", "jmw7629").split(",")
         if item.strip()
     }
+
+
+def verifier_opencode_timeout_seconds() -> int:
+    raw = os.getenv("BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS", "900").strip() or "900"
+    try:
+        seconds = int(raw)
+    except ValueError as exc:
+        raise BridgeError("BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS must be an integer") from exc
+    return max(60, min(1800, seconds))
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -322,7 +362,11 @@ Read AGENTS.md and inspect code/diffs. Do not execute project build/test/package
 
 Before concluding, use only read/grep/glob/list and permitted read-only git commands. The runner independently enforces unchanged HEAD and clean sandbox status.
 
-For the final terminal result, output one line beginning with VERIFY, followed by exact target SHA, followed by a NONCE formed by concatenating these two challenge halves with no separator: `{first}` then `{second}`. PASS means source-level requirements are satisfied and the runner-supplied exact-head CI evidence is green. Otherwise use FAIL or BLOCKED with a concise REASON. Do not copy terminal examples from the issue body because they do not contain this active run challenge.
+For the final terminal result, write the result directly as assistant text after all tool calls. Do not use bash/echo to emit it. The syntax is strict: keep every equals sign and label exactly as shown. The active nonce is `{first}{second}`. Output exactly one of these forms as your final line:
+`VERIFY=PASS SHA={target_sha} NONCE={first}{second}`
+`VERIFY=FAIL SHA={target_sha} NONCE={first}{second} REASON=<concise reason>`
+`VERIFY=BLOCKED SHA={target_sha} NONCE={first}{second} REASON=<concise reason>`
+PASS means source-level requirements are satisfied and the runner-supplied exact-head CI evidence is green. Do not output `VERIFY <sha> <nonce>`, do not omit PASS/FAIL/BLOCKED, and do not copy terminal examples from the issue body because they do not contain this active run challenge.
 
 --- BEGIN APPROVED VERIFIER ISSUE ---
 {issue.get('body') or ''}
@@ -483,7 +527,24 @@ def execute_task(
             command += ["--model", os.getenv("OPENCODE_MODEL", "").strip()]
         command.append(build_prompt(issue, pr_number, target_sha, pr["base"], nonce, ci_evidence))
 
-        proc = run(command, cwd=sandbox, check=False, env=verifier_env(root, sandbox))
+        try:
+            proc = run(
+                command,
+                cwd=sandbox,
+                check=False,
+                env=verifier_env(root, sandbox),
+                timeout=verifier_opencode_timeout_seconds(),
+            )
+        except BridgeError as exc:
+            reason = sanitize(str(exc))[:900]
+            log.write_text(
+                f"$ {shlex.join(command[:-1])} <PROMPT>\n\nVERIFY_RUN_BLOCKED\n{reason}\n"
+            )
+            os.chmod(log, 0o600)
+            record_blocked(
+                repo, issue_number, task_key, target_sha, state, state_path, retry, reason
+            )
+            return
         log.write_text(
             f"$ {shlex.join(command[:-1])} <PROMPT>\n\nexit={proc.returncode}\n\nSTDOUT\n"
             f"{sanitize(proc.stdout or '')}\n\nSTDERR\n{sanitize(proc.stderr or '')}\n"
@@ -497,7 +558,7 @@ def execute_task(
         elif dirty:
             status, reason = "FAIL", "Verifier mutated tracked/unignored files; sandbox was discarded."
         elif proc.returncode != 0:
-            status, reason = "BLOCKED", f"OpenCode exited with code {proc.returncode}."
+            status, reason = "BLOCKED", opencode_failure_reason(proc)
         else:
             status, reason = extract_terminal(proc.stdout or "", proc.stderr or "", target_sha, nonce)
 

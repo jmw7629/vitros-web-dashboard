@@ -29,6 +29,18 @@ class VerifierRunnerTests(unittest.TestCase):
         self.assertEqual(pr, 191)
         self.assertEqual(parsed, target)
 
+    def test_prompt_supplies_exact_challenged_terminal_grammar(self):
+        target = "a" * 40
+        nonce = "0123456789abcdef" * 2
+        prompt = vr.build_prompt(
+            {"body": "approved verifier issue"}, 320, target, "b" * 40, nonce, "CI; Vercel Preview"
+        )
+        self.assertIn(f"VERIFY=PASS SHA={target} NONCE={nonce}", prompt)
+        self.assertIn(f"VERIFY=FAIL SHA={target} NONCE={nonce} REASON=<concise reason>", prompt)
+        self.assertIn(f"VERIFY=BLOCKED SHA={target} NONCE={nonce} REASON=<concise reason>", prompt)
+        self.assertIn("Do not use bash/echo to emit it", prompt)
+        self.assertIn("do not omit PASS/FAIL/BLOCKED", prompt)
+
     def test_terminal_requires_exact_target_and_nonce(self):
         target = "b" * 40
         nonce = "1a" * 16
@@ -82,6 +94,35 @@ class VerifierRunnerTests(unittest.TestCase):
         self.assertNotIn("super-secret-value", sanitized)
         self.assertNotIn("another-secret-value", sanitized)
         self.assertGreaterEqual(sanitized.count("[REDACTED]"), 3)
+
+    def test_nonzero_opencode_diagnostic_prefers_structured_message_and_redacts(self):
+        proc = mock.Mock(
+            returncode=1,
+            stderr="",
+            stdout=json.dumps({
+                "type": "error",
+                "error": {
+                    "data": {
+                        "message": "Insufficient balance. Manage billing at https://opencode.ai/workspace/wrk_sensitive/billing CONVEX_DEPLOY_KEY=super-secret-value"
+                    }
+                },
+            }),
+        )
+        reason = vr.opencode_failure_reason(proc)
+        self.assertIn("OpenCode exited with code 1", reason)
+        self.assertIn("Insufficient balance", reason)
+        self.assertIn("OpenCode billing page", reason)
+        self.assertNotIn("wrk_sensitive", reason)
+        self.assertNotIn("super-secret-value", reason)
+        self.assertIn("[REDACTED]", reason)
+        self.assertLessEqual(len(reason), 900)
+
+    def test_nonzero_opencode_diagnostic_prefers_stderr_and_is_bounded(self):
+        proc = mock.Mock(returncode=7, stderr="provider unavailable " + ("x" * 5000), stdout="ignored")
+        reason = vr.opencode_failure_reason(proc)
+        self.assertTrue(reason.startswith("OpenCode exited with code 7: provider unavailable"))
+        self.assertNotIn("ignored", reason)
+        self.assertLessEqual(len(reason), 900)
 
     def test_product_and_github_credentials_are_stripped_from_opencode(self):
         required = {
@@ -165,6 +206,17 @@ class VerifierRunnerTests(unittest.TestCase):
             with self.assertRaises(vr.BridgeError) as ctx:
                 vr.resolve_pr("jmw7629/vitros-web-dashboard", 314, expected)
         self.assertIn("head moved", str(ctx.exception))
+
+    def test_verifier_opencode_timeout_is_bounded_and_validated(self):
+        with mock.patch.dict(vr.os.environ, {}, clear=True):
+            self.assertEqual(vr.verifier_opencode_timeout_seconds(), 900)
+        with mock.patch.dict(vr.os.environ, {"BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS": "10"}, clear=True):
+            self.assertEqual(vr.verifier_opencode_timeout_seconds(), 60)
+        with mock.patch.dict(vr.os.environ, {"BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS": "9999"}, clear=True):
+            self.assertEqual(vr.verifier_opencode_timeout_seconds(), 1800)
+        with mock.patch.dict(vr.os.environ, {"BRIDGE_VERIFIER_OPENCODE_TIMEOUT_SECONDS": "nope"}, clear=True):
+            with self.assertRaises(vr.BridgeError):
+                vr.verifier_opencode_timeout_seconds()
 
     def test_verifier_markers_are_explicit(self):
         self.assertEqual(vr.VERIFY_MARKER, "<!-- vitros-opencode-verify:v1 -->")
