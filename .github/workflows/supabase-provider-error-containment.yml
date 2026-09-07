@@ -1,0 +1,23 @@
+name: Supabase Provider Error Containment
+
+on:
+  pull_request:
+    paths:
+      - "convex/supabaseGateway.ts"
+      - "scripts/supabase-provider-error-containment-check.mjs"
+      - ".github/workflows/supabase-provider-error-containment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify Supabase provider error containment
+        run: node scripts/supabase-provider-error-containment-check.mjs
