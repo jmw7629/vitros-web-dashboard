@@ -18,7 +18,9 @@ const kiosk = read("src/pages/rem/EngineerKiosk.tsx");
 const report = read("src/pages/rem/Reports.tsx");
 const morning = read("src/pages/rem/MorningSnapshot.tsx");
 const kanban = read("src/pages/rem/KanbanBoard.tsx");
+const bulkImport = read("src/pages/rem/BulkImport.tsx");
 const pages = [
+  "src/pages/rem/BulkImport.tsx",
   "src/pages/rem/EngineerKiosk.tsx",
   "src/pages/rem/KanbanBoard.tsx",
   "src/pages/rem/GanttTimeline.tsx",
@@ -33,6 +35,10 @@ for (const path of pages) {
   requireText(source, /useRemCoreData/, `${path} authoritative REM hook`);
   rejectText(source, /useConvexData/, `${path} legacy Convex aggregate`);
 }
+
+requireText(bulkImport, /useRemPlanningData/, "authoritative planning/staff import status");
+requireText(bulkImport, /Promise\.all\(\[refreshSummary\(\), core\.refresh\(\), planning\.refresh\(\)\]\)/, "post-import authoritative refresh");
+rejectText(bulkImport, /data\.employees/, "unrelated legacy employee fallback");
 
 requireText(action, /requireCapability\(ctx,\s*"rem\.read"\)/, "server rem.read guard");
 requireText(action, /requireCapability\(ctx,\s*"rem\.write"\)/, "server rem.write guard");
