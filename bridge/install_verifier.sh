@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep verifier control checkouts clean: Python bytecode is runtime cache, not source.
+export PYTHONDONTWRITEBYTECODE=1
+
 if [[ "${EUID}" -eq 0 ]]; then
   echo "Do not install the VITROS verifier service as root." >&2
   exit 1
@@ -96,6 +99,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$ROOT
 EnvironmentFile=-$ENV_FILE
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/env python3 $ROOT/bridge/verifier_gate_runner.py
 Restart=on-failure
 RestartSec=30
