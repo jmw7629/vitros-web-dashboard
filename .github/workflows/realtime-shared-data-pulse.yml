@@ -11,6 +11,7 @@ on:
       - "convex/incomingStockActions.ts"
       - "convex/sapStagingWorkflow.ts"
       - "convex/remWorkbookActions.ts"
+      - "convex/adminSettingsActions.ts"
       - "src/components/RealtimeRefreshBridge.tsx"
       - "src/main.tsx"
       - "scripts/realtime-shared-data-pulse-check.mjs"
