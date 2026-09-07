@@ -7,6 +7,7 @@ import App from "./App";
 import { RoleProvider } from "./hooks/useRole";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ConvexDataProvider } from "./hooks/useConvexData";
+import { RealtimeRefreshBridge } from "./components/RealtimeRefreshBridge";
 import "./index.css";
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
       {convex ? (
         <ConvexAuthProvider client={convex}>
           <ConvexDataProvider>
+            <RealtimeRefreshBridge />
             <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <RoleProvider>
                 <App />

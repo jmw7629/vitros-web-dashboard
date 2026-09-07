@@ -4,6 +4,7 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
+import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -254,6 +255,7 @@ export const commitConfirmedReceiveLine = action({
       correlationId,
       batchId: documentRef,
     });
+    await publishRealtimePulse(ctx);
 
     return {
       success: true,

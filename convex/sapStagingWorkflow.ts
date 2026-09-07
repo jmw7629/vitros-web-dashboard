@@ -1,6 +1,7 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
+import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -64,11 +65,13 @@ export const transition = action({
     }
 
     const { url, serviceKey } = getSupabaseConfig();
-    return callTransition(url, serviceKey, {
+    const result = await callTransition(url, serviceKey, {
       p_ids: ids,
       p_target_status: args.targetStatus,
       p_actor: String(actorId),
       p_correlation_id: correlationId,
     });
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });

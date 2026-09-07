@@ -1,6 +1,7 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
+import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -167,6 +168,7 @@ export const updateEditableSetting = action({
       throw new Error("Enterprise setting update returned an invalid receipt");
     }
 
+    await publishRealtimePulse(ctx);
     return {
       eventId,
       key,

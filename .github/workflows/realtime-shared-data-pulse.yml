@@ -1,0 +1,33 @@
+name: Realtime Shared Data Pulse
+
+on:
+  pull_request:
+    paths:
+      - "convex/realtimePulse.ts"
+      - "convex/realtimePulsePublisher.ts"
+      - "convex/schema.ts"
+      - "convex/inventoryActions.ts"
+      - "convex/dhrInventoryActions.ts"
+      - "convex/incomingStockActions.ts"
+      - "convex/sapStagingWorkflow.ts"
+      - "convex/remWorkbookActions.ts"
+      - "convex/adminSettingsActions.ts"
+      - "src/components/RealtimeRefreshBridge.tsx"
+      - "src/main.tsx"
+      - "scripts/realtime-shared-data-pulse-check.mjs"
+      - ".github/workflows/realtime-shared-data-pulse.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/realtime-shared-data-pulse-check.mjs

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useConvexAuth, useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -23,6 +24,7 @@ import { saveAs } from "file-saver";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
 import { useServerActions, type DhrTransitionReceipt } from "../../hooks/useServerActions";
+import { api } from "../../../convex/_generated/api";
 
 interface DhrSection {
   id: string;
@@ -171,6 +173,8 @@ function parseOcrPayload(raw: string): unknown[] {
 
 export function DhrScanner() {
   const data = useConvexData();
+  const { isAuthenticated } = useConvexAuth();
+  const realtimeSignal = useQuery(api.realtimePulse.watch, isAuthenticated ? {} : "skip");
   const {
     loadDhrScannerData,
     loadDhrSessionResults,
@@ -214,6 +218,10 @@ export function DhrScanner() {
   const [manualQty, setManualQty] = useState("1");
 
   const resultPollBusy = useRef(false);
+  const sessionRefreshSequence = useRef(0);
+  const lastRealtimeVersion = useRef<number | null>(null);
+  const realtimeRefreshTimer = useRef<number | null>(null);
+  const realtimeRefreshSession = useRef<string | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -225,6 +233,15 @@ export function DhrScanner() {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     if (ocrPreview) URL.revokeObjectURL(ocrPreview);
   }, [ocrPreview]);
+
+  useEffect(() => () => {
+    sessionRefreshSequence.current += 1;
+    if (realtimeRefreshTimer.current !== null) {
+      window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = null;
+    }
+    realtimeRefreshSession.current = null;
+  }, []);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
@@ -269,8 +286,11 @@ export function DhrScanner() {
   }, [loadDhrScannerData]);
 
   const refreshSessionResults = useCallback(async (sessionId: string) => {
-    if (!sessionId) return;
-    const rows = await loadDhrSessionResults(sessionId);
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return;
+    const requestSequence = ++sessionRefreshSequence.current;
+    const rows = await loadDhrSessionResults(normalizedSessionId);
+    if (requestSequence !== sessionRefreshSequence.current) return;
     setScanResults(rows as unknown as DhrScanResult[]);
   }, [loadDhrSessionResults]);
 
@@ -289,14 +309,61 @@ export function DhrScanner() {
 
   useEffect(() => {
     if (!activeSessionId) {
+      sessionRefreshSequence.current += 1;
       setScanResults([]);
       return;
     }
     void refreshSessionResults(activeSessionId).catch((error) => setLoadError(safeError(error)));
   }, [activeSessionId, refreshSessionResults]);
 
-  // Bounded, jittered authoritative reconciliation for shared DHR sessions. Own writes
-  // refresh immediately; this poll is the cross-browser fallback until subscriptions land.
+  // DHR result rows live outside the global provider, so subscribe to the same
+  // authenticated payload-free invalidation pulse directly. The request sequence
+  // prevents an older polling response from overwriting a newer realtime read.
+  useEffect(() => {
+    if (
+      realtimeRefreshTimer.current !== null &&
+      (!activeSessionId || view !== "checklist" || realtimeRefreshSession.current !== activeSessionId)
+    ) {
+      window.clearTimeout(realtimeRefreshTimer.current);
+      realtimeRefreshTimer.current = null;
+      realtimeRefreshSession.current = null;
+    }
+
+    if (!activeSessionId || view !== "checklist" || !isAuthenticated || realtimeSignal === undefined) {
+      if (!activeSessionId || view !== "checklist") {
+        lastRealtimeVersion.current = realtimeSignal?.version ?? null;
+      }
+      return;
+    }
+
+    const previousVersion = lastRealtimeVersion.current;
+    if (previousVersion === null) {
+      lastRealtimeVersion.current = realtimeSignal.version;
+      return;
+    }
+    if (realtimeSignal.version <= previousVersion) return;
+    lastRealtimeVersion.current = realtimeSignal.version;
+
+    // Keep the earliest scheduled read for a burst. Because every pulse is emitted
+    // after the Supabase transaction commits, that read observes all commits that
+    // completed before it begins. A later pulse arriving during the read schedules
+    // another read and wins via sessionRefreshSequence.
+    if (realtimeRefreshTimer.current !== null) return;
+    realtimeRefreshSession.current = activeSessionId;
+    const delay = 40 + Math.floor(Math.random() * 201);
+    realtimeRefreshTimer.current = window.setTimeout(() => {
+      const sessionId = realtimeRefreshSession.current;
+      realtimeRefreshTimer.current = null;
+      realtimeRefreshSession.current = null;
+      if (!sessionId || document.visibilityState !== "visible") return;
+      void refreshSessionResults(sessionId).catch(() => {
+        // Preserve the last authoritative result set; periodic fallback will retry.
+      });
+    }, delay);
+  }, [activeSessionId, isAuthenticated, realtimeSignal, refreshSessionResults, view]);
+
+  // Bounded authoritative reconciliation remains as an outage/backstop path. Own
+  // writes refresh immediately and realtime pulses normally refresh within 240 ms.
   useEffect(() => {
     if (!activeSessionId || view !== "checklist") return;
     let cancelled = false;
@@ -312,9 +379,9 @@ export function DhrScanner() {
           resultPollBusy.current = false;
         }
       }
-      if (!cancelled) timer = window.setTimeout(poll, 1650 + Math.random() * 450);
+      if (!cancelled) timer = window.setTimeout(poll, 10000 + Math.random() * 5000);
     };
-    timer = window.setTimeout(poll, 1300 + Math.random() * 400);
+    timer = window.setTimeout(poll, 5000 + Math.random() * 3000);
     return () => {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);

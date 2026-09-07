@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
+import { publishRealtimePulse } from "./realtimePulsePublisher";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 
@@ -235,6 +236,7 @@ export const createScannerSession = action({
       },
     );
     if (rows.length !== 1) throw new Error("DHR session creation returned an unexpected result");
+    await publishRealtimePulse(ctx);
     return rows[0];
   },
 });
@@ -287,13 +289,15 @@ export const setScannerSessionLifecycle = action({
     }
 
     const correlationId = `dhr-lifecycle:${sessionId}:${revision}:${args.status}`;
-    return callDhrLifecycleRpc(serviceKey, url, {
+    const result = await callDhrLifecycleRpc(serviceKey, url, {
       p_session_id: sessionId,
       p_target_status: args.status,
       p_actor: actor,
       p_correlation_id: correlationId,
       p_expected_revision: revision,
     });
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });
 
@@ -332,7 +336,7 @@ export const applyScanTransition = action({
 
     const { url, serviceKey } = getSupabaseConfig();
     const actor = await resolveAuditActor(ctx, userId, serviceKey, url);
-    return callAtomicDhrRpc(serviceKey, url, {
+    const result = await callAtomicDhrRpc(serviceKey, url, {
       p_session_id: sessionId,
       p_section_id: args.sectionId.trim(),
       p_part_number: args.partNumber.trim(),
@@ -345,5 +349,7 @@ export const applyScanTransition = action({
       p_expected_revision: args.expectedRevision,
       p_analyzer_serial: args.analyzerSerial?.trim() || null,
     });
+    await publishRealtimePulse(ctx);
+    return result;
   },
 });
