@@ -1,0 +1,37 @@
+name: REM Operational Authoritative UI
+
+on:
+  pull_request:
+    paths:
+      - "convex/remOperationalActions.ts"
+      - "convex/_generated/api.d.ts"
+      - "src/pages/rem/BulkImport.tsx"
+      - "src/pages/rem/EngineerKiosk.tsx"
+      - "src/pages/rem/KanbanBoard.tsx"
+      - "src/pages/rem/GanttTimeline.tsx"
+      - "src/pages/rem/FieldStatus.tsx"
+      - "src/pages/rem/MorningSnapshot.tsx"
+      - "src/pages/rem/Reports.tsx"
+      - "src/pages/rem/RemDashboard.tsx"
+      - "supabase/migrations/20260907033000_rem_operational_analyzer_updates.sql"
+      - "scripts/rem-operational-authoritative-ui-check.mjs"
+      - ".github/workflows/rem-operational-authoritative-ui.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/rem-operational-authoritative-ui-check.mjs
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/check-secrets.mjs

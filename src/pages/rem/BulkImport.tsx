@@ -1,15 +1,16 @@
 import { useAction } from "convex/react";
+import { CheckCircle2, FileSpreadsheet, RefreshCw, Upload, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { api } from "../../../convex/_generated/api";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
-import { useConvexData } from "../../hooks/useConvexData";
+import { useRemCoreData } from "../../hooks/useRemCoreData";
+import { useRemPlanningData } from "../../hooks/useRemPlanningData";
 import { browserSafeRead } from "../../lib/browserSafeRead";
 import {
   parseAuthoritativeRemWorkbook,
   type AuthoritativeRemImportPreview,
 } from "../../lib/remWorkbookAuthoritative";
-import { CheckCircle2, FileSpreadsheet, RefreshCw, Upload, XCircle } from "lucide-react";
 
 type RemSummary = {
   total: number;
@@ -52,7 +53,8 @@ function sectionSummary(result: ImportResult) {
 }
 
 export function BulkImport() {
-  const data = useConvexData();
+  const core = useRemCoreData();
+  const planning = useRemPlanningData();
   const inputRef = useRef<HTMLInputElement>(null);
   const applyWorkbookImport = useAction(api.remWorkbookActions.applyAuthoritativeWorkbookImport);
   const [preview, setPreview] = useState<AuthoritativeRemImportPreview | null>(null);
@@ -119,7 +121,8 @@ export function BulkImport() {
         weeklyNotes: preview.weeklyNotes,
         targets: preview.targets,
       }) as ImportResult;
-      await refreshSummary();
+
+      await Promise.all([refreshSummary(), core.refresh(), planning.refresh()]);
       setMessage({
         type: "ok",
         text: result.already_applied
@@ -147,6 +150,8 @@ export function BulkImport() {
     ["Skipped non-production WIP rows", preview.skippedRows],
     ["REM signature sheets", preview.recognizedSheets.length],
   ] : [];
+
+  const authoritativeError = core.error || planning.error;
 
   return (
     <div className="space-y-4">
@@ -225,11 +230,16 @@ export function BulkImport() {
       )}
 
       <WebCard className="p-4">
-        <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>Current Data</h3>
-        {[
-          ["Analyzers", summary?.total ?? data.analyzers.length],
-          ["LVCC Items", summary?.lvcc_total ?? data.lvccItems.length],
-          ["Employees", data.employees.length],
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Current Authoritative Data</h3>
+          {!authoritativeError && !core.isLoading && !planning.isLoading && <span className="text-[10px] font-bold" style={{ color: theme.statusOk }}>LIVE · SUPABASE</span>}
+        </div>
+        {authoritativeError ? (
+          <div className="text-xs" style={{ color: theme.statusOut }}>Authoritative REM counts could not be read. No legacy fallback was substituted.</div>
+        ) : [
+          ["Analyzers", summary?.total ?? core.analyzers.length],
+          ["LVCC Items", summary?.lvcc_total ?? core.lvccItems.length],
+          ["Staff", planning.staff.length],
         ].map(([key, value]) => (
           <div key={String(key)} className="flex justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
             <span className="text-xs" style={{ color: theme.textSecondary }}>{key}</span>

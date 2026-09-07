@@ -30,6 +30,7 @@ import type * as rem from "../rem.js";
 import type * as remAnalyzers from "../remAnalyzers.js";
 import type * as remBuildPlan from "../remBuildPlan.js";
 import type * as remLvcc from "../remLvcc.js";
+import type * as remOperationalActions from "../remOperationalActions.js";
 import type * as remReadActions from "../remReadActions.js";
 import type * as remStaffing from "../remStaffing.js";
 import type * as remTargets from "../remTargets.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   remAnalyzers: typeof remAnalyzers;
   remBuildPlan: typeof remBuildPlan;
   remLvcc: typeof remLvcc;
+  remOperationalActions: typeof remOperationalActions;
   remReadActions: typeof remReadActions;
   remStaffing: typeof remStaffing;
   remTargets: typeof remTargets;
