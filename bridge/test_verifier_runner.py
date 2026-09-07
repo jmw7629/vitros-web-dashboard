@@ -2,6 +2,7 @@ import importlib.util
 import json
 import pathlib
 import unittest
+from unittest import mock
 
 MODULE_PATH = pathlib.Path(__file__).with_name("verifier_runner.py")
 SPEC = importlib.util.spec_from_file_location("vitros_verifier_runner", MODULE_PATH)
@@ -129,6 +130,41 @@ class VerifierRunnerTests(unittest.TestCase):
         payload = json.loads(vr.inline_opencode_config())
         self.assertEqual(payload["permission"], vr.static_permission_policy())
         self.assertEqual(payload["agent"]["build"]["permission"], vr.static_permission_policy())
+
+    def test_resolve_pr_uses_stable_rest_payload(self):
+        target = "a" * 40
+        base = "b" * 40
+        proc = mock.Mock()
+        proc.stdout = json.dumps({
+            "head": {"sha": target},
+            "base": {"sha": base},
+            "html_url": "https://github.com/jmw7629/vitros-web-dashboard/pull/314",
+            "title": "Verifier compatibility",
+            "state": "open",
+        })
+        with mock.patch.object(vr, "run", return_value=proc) as run_mock:
+            result = vr.resolve_pr("jmw7629/vitros-web-dashboard", 314, target)
+        self.assertEqual(result["head"], target)
+        self.assertEqual(result["base"], base)
+        self.assertEqual(result["state"], "OPEN")
+        run_mock.assert_called_once_with([
+            "gh", "api", "--method", "GET",
+            "repos/jmw7629/vitros-web-dashboard/pulls/314",
+        ])
+
+    def test_resolve_pr_rejects_moved_head_from_rest_payload(self):
+        expected = "c" * 40
+        moved = "d" * 40
+        proc = mock.Mock()
+        proc.stdout = json.dumps({
+            "head": {"sha": moved},
+            "base": {"sha": "e" * 40},
+            "state": "open",
+        })
+        with mock.patch.object(vr, "run", return_value=proc):
+            with self.assertRaises(vr.BridgeError) as ctx:
+                vr.resolve_pr("jmw7629/vitros-web-dashboard", 314, expected)
+        self.assertIn("head moved", str(ctx.exception))
 
     def test_verifier_markers_are_explicit(self):
         self.assertEqual(vr.VERIFY_MARKER, "<!-- vitros-opencode-verify:v1 -->")
