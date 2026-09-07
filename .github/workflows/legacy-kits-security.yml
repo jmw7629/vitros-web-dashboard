@@ -1,0 +1,26 @@
+name: Legacy Kits Security
+
+on:
+  pull_request:
+    paths:
+      - "convex/kits.ts"
+      - "scripts/legacy-kits-security-check.mjs"
+      - ".github/workflows/legacy-kits-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify legacy kits authorization boundary
+        run: node scripts/legacy-kits-security-check.mjs
