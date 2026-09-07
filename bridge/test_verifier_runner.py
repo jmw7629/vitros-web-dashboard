@@ -29,6 +29,18 @@ class VerifierRunnerTests(unittest.TestCase):
         self.assertEqual(pr, 191)
         self.assertEqual(parsed, target)
 
+    def test_prompt_supplies_exact_challenged_terminal_grammar(self):
+        target = "a" * 40
+        nonce = "0123456789abcdef" * 2
+        prompt = vr.build_prompt(
+            {"body": "approved verifier issue"}, 320, target, "b" * 40, nonce, "CI; Vercel Preview"
+        )
+        self.assertIn(f"VERIFY=PASS SHA={target} NONCE={nonce}", prompt)
+        self.assertIn(f"VERIFY=FAIL SHA={target} NONCE={nonce} REASON=<concise reason>", prompt)
+        self.assertIn(f"VERIFY=BLOCKED SHA={target} NONCE={nonce} REASON=<concise reason>", prompt)
+        self.assertIn("Do not use bash/echo to emit it", prompt)
+        self.assertIn("do not omit PASS/FAIL/BLOCKED", prompt)
+
     def test_terminal_requires_exact_target_and_nonce(self):
         target = "b" * 40
         nonce = "1a" * 16
