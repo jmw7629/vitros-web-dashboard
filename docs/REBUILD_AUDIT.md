@@ -1,6 +1,6 @@
 # VITROS Rebuild Audit
 
-Updated: 2026-09-05
+Updated: 2026-09-07
 
 ## Current stack and deployment
 
@@ -8,7 +8,7 @@ Updated: 2026-09-05
 - Server boundary: Convex actions with server-only Supabase service-role access.
 - Authoritative production data: Supabase project `vitros-ios` (`oykqiiydpwngasvzdthh`).
 - Browser deployment: Vercel project `vitros-web-dashboard`, linked to `jmw7629/vitros-web-dashboard`.
-- Current audited Git base for this change: `main` at `3f8b41f759a5ef84ae95e51e0b57e675f4f9491d`.
+- Current audited Git base for this change: `main` at `f64780874645400d95de4161a0c5e3bf821a3f4a`.
 
 ## Security / architecture invariants observed
 
@@ -18,20 +18,32 @@ Updated: 2026-09-05
 - Production currently contains 195 SAP staging records, all with `export_status = 'pending'` at the time of this audit.
 - SAP browser export must remain file/staging-only. No browser control in this work may post to production SAP.
 
-## Confirmed defect for this slice
+## Confirmed SAP defect for the earlier slice
 
-`src/pages/inventory/SapStaging.tsx` keeps Ready/Exported workflow state in React `Set` objects. That state disappears on reload or another browser and therefore is not enterprise-authoritative. The existing shared data mapper also does not consume production `export_status` directly. The synchronized sticky table/header layout from merged PR #110 is working code and must be preserved.
+`src/pages/inventory/SapStaging.tsx` previously kept Ready/Exported workflow state in React `Set` objects. That state disappeared on reload or another browser and therefore was not enterprise-authoritative. The synchronized sticky table/header layout from merged PR #110 is working code and must be preserved.
+
+## J32133 canonical duplicate reconciliation evidence — 2026-09-07
+
+Production still contains the one intentionally quarantined canonical collision covered by #74/#86:
+
+- raw `J32133`: description `Z ASSEMBLY`, QOH 2, min/max 1/1, on stocking plan, bin `Rack to right / F076`;
+- raw `J32133 ` (trailing space): description `Z-Assembly`, QOH 0, min/max 0/0, not on plan, no bin.
+
+Both rows were created at the same original import timestamp. Current immutable `audit_log` history shows seven historical records across the two raw keys: the two original INSERT snapshots and system-triggered metadata/activity UPDATE snapshots. No distinct inventory movement is recorded for the trailing-space row.
+
+A production read-only reference inventory found zero `J32133`/`J32133 ` references in `consume_stock_log`, `incoming_stock_log`, `inventory_batch_lines`, `kit_components`, `shortages`, `stocking_plan`, `dhr_expected_parts`, `dhr_scan_results`, `dhr_scan_result_events`, `inventory_operations`, `sap_staging`, and `error_queue`; the trailing-space stock UUID is also not referenced by `dhr_scan_results.stock_id`. Historical `audit_log` rows are intentionally preserved unchanged.
+
+The existing production containment index remains `stock_part_number_canonical_unique_except_legacy_j32133`, with canonical rule `UPPER(BTRIM(part_number))`; the canonical guard trigger rejects any new canonical duplicate. The #86 reconciliation migration therefore may safely choose the raw `J32133` row as survivor only if the trailing duplicate is still zero-QOH and all active references remain absent at transaction time. Any changed evidence must abort the migration rather than guess.
 
 ## Active workstream coordination
 
-This SAP slice intentionally avoids `src/hooks/useConvexData.tsx` because open PR #186 owns shared refresh/concurrency scheduling. It also avoids REM, DHR, Incoming Stock, Settings, and generated Convex API files touched by active PRs.
+The J32133 reconciliation slice is database-only plus focused regression evidence. It does not modify browser UI, DHR/REM/Incoming Stock behavior, SAP posting, Convex authorization, or the shared refresh/concurrency provider. It removes the last intentional exception from canonical stock uniqueness only after transaction-time assertions pass.
 
-## Required gate for this slice
+## Required gates for J32133 reconciliation
 
-- Persist Ready/Exported state through authenticated server-authoritative actions.
-- Derive actor server-side.
-- Make batch status transition atomic and idempotent.
-- Preserve immutable status history.
-- Preserve the existing SAP staging visual identity and synchronized table behavior.
-- Do not post to SAP.
-- Exact-head CI/preview and independent exact-head verifier are required before merge.
+- Exact-head normal CI and focused canonical-reconciliation security check.
+- Transactional forced-rollback verification against current production schema/data; no persisted business change during pre-merge verification.
+- Exact-head READY Vercel preview when quota permits.
+- Independent exact-head verifier PASS before merge.
+- Only after merge/review: apply the migration once, confirm one canonical J32133 row remains with unchanged physical QOH, immutable history remains queryable, and unconditional canonical uniqueness is active.
+- No production SAP posting.
