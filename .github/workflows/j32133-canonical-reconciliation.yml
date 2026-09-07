@@ -1,0 +1,26 @@
+name: J32133 Canonical Reconciliation
+
+on:
+  pull_request:
+    paths:
+      - "database/migrations/20260907_reconcile_j32133_canonical_duplicate.sql"
+      - "scripts/j32133-canonical-reconciliation-check.mjs"
+      - ".github/workflows/j32133-canonical-reconciliation.yml"
+      - "docs/REBUILD_AUDIT.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-reconciliation-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify fail-closed reconciliation contract
+        run: node scripts/j32133-canonical-reconciliation-check.mjs
+      - name: Diff whitespace check
+        run: git diff --check HEAD^ HEAD
