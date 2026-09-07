@@ -72,6 +72,7 @@ for flag in --dir --auto --format --agent; do
 done
 
 python3 "$ROOT/bridge/test_verifier_runner.py"
+python3 "$ROOT/bridge/test_verifier_gate_runner.py"
 
 # Write only non-secret bridge defaults when an env file does not yet exist.
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -95,7 +96,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$ROOT
 EnvironmentFile=-$ENV_FILE
-ExecStart=/usr/bin/env python3 $ROOT/bridge/verifier_runner.py
+ExecStart=/usr/bin/env python3 $ROOT/bridge/verifier_gate_runner.py
 Restart=on-failure
 RestartSec=30
 NoNewPrivileges=true

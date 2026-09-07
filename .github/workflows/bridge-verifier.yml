@@ -21,14 +21,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Python syntax
-        run: python3 -m py_compile bridge/verifier_runner.py bridge/test_verifier_runner.py
+        run: python3 -m py_compile bridge/verifier_runner.py bridge/verifier_gate_runner.py bridge/test_verifier_runner.py bridge/test_verifier_gate_runner.py
       - name: Verifier runner tests
-        run: python3 -m unittest bridge/test_verifier_runner.py
+        run: python3 -m unittest bridge/test_verifier_runner.py bridge/test_verifier_gate_runner.py
       - name: Shell syntax
         run: bash -n bridge/install_verifier.sh bridge/uninstall.sh bridge/install.sh
-      - name: Verifier isolation policy
+      - name: Verifier isolation and deployment-evidence policy
         run: |
           grep -q 'exact_ci_evidence' bridge/verifier_runner.py
+          grep -q 'exact_ci_and_vercel_evidence' bridge/verifier_gate_runner.py
+          grep -q 'commits/{target_sha}/status' bridge/verifier_gate_runner.py
+          grep -q 'Exact-head Vercel preview is not READY' bridge/verifier_gate_runner.py
+          grep -q 'verifier_gate_runner.py' bridge/install_verifier.sh
           grep -q '"clone", "--no-checkout", "--no-local"' bridge/verifier_runner.py
           grep -q '"remote", "remove", "origin"' bridge/verifier_runner.py
           grep -q "root / 'bridge' / 'safe-bin'" bridge/verifier_runner.py
