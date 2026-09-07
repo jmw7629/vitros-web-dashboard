@@ -17,10 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Verify fail-closed reconciliation contract
         run: node scripts/j32133-canonical-reconciliation-check.mjs
       - name: Diff whitespace check
-        run: git diff --check HEAD^ HEAD
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
