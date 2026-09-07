@@ -94,6 +94,37 @@ def sanitize(value: str) -> str:
     return text[-6000:]
 
 
+def opencode_failure_reason(proc: subprocess.CompletedProcess[str]) -> str:
+    """Return a bounded, sanitized diagnostic without reflecting provider payloads wholesale."""
+    detail = sanitize(proc.stderr or "").strip()
+    if not detail:
+        for line in reversed((proc.stdout or "").splitlines()[-50:]):
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            error = payload.get("error") if isinstance(payload, dict) else None
+            data = error.get("data") if isinstance(error, dict) else None
+            message = data.get("message") if isinstance(data, dict) else None
+            if not message and isinstance(error, dict):
+                message = error.get("message")
+            if isinstance(message, str) and message.strip():
+                detail = sanitize(message).strip()
+                break
+    if not detail:
+        detail = sanitize(proc.stdout or "").strip()
+    detail = re.sub(
+        r"https://opencode\.ai/workspace/[^/\s]+/billing",
+        "OpenCode billing page",
+        detail,
+        flags=re.IGNORECASE,
+    )
+    detail = " ".join(detail.split())
+    if not detail:
+        detail = "no diagnostic output"
+    return f"OpenCode exited with code {proc.returncode}: {detail[:760]}"[:900]
+
+
 def repo_key(repo: str) -> str:
     return repo.replace("/", "__")
 
@@ -523,7 +554,7 @@ def execute_task(
         elif dirty:
             status, reason = "FAIL", "Verifier mutated tracked/unignored files; sandbox was discarded."
         elif proc.returncode != 0:
-            status, reason = "BLOCKED", f"OpenCode exited with code {proc.returncode}."
+            status, reason = "BLOCKED", opencode_failure_reason(proc)
         else:
             status, reason = extract_terminal(proc.stdout or "", proc.stderr or "", target_sha, nonce)
 

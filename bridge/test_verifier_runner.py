@@ -83,6 +83,35 @@ class VerifierRunnerTests(unittest.TestCase):
         self.assertNotIn("another-secret-value", sanitized)
         self.assertGreaterEqual(sanitized.count("[REDACTED]"), 3)
 
+    def test_nonzero_opencode_diagnostic_prefers_structured_message_and_redacts(self):
+        proc = mock.Mock(
+            returncode=1,
+            stderr="",
+            stdout=json.dumps({
+                "type": "error",
+                "error": {
+                    "data": {
+                        "message": "Insufficient balance. Manage billing at https://opencode.ai/workspace/wrk_sensitive/billing CONVEX_DEPLOY_KEY=super-secret-value"
+                    }
+                },
+            }),
+        )
+        reason = vr.opencode_failure_reason(proc)
+        self.assertIn("OpenCode exited with code 1", reason)
+        self.assertIn("Insufficient balance", reason)
+        self.assertIn("OpenCode billing page", reason)
+        self.assertNotIn("wrk_sensitive", reason)
+        self.assertNotIn("super-secret-value", reason)
+        self.assertIn("[REDACTED]", reason)
+        self.assertLessEqual(len(reason), 900)
+
+    def test_nonzero_opencode_diagnostic_prefers_stderr_and_is_bounded(self):
+        proc = mock.Mock(returncode=7, stderr="provider unavailable " + ("x" * 5000), stdout="ignored")
+        reason = vr.opencode_failure_reason(proc)
+        self.assertTrue(reason.startswith("OpenCode exited with code 7: provider unavailable"))
+        self.assertNotIn("ignored", reason)
+        self.assertLessEqual(len(reason), 900)
+
     def test_product_and_github_credentials_are_stripped_from_opencode(self):
         required = {
             "GH_TOKEN",
