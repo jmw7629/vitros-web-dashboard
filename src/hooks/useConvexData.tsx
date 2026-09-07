@@ -311,6 +311,21 @@ function mapUserToEmployee(row: any): Employee {
   };
 }
 
+function mapKit(row: any): Kit {
+  return {
+    _id: String(row.id || ""),
+    kitId: String(row.kit_id || row.base_part_number || row.id || ""),
+    name: String(row.name || ""),
+    basePartNumber: String(row.base_part_number || ""),
+    revision: String(row.revision || "1"),
+    components: (Array.isArray(row.components) ? row.components : []).map((component: any) => ({
+      partNumber: String(component.partNumber ?? component.part_number ?? ""),
+      description: String(component.description ?? ""),
+      qtyRequired: Number(component.qtyRequired ?? component.qty_required ?? component.qty ?? 0),
+    })),
+  };
+}
+
 // ─── Data Context ───
 
 interface ConvexData {
@@ -387,6 +402,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexListAuditLog = useAction(api.supabaseGateway.listAuditLog);
   const convexListSapStaging = useAction(api.supabaseGateway.listSapStaging);
   const convexListUsers = useAction(api.supabaseGateway.listUsers);
+  const convexListKits = useAction(api.supabaseGateway.listKits);
   const convexListSettings = useAction(api.supabaseGateway.listSettings);
 
   const performLoadAll = useCallback(async () => {
@@ -400,6 +416,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       let auditRows: any[] = [];
       let sapRows: any[] = [];
       let userRows: any[] = [];
+      let kitRows: any[] = [];
       let settingsRows: any[] = [];
 
       try {
@@ -422,11 +439,20 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         userRows = [];
       }
 
+      // Kits are business configuration and must also stay behind authenticated server authority.
+      // There is deliberately no anonymous browser fallback for this read.
+      try {
+        kitRows = await convexListKits();
+      } catch {
+        kitRows = [];
+      }
+
       if (!mountedRef.current) return;
 
       const mappedParts = stockRows.map(mapStockToPart);
       const mappedTx = auditRows.map(mapAuditToTransaction);
       const mappedEmployees = userRows.map(mapUserToEmployee);
+      const mappedKits = kitRows.map(mapKit);
       const mappedSettings: AppSetting[] = (settingsRows || []).map((s: any) => ({
         _id: s.id || s.key,
         key: s.key,
@@ -452,44 +478,9 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       setParts(mappedParts);
       setTransactions(mappedTx);
       setSapRecords(mappedSap);
-      setSettings(mappedSettings);
-
-      // ─── Employees & Kits from Convex production backend ───
-      const [convexEmployees, convexKits] = await Promise.all([
-        safeConvexQuery<any[]>(CONVEX_URL, "employees:list", []),
-        safeConvexQuery<any[]>(CONVEX_URL, "kits:list", []),
-      ]);
-
-      if (!mountedRef.current) return;
-
-      if (convexEmployees.length > 0) {
-        const mapped: Employee[] = convexEmployees.map((e: any) => ({
-          _id: e._id,
-          name: e.name || "",
-          initials: e.initials || e.name?.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 3) || "",
-          email: e.email || undefined,
-          active: e.active ?? true,
-          createdAt: e.createdAt || e._creationTime || Date.now(),
-          role: e.role || "engineer",
-        }));
-        setEmployees(mapped);
-      } else {
-        setEmployees(mappedEmployees);
-      }
-
-      const mappedKits: Kit[] = convexKits.map((k: any) => ({
-        _id: k._id,
-        kitId: k.basePartNumber || k._id,
-        name: k.name || "",
-        basePartNumber: k.basePartNumber || "",
-        revision: k.revision || "1",
-        components: (k.components || []).map((c: any) => ({
-          partNumber: c.partNumber || "",
-          description: c.description || "",
-          qtyRequired: c.qtyRequired || 0,
-        })),
-      }));
+      setEmployees(mappedEmployees);
       setKits(mappedKits);
+      setSettings(mappedSettings);
       setCycleSchedules([]);
       setCycleResults([]);
       setBatches([]);
@@ -526,7 +517,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       hasLoadedOnce.current = true;
       setIsLoading(false);
     }
-  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListSettings]);
+  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListKits, convexListSettings]);
 
   performLoadAllRef.current = performLoadAll;
   if (refreshRunnerRef.current === null) {
