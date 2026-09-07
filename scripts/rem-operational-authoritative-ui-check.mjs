@@ -45,6 +45,8 @@ requireText(action, /requireCapability\(ctx,\s*"rem\.write"\)/, "server rem.writ
 requireText(action, /SUPABASE_SERVICE_ROLE_KEY/, "server-only service role configuration");
 requireText(action, /apply_rem_analyzer_operational_update/, "authoritative REM RPC call");
 requireText(action, /p_actor:\s*String\(userId\)/, "server-derived actor");
+requireText(action, /publishRealtimePulse/, "post-commit realtime invalidation publisher");
+requireText(action, /const payload = await response\.json\(\);[\s\S]*await publishRealtimePulse\(ctx\);[\s\S]*return payload/, "REM operational pulse after committed RPC receipt");
 rejectText(action, /VITE_.*SERVICE|args\.(?:actor|role|userName)/, "browser/caller supplied authority");
 
 requireText(migration, /security definer/i, "SECURITY DEFINER RPC");

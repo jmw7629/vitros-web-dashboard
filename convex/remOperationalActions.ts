@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { requireCapability } from "./authGuard";
+import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -123,6 +124,7 @@ export const updateAnalyzerOperational = action({
 
     const payload = await response.json();
     if (!payload || typeof payload !== "object") throw new Error("REM analyzer update returned an invalid receipt");
+    await publishRealtimePulse(ctx);
     return payload;
   },
 });
