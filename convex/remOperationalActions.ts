@@ -35,6 +35,38 @@ function cleanNotes(value: string | undefined) {
   return notes;
 }
 
+export const getAnalyzerOperational = action({
+  args: { analyzerId: v.string() },
+  returns: v.object({
+    analyzerId: v.string(),
+    currentStage: v.string(),
+    notes: v.string(),
+    isComplete: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    await requireCapability(ctx, "rem.read");
+    assertUuid(args.analyzerId, "REM analyzer id");
+    const { url, serviceKey } = getSupabaseConfig();
+    const response = await fetch(`${url}/rest/v1/rem_analyzers?id=eq.${encodeURIComponent(args.analyzerId)}&select=*`, {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        Accept: "application/json",
+      },
+    });
+    if (!response.ok) throw new Error(`REM analyzer operational read failed (${response.status})`);
+    const payload = await response.json();
+    if (!Array.isArray(payload) || payload.length !== 1) throw new Error("REM analyzer not found");
+    const row = payload[0] as Record<string, unknown>;
+    return {
+      analyzerId: String(row.id ?? ""),
+      currentStage: String(row.current_stage ?? ""),
+      notes: String(row.operator_notes ?? ""),
+      isComplete: row.is_complete === true,
+    };
+  },
+});
+
 export const updateAnalyzerOperational = action({
   args: {
     analyzerId: v.string(),
