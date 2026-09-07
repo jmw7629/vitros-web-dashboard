@@ -69,6 +69,11 @@ begin
   limit 1;
 
   if found then
+    if coalesce(v_audit.user_name, '') <> btrim(p_actor)
+       or coalesce(v_audit.new_value->>'stage', '') <> btrim(p_stage)
+       or coalesce(v_audit.new_value->>'notes', '') <> coalesce(v_notes, '') then
+      raise exception 'REM idempotency conflict';
+    end if;
     return jsonb_build_object(
       'success', true,
       'duplicate', true,
