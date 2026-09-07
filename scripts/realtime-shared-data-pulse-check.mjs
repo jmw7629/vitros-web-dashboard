@@ -34,6 +34,7 @@ for (const file of [
   "convex/incomingStockActions.ts",
   "convex/sapStagingWorkflow.ts",
   "convex/remWorkbookActions.ts",
+  "convex/adminSettingsActions.ts",
 ]) {
   requireText(file, 'import { publishRealtimePulse } from "./realtimePulsePublisher";', `publisher import ${file}`);
   requireText(file, "await publishRealtimePulse(ctx);", `post-commit pulse ${file}`);
@@ -64,6 +65,7 @@ console.log("REALTIME_SHARED_DATA_PULSE=PASS");
 console.log("AUTHENTICATED_SIGNAL_WATCH=PASS");
 console.log("SERVER_ONLY_SIGNAL_BUMP=PASS");
 console.log("POST_COMMIT_SIGNALING=PASS");
+console.log("ENTERPRISE_SETTINGS_SIGNALING=PASS");
 console.log("SIGNAL_FAILURE_FALLBACK_SAFE=PASS");
 console.log("THIRTY_CLIENT_SIGNAL_JITTER_P95_LE_240MS=PASS");
 console.log("REALTIME_PROPAGATION_P95_LE_2S=REQUIRES_LIVE_PRODUCTION_ACCEPTANCE");
