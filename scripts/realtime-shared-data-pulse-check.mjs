@@ -28,6 +28,19 @@ requireText("src/components/RealtimeRefreshBridge.tsx", "REALTIME_REFRESH_MAX_MS
 requireText("src/components/RealtimeRefreshBridge.tsx", "refreshTimerRef.current !== null", "pulse coalescing");
 requireText("src/main.tsx", "<RealtimeRefreshBridge />", "bridge mounted inside Convex auth provider");
 
+// DHR scan results are component-local rather than owned by useConvexData, so the
+// active checklist must subscribe to the same payload-free pulse directly. These
+// assertions prevent a regression back to polling-only cross-client DHR updates.
+requireText("src/pages/inventory/DhrScanner.tsx", "useConvexAuth", "DHR authenticated realtime gate");
+requireText("src/pages/inventory/DhrScanner.tsx", "api.realtimePulse.watch", "DHR realtime subscription");
+requireText("src/pages/inventory/DhrScanner.tsx", 'isAuthenticated ? {} : "skip"', "DHR unauthenticated subscription skip");
+requireText("src/pages/inventory/DhrScanner.tsx", "sessionRefreshSequence", "DHR stale-read sequence guard");
+requireText("src/pages/inventory/DhrScanner.tsx", "40 + Math.floor(Math.random() * 201)", "DHR 40-240ms realtime jitter");
+requireText("src/pages/inventory/DhrScanner.tsx", "10000 + Math.random() * 5000", "DHR bounded polling backstop");
+requireText("src/pages/inventory/DhrScanner.tsx", "await refreshSessionResults(activeSession.id)", "DHR own-write immediate result refresh");
+forbidText("src/pages/inventory/DhrScanner.tsx", "SUPABASE_SERVICE_ROLE_KEY", "DHR browser service credential isolation");
+forbidText("src/pages/inventory/DhrScanner.tsx", "SUPABASE_URL", "DHR browser direct privileged Supabase isolation");
+
 for (const file of [
   "convex/inventoryActions.ts",
   "convex/dhrInventoryActions.ts",
@@ -66,6 +79,8 @@ console.log("AUTHENTICATED_SIGNAL_WATCH=PASS");
 console.log("SERVER_ONLY_SIGNAL_BUMP=PASS");
 console.log("POST_COMMIT_SIGNALING=PASS");
 console.log("ENTERPRISE_SETTINGS_SIGNALING=PASS");
+console.log("DHR_LOCAL_RESULTS_REALTIME_INVALIDATION=PASS");
+console.log("DHR_STALE_READ_GUARD=PASS");
 console.log("SIGNAL_FAILURE_FALLBACK_SAFE=PASS");
 console.log("THIRTY_CLIENT_SIGNAL_JITTER_P95_LE_240MS=PASS");
 console.log("REALTIME_PROPAGATION_P95_LE_2S=REQUIRES_LIVE_PRODUCTION_ACCEPTANCE");
