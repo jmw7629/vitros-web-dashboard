@@ -93,6 +93,19 @@ export const listUsers = action({
   },
 });
 
+export const listKits = action({
+  args: {}, returns: v.any(),
+  handler: async (ctx) => {
+    await requireCapability(ctx, "inventory.read");
+    const { url, serviceKey } = getSupabaseConfig();
+    return sbFetch<any[]>(
+      serviceKey,
+      url,
+      "kits?select=id,kit_id,name,base_part_number,revision,components,active&order=name.asc",
+    );
+  },
+});
+
 export const listSettings = action({
   args: {}, returns: v.any(),
   handler: async (ctx) => {
