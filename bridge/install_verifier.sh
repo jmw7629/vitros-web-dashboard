@@ -113,6 +113,29 @@ fi
 verifier_render_unit "$VERIFIER_CONTROL_ROOT" "$ENV_FILE" "$HOME" > "$SERVICE_FILE"
 
 systemctl --user daemon-reload
+
+# Verify effective unit after daemon-reload: check that no systemd user drop-in
+# overrides the reviewed control root's WorkingDirectory or ExecStart. Fail
+# closed before any start/enable action if an override is detected.
+EFFECTIVE_UNIT="$(systemctl --user cat vitros-opencode-verifier.service 2>/dev/null || true)"
+
+if [[ -n "$EFFECTIVE_UNIT" ]]; then
+  EFFECTIVE_WORKDIR="$(echo "$EFFECTIVE_UNIT" | grep '^WorkingDirectory=' | head -1 | cut -d= -f2- || true)"
+  EFFECTIVE_EXECSTART="$(echo "$EFFECTIVE_UNIT" | grep '^ExecStart=' | head -1 | cut -d= -f2- || true)"
+
+  EXPECTED_WORKDIR="$VERIFIER_CONTROL_ROOT"
+  EXPECTED_EXECSTART="/usr/bin/env python3 $VERIFIER_CONTROL_ROOT/bridge/verifier_gate_runner.py --root $VERIFIER_CONTROL_ROOT"
+
+  if [[ "$EFFECTIVE_WORKDIR" != "$EXPECTED_WORKDIR" ]]; then
+    DROP_IN_PATHS="$(systemctl --user show vitros-opencode-verifier.service --property=DropInPaths 2>/dev/null | tail -n +2 || true)"
+    fail_closed "Effective WorkingDirectory mismatch: expected $EXPECTED_WORKDIR, got $EFFECTIVE_WORKDIR. Conflicting drop-in(s): $DROP_IN_PATHS. Installer aborted to prevent running verifier with overridden control root."
+  fi
+
+  if [[ "$EFFECTIVE_EXECSTART" != "$EXPECTED_EXECSTART" ]]; then
+    fail_closed "Effective ExecStart mismatch: expected $EXPECTED_EXECSTART, got $EFFECTIVE_EXECSTART. Installer aborted to prevent running verifier with overridden ExecStart."
+  fi
+fi
+
 systemctl --user enable --now vitros-opencode-verifier.service
 
 systemctl --user --no-pager --full status vitros-opencode-verifier.service || true
