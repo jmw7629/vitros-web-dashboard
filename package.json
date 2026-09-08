@@ -24,8 +24,8 @@
     "env:list": "bunx convex env list"
   },
   "dependencies": {
-    "@auth/core": "^0.37.4",
-    "@convex-dev/auth": "^0.0.90",
+    "@auth/core": "^0.41.3",
+    "@convex-dev/auth": "^0.0.95",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -67,7 +67,7 @@
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.64.0",
     "react-resizable-panels": "^3.0.6",
-    "react-router-dom": "^7.11.0",
+    "react-router-dom": "^7.18.3",
     "recharts": "^2.15.2",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1",
