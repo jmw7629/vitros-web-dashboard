@@ -113,6 +113,13 @@ fi
 verifier_render_unit "$VERIFIER_CONTROL_ROOT" "$ENV_FILE" "$HOME" > "$SERVICE_FILE"
 
 systemctl --user daemon-reload
+
+# Inspect effective systemd properties; fail closed before any enable/start/restart
+if ! verifier_inspect_unit "$VERIFIER_CONTROL_ROOT"; then
+  echo "Verifier unit effective-property inspection failed; failing closed; no enable/start/restart." >&2
+  exit 1
+fi
+
 systemctl --user enable --now vitros-opencode-verifier.service
 
 systemctl --user --no-pager --full status vitros-opencode-verifier.service || true

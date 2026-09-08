@@ -150,3 +150,68 @@ UMask=0077
 WantedBy=default.target
 EOF
 }
+
+verifier_inspect_unit() {
+  local control_root="$1"
+
+  # Read effective WorkingDirectory from systemd after daemon-reload
+  local wd_output
+  wd_output="$(systemctl --user show vitros-opencode-verifier.service --property=WorkingDirectory 2>/dev/null)" || true
+  # Output may be "WorkingDirectory=/path" or just "/path"; strip prefix if present
+  local effective_wd
+  effective_wd="$(echo "$wd_output" | grep -oP '^\K.*' 2>/dev/null || echo "$wd_output" | sed 's/^WorkingDirectory=//' | sed 's/^=//')"
+  effective_wd="$(echo "$effective_wd" | xargs)"
+
+  # Fail closed if cannot read effective WorkingDirectory
+  if [[ -z "$effective_wd" ]]; then
+    verifier_fail "Cannot read effective WorkingDirectory from systemd after daemon-reload"
+    return 1
+  fi
+
+  # Verify WorkingDirectory matches expected control root exactly
+  if [[ "$effective_wd" != "$control_root" ]]; then
+    verifier_fail "Effective WorkingDirectory is '$effective_wd', expected '$control_root'"
+    return 1
+  fi
+
+  # Read effective ExecStart from systemd after daemon-reload
+  local es_output
+  es_output="$(systemctl --user show vitros-opencode-verifier.service --property=ExecStart 2>/dev/null)" || true
+  local effective_es
+  effective_es="$(echo "$es_output" | grep -oP '^\K.*' 2>/dev/null || echo "$es_output" | sed 's/^ExecStart=//' | sed 's/^=//')"
+  effective_es="$(echo "$effective_es" | xargs)"
+
+  # Fail closed if cannot read effective ExecStart
+  if [[ -z "$effective_es" ]]; then
+    verifier_fail "Cannot read effective ExecStart from systemd after daemon-reload"
+    return 1
+  fi
+
+  # Verify ExecStart has expected argv semantics:
+  # /usr/bin/env python3 <control>/bridge/verifier_gate_runner.py --root <control>
+  local expected_exec="/usr/bin/env python3 $control_root/bridge/verifier_gate_runner.py --root $control_root"
+
+  # Check the effective ExecStart starts with /usr/bin/env python3
+  if [[ "$effective_es" != "/usr/bin/env python3 "* ]]; then
+    verifier_fail "Effective ExecStart does not start with /usr/bin/env python3: $effective_es"
+    return 1
+  fi
+
+  # Check the effective ExecStart matches exactly the expected command
+  if [[ "$effective_es" != "$expected_exec" ]]; then
+    verifier_fail "Effective ExecStart mismatch: '$effective_es' != '$expected_exec'"
+    return 1
+  fi
+
+  # Report DropInPaths if present - print only paths, never dump Environment,
+  # EnvironmentFile, secret values, or arbitrary unit contents
+  local dropin_output
+  dropin_output="$(systemctl --user show vitros-opencode-verifier.service --property=DropInPaths 2>/dev/null)" || true
+  if [[ -n "$dropin_output" ]]; then
+    # Extract just the path value, strip "DropInPaths=" prefix if present
+    echo "$dropin_output" | sed 's/^DropInPaths=//'
+  fi
+
+  echo "EFFECTIVE_UNIT_VERIFIED=PASS"
+  return 0
+}
