@@ -150,3 +150,43 @@ UMask=0077
 WantedBy=default.target
 EOF
 }
+
+verifier_validate_effective_unit_properties() {
+  local control_root="$1"
+  local service_name="$2"
+
+  # Validate effective WorkingDirectory
+  local working_dir
+  working_dir="$(systemctl --user show "$service_name" --property=WorkingDirectory --value --no-pager 2>/dev/null || true)"
+
+  # Command failure, empty output, or mismatch from expected control root => FAIL
+  if [[ -z "$working_dir" ]] || [[ "$working_dir" != "$control_root" ]]; then
+    verifier_fail "Effective WorkingDirectory invariant failed; failing closed."
+  fi
+
+  # Validate effective ExecStart
+  local exec_start
+  exec_start="$(systemctl --user show "$service_name" --property=ExecStart --value --no-pager 2>/dev/null || true)"
+
+  # Command failure or empty output => FAIL
+  if [[ -z "$exec_start" ]]; then
+    verifier_fail "Effective ExecStart invariant failed; failing closed."
+  fi
+
+  # Parse structured property deterministically
+  local exec_path exec_args
+  exec_path="${exec_start%% *}"
+  exec_args="${exec_start#* }"
+
+  # Require path=/usr/bin/env
+  if [[ "$exec_path" != "/usr/bin/env" ]]; then
+    verifier_fail "Effective ExecStart path invariant failed; failing closed."
+  fi
+
+  # Require exact argv: /usr/bin/env python3 <control>/bridge/verifier_gate_runner.py --root <control>
+  local expected_args="/usr/bin/env python3 ${control_root}/bridge/verifier_gate_runner.py --root ${control_root}"
+
+  if [[ "$exec_args" != "$expected_args" ]]; then
+    verifier_fail "Effective ExecStart argv invariant failed; failing closed."
+  fi
+}
