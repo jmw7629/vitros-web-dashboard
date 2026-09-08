@@ -31,7 +31,7 @@ HELPERS="$ROOT/bridge/verifier_install_helpers.sh"
 source "$HELPERS"
 
 verifier_validate_source_checkout "$ROOT" || exit 1
-REMOTE="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+REMOTE="$(git -C "$ROOT" config --get remote.origin.url 2>/dev/null || true)"
 SOURCE_HEAD="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
 
 CONFIG_DIR="$HOME/.config/joeos-opencode-bridge"

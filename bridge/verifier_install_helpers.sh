@@ -36,7 +36,7 @@ verifier_validate_source_checkout() {
   verifier_checkout_clean "$path" || \
     verifier_fail "Control checkout must be clean before installing verifier service; preserving it byte-for-byte and failing closed." || return 1
   local remote head
-  remote="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
+  remote="$(git -C "$path" config --get remote.origin.url 2>/dev/null || true)"
   verifier_repo_identity_ok "$remote" || verifier_fail "Unexpected source origin; verifier installation refused." || return 1
   head="$(verifier_checkout_head "$path" || true)"
   [[ "$head" =~ ^[0-9a-fA-F]{40}$ ]] || verifier_fail "Cannot resolve exact installer source HEAD." || return 1
@@ -50,7 +50,7 @@ verifier_validate_existing_control() {
   verifier_checkout_clean "$path" || \
     verifier_fail "Verifier control checkout is dirty; preserving it byte-for-byte and failing closed: $path" || return 1
   local remote
-  remote="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
+  remote="$(git -C "$path" config --get remote.origin.url 2>/dev/null || true)"
   verifier_repo_identity_ok "$remote" || \
     verifier_fail "Verifier control checkout has an unexpected origin; preserving it byte-for-byte and failing closed: $path" || return 1
 }
@@ -85,7 +85,7 @@ verifier_provision_control() {
 
   local actual_head actual_remote
   actual_head="$(verifier_checkout_head "$target" || true)"
-  actual_remote="$(git -C "$target" remote get-url origin 2>/dev/null || true)"
+  actual_remote="$(git -C "$target" config --get remote.origin.url 2>/dev/null || true)"
   [[ "$actual_head" == "$source_head" ]] || \
     verifier_fail "Dedicated verifier checkout HEAD mismatch after provisioning; installation failed closed at $target." || return 1
   verifier_repo_identity_ok "$actual_remote" || \
