@@ -162,7 +162,7 @@ const mergeReview = (
       id: existing?.id ?? makeId("incoming-line"),
       // confirmationId is now a presentation key only; deterministic identity comes from server
       confirmationId: row.deterministicIdentity ?? existing?.confirmationId ?? makeId("confirm"),
-      sourceLineNo: row.lineNo || index + 1,
+      sourceLineNo: row.sourceLineNo || index + 1,
       partNumber: row.resolvedPartNumber ?? row.partNumberOcr,
       description: row.stockDescription ?? row.descriptionOcr,
       qty: row.qtyOcr ?? 0,
@@ -180,10 +180,15 @@ const mergeReview = (
     };
   });
 
-  const serverReview = async (draft: Array<Record<string, unknown>>, existing?: IncomingLine) => {
+  const serverReview = async (
+    draft: Array<Record<string, unknown>>,
+    existing?: IncomingLine,
+    documentRefOverride?: string,
+  ) => {
+    const effectiveDocumentRef = (documentRefOverride ?? documentRef).trim();
     const review = await reviewPackingListDraft({
       ocrJson: JSON.stringify(draft),
-      documentRef: documentRef.trim() || undefined,
+      documentRef: effectiveDocumentRef || undefined,
     }) as unknown as ReviewResponse;
     if (!existing) {
       setReview(review);
@@ -206,10 +211,13 @@ const mergeReview = (
 
       const firstRef = draft.find((row) => typeof row.documentRef === "string" && row.documentRef.trim())?.documentRef;
       const firstPo = draft.find((row) => typeof row.poNumber === "string" && row.poNumber.trim())?.poNumber;
-      if (!documentRef && typeof firstRef === "string") setDocumentRef(firstRef.trim());
-      else if (!documentRef && typeof firstPo === "string") setDocumentRef(firstPo.trim());
+      const effectiveRef = documentRef.trim()
+        || (typeof firstRef === "string" ? firstRef.trim() : "")
+        || (typeof firstPo === "string" ? firstPo.trim() : "");
+      const boundedEffectiveRef = effectiveRef.slice(0, 200);
+      if (!documentRef && boundedEffectiveRef) setDocumentRef(boundedEffectiveRef);
 
-      const reviewed = await serverReview(draft);
+      const reviewed = await serverReview(draft, undefined, boundedEffectiveRef);
       setLines((previous) => [...previous, ...reviewed]);
       const matched = reviewed.filter((line) => line.matchStatus === "matched").length;
       setStatus(`Reviewed ${reviewed.length} line${reviewed.length === 1 ? "" : "s"}: ${matched} exact part-number match${matched === 1 ? "" : "es"}. Human confirmation is required before inventory changes.`);
@@ -259,7 +267,13 @@ const mergeReview = (
   const reReviewLine = async (line: IncomingLine) => {
     setBusy(true);
     try {
-      const draft = [{ partNumber: line.partNumber, description: line.description, qty: line.qty }];
+      const draft = [{
+        partNumber: line.partNumber,
+        description: line.description,
+        qty: line.qty,
+        page: line.sourcePage,
+        lineNo: line.sourceLineNo,
+      }];
       const [reviewed] = await serverReview(draft, line);
       setLines((previous) => previous.map((candidate) => candidate.id === line.id ? reviewed : candidate));
       setStatus(reviewed.matchStatus === "matched"
