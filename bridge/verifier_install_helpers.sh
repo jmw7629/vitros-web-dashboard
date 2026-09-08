@@ -10,7 +10,14 @@ verifier_fail() {
 
 verifier_repo_identity_ok() {
   local remote="${1:-}"
-  [[ "$remote" == *"jmw7629/vitros-web-dashboard"* ]]
+  case "$remote" in
+    https://github.com/jmw7629/vitros-web-dashboard|https://github.com/jmw7629/vitros-web-dashboard.git|git@github.com:jmw7629/vitros-web-dashboard|git@github.com:jmw7629/vitros-web-dashboard.git|ssh://git@github.com/jmw7629/vitros-web-dashboard|ssh://git@github.com/jmw7629/vitros-web-dashboard.git)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 verifier_checkout_head() {
@@ -19,6 +26,20 @@ verifier_checkout_head() {
 
 verifier_checkout_clean() {
   [[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=all 2>/dev/null)" ]]
+}
+
+verifier_validate_source_checkout() {
+  local path="$1"
+  [[ -d "$path" ]] || verifier_fail "Installer source path is not a directory." || return 1
+  [[ "$(git -C "$path" rev-parse --is-inside-work-tree 2>/dev/null || true)" == "true" ]] || \
+    verifier_fail "Installer source is not a Git checkout." || return 1
+  verifier_checkout_clean "$path" || \
+    verifier_fail "Control checkout must be clean before installing verifier service; preserving it byte-for-byte and failing closed." || return 1
+  local remote head
+  remote="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
+  verifier_repo_identity_ok "$remote" || verifier_fail "Unexpected source origin; verifier installation refused." || return 1
+  head="$(verifier_checkout_head "$path" || true)"
+  [[ "$head" =~ ^[0-9a-fA-F]{40}$ ]] || verifier_fail "Cannot resolve exact installer source HEAD." || return 1
 }
 
 verifier_validate_existing_control() {
@@ -34,6 +55,15 @@ verifier_validate_existing_control() {
     verifier_fail "Verifier control checkout has an unexpected origin; preserving it byte-for-byte and failing closed: $path" || return 1
 }
 
+verifier_target_available_for_clone() {
+  local target="$1"
+  if [[ ! -e "$target" ]]; then
+    return 0
+  fi
+  [[ -d "$target" ]] || return 1
+  [[ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]
+}
+
 verifier_provision_control() {
   local remote="$1"
   local target="$2"
@@ -41,7 +71,7 @@ verifier_provision_control() {
 
   [[ "$source_head" =~ ^[0-9a-fA-F]{40}$ ]] || verifier_fail "Source HEAD is not a full 40-character SHA." || return 1
   verifier_repo_identity_ok "$remote" || verifier_fail "Unexpected source origin; verifier provisioning refused." || return 1
-  [[ ! -e "$target" ]] || verifier_fail "Refusing to provision over an existing path: $target" || return 1
+  verifier_target_available_for_clone "$target" || verifier_fail "Refusing to provision over an existing non-empty path: $target" || return 1
 
   mkdir -p "$(dirname "$target")"
   git clone --quiet --no-checkout -- "$remote" "$target" || \
@@ -77,8 +107,8 @@ verifier_select_control_root() {
     # Preserve the existing clean-but-mismatched checkout. Provision a new unique
     # sibling pinned to the installer source HEAD instead of resetting/replacing it.
     local unique_root
-    unique_root="$(mktemp -u "${default_root}-installer-XXXXXXXX")"
-    [[ ! -e "$unique_root" ]] || verifier_fail "Could not allocate a unique verifier control path." || return 1
+    unique_root="$(mktemp -d "${default_root}-installer-XXXXXXXX")" || \
+      verifier_fail "Could not allocate a unique verifier control path." || return 1
     verifier_provision_control "$remote" "$unique_root" "$source_head" || return 1
     printf '%s\n' "$unique_root"
     return 0
