@@ -1,6 +1,8 @@
 // Server-authoritative Incoming Stock OCR review + confirmed RECEIVE boundary.
 // OCR matching is canonical part-number only; inventory mutation is allowed only after an
 // explicit human-confirmed line is submitted through the atomic inventory transition RPC.
+// Deterministic receipt-line identity: documentRef + sourcePage + sourceLineNo (normalized).
+// Random confirmation IDs are presentation keys only; they are not authoritative for idempotency.
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
@@ -12,6 +14,7 @@ const MAX_OCR_JSON_CHARS = 256_000;
 const MAX_LINES = 500;
 const MAX_DOCUMENT_REF_CHARS = 200;
 const MAX_CONFIRMATION_ID_CHARS = 180;
+const MAX_SOURCE_PAGE_CHARS = 50;
 
 type StockRow = {
   id: string;
@@ -27,8 +30,27 @@ type MatchStatus =
   | "invalid_part_number"
   | "invalid_quantity";
 
-function canonicalPartNumber(value: string): string {
+export function canonicalPartNumber(value: string): string {
   return value.trim().toUpperCase();
+}
+
+export function normalizeDocumentRef(value: string): string {
+  return value.trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+export function normalizeSourcePage(value: string): string {
+  return value.trim().toUpperCase().replace(/\s+/g, " ").slice(0, MAX_SOURCE_PAGE_CHARS);
+}
+
+export function canonicalReceiptLineIdentity(args: {
+  documentRef: string;
+  sourcePage: string | null | undefined;
+  sourceLineNo: number;
+}): string {
+  const doc = normalizeDocumentRef(args.documentRef);
+  const page = args.sourcePage ? normalizeSourcePage(args.sourcePage) : "PAGE_UNKNOWN";
+  const line = Number.isInteger(args.sourceLineNo) && args.sourceLineNo > 0 ? args.sourceLineNo : 0;
+  return `incoming:${doc}|${page}|${line}`;
 }
 
 function parseOcrArray(raw: string): unknown[] {
@@ -171,6 +193,10 @@ export const reviewPackingListDraft = action({
         ? confidenceNumber
         : null;
 
+      // Provenance from OCR: documentRef, page, lineNo
+      const sourcePage = asString(obj.page);
+      const sourceLineNo = asFiniteNumber(obj.lineNo ?? obj.line_no);
+
       let matchStatus: MatchStatus;
       let matches: StockRow[] = [];
       if (!canonical) {
@@ -183,6 +209,10 @@ export const reviewPackingListDraft = action({
       }
 
       const match = matchStatus === "matched" ? matches[0] : undefined;
+      const effectiveDocRef = documentRef?.trim() || null;
+      const deterministicIdentity = effectiveDocRef
+        ? canonicalReceiptLineIdentity({ documentRef: effectiveDocRef, sourcePage: sourcePage || null, sourceLineNo: sourceLineNo ?? index + 1 })
+        : null;
       return {
         lineNo: index + 1,
         partNumberOcr,
@@ -195,6 +225,9 @@ export const reviewPackingListDraft = action({
         stockId: match?.id ?? null,
         stockDescription: match?.description ?? null,
         qtyOnHand: match ? Number(match.qty_on_hand ?? 0) : null,
+        sourcePage: sourcePage || null,
+        sourceLineNo: sourceLineNo ?? index + 1,
+        deterministicIdentity,
       };
     });
 
@@ -207,6 +240,23 @@ export const reviewPackingListDraft = action({
       { total: 0, matched: 0, unknown_part: 0, ambiguous_part: 0, invalid_part_number: 0, invalid_quantity: 0 } as Record<"total" | MatchStatus, number>,
     );
 
+    // Aggregate summary by canonical part number for review (does not collapse commit identities)
+    const aggregateByPart = new Map<string, { canonicalPartNumber: string; totalQty: number; lineCount: number; matchedCount: number }>();
+    for (const line of lines) {
+      const key = line.partNumberCanonical || "INVALID";
+      const existing = aggregateByPart.get(key) || { canonicalPartNumber: key, totalQty: 0, lineCount: 0, matchedCount: 0 };
+      existing.totalQty += line.qtyOcr ?? 0;
+      existing.lineCount += 1;
+      if (line.matchStatus === "matched") existing.matchedCount += 1;
+      aggregateByPart.set(key, existing);
+    }
+    const aggregateSummary = Array.from(aggregateByPart.values()).map((v) => ({
+      canonicalPartNumber: v.canonicalPartNumber,
+      totalQty: v.totalQty,
+      lineCount: v.lineCount,
+      matchedCount: v.matchedCount,
+    }));
+
     return {
       documentRef: documentRef?.trim() || null,
       requiresHumanConfirmation: true,
@@ -215,6 +265,7 @@ export const reviewPackingListDraft = action({
       quantityRule: "ship_qty_preferred",
       lines,
       summary,
+      aggregateSummary,
     };
   },
 });
@@ -225,7 +276,8 @@ export const commitConfirmedReceiveLine = action({
     qty: v.number(),
     confirmationId: v.string(),
     documentRef: v.optional(v.string()),
-    lineNo: v.optional(v.number()),
+    sourcePage: v.optional(v.string()),
+    sourceLineNo: v.number(),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
@@ -234,9 +286,14 @@ export const commitConfirmedReceiveLine = action({
     if (!canonical) throw new Error("Part number is required");
     if (!Number.isInteger(args.qty) || args.qty <= 0) throw new Error("Receive quantity must be a positive integer");
     if (!args.confirmationId.trim() || args.confirmationId.length > MAX_CONFIRMATION_ID_CHARS) throw new Error("A bounded confirmation ID is required");
-    if ((args.documentRef?.length ?? 0) > MAX_DOCUMENT_REF_CHARS) throw new Error("Document reference is too long");
-    if (args.lineNo !== undefined && (!Number.isInteger(args.lineNo) || args.lineNo <= 0 || args.lineNo > MAX_LINES)) {
-      throw new Error("Line number is invalid");
+    // Deterministic identity requires a document reference. Fail closed if absent.
+    if (!args.documentRef?.trim()) throw new Error("Document reference is required for deterministic receipt identity");
+    if ((args.documentRef.length ?? 0) > MAX_DOCUMENT_REF_CHARS) throw new Error("Document reference is too long");
+    if (!Number.isInteger(args.sourceLineNo) || args.sourceLineNo <= 0 || args.sourceLineNo > MAX_LINES) {
+      throw new Error("Source line number is invalid");
+    }
+    if (args.sourcePage && args.sourcePage.length > MAX_SOURCE_PAGE_CHARS) {
+      throw new Error("Source page is too long");
     }
 
     const { url, serviceKey } = getSupabaseConfig();
@@ -246,8 +303,12 @@ export const commitConfirmedReceiveLine = action({
     if (matches.length > 1) throw new Error("Confirmed part number is ambiguous and cannot be received");
 
     const match = matches[0];
-    const documentRef = args.documentRef?.trim() || undefined;
-    const correlationId = `incoming:${args.confirmationId.trim()}`;
+    const documentRef = args.documentRef.trim();
+    const correlationId = canonicalReceiptLineIdentity({
+      documentRef,
+      sourcePage: args.sourcePage?.trim() || null,
+      sourceLineNo: args.sourceLineNo,
+    });
     const receipt = await applyConfirmedReceive(url, serviceKey, {
       partNumber: match.part_number,
       qty: args.qty,
@@ -260,8 +321,10 @@ export const commitConfirmedReceiveLine = action({
     return {
       success: true,
       humanConfirmed: true,
-      lineNo: args.lineNo ?? null,
-      documentRef: documentRef ?? null,
+      lineNo: args.sourceLineNo,
+      documentRef,
+      sourcePage: args.sourcePage?.trim() || null,
+      sourceLineNo: args.sourceLineNo,
       canonicalPartNumber: canonical,
       resolvedPartNumber: match.part_number,
       stockId: match.id,

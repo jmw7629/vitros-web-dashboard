@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
-import { Check, FileText, Loader2, Upload, X } from "lucide-react";
+import { Check, FileText, Loader2, Upload, X, FileText as FileTextIcon, Hash } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
@@ -25,6 +25,16 @@ interface ReviewLine {
   resolvedPartNumber: string | null;
   stockDescription: string | null;
   qtyOnHand: number | null;
+  sourcePage: string | null;
+  sourceLineNo: number;
+  deterministicIdentity: string | null;
+}
+
+interface AggregateSummaryLine {
+  canonicalPartNumber: string;
+  totalQty: number;
+  lineCount: number;
+  matchedCount: number;
 }
 
 interface ReviewResponse {
@@ -33,6 +43,8 @@ interface ReviewResponse {
   descriptionUsedForIdentity: boolean;
   quantityRule: string;
   lines: ReviewLine[];
+  summary: Record<string, number>;
+  aggregateSummary: AggregateSummaryLine[];
 }
 
 interface PdfReviewLine extends ReviewLine {
@@ -71,6 +83,7 @@ function safeError(error: unknown) {
   if (/not present|not found/i.test(message)) return "Part number is not present in Stock Summary. Nothing was received.";
   if (/quantity/i.test(message)) return "Receive quantity must be a positive whole number.";
   if (/capability|authenticated|unauthorized/i.test(message)) return "Your authenticated session is not authorized for Incoming Stock receiving.";
+  if (/document reference is required/i.test(message)) return "Document / Delivery / PO reference is required for deterministic receipt identity.";
   return message.slice(0, 220);
 }
 
@@ -110,6 +123,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
 
   const [documentRef, setDocumentRef] = useState("");
   const [lines, setLines] = useState<PdfReviewLine[]>([]);
+  const [review, setReview] = useState<ReviewResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [commitBusy, setCommitBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -138,8 +152,8 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
       const draft = parseOcrArray(raw);
       if (draft.length === 0) throw new Error("No inventory lines were found in this PDF");
 
-      const extractedRef = draft.find((row) => typeof row.documentRef === "string" && row.documentRef.trim())?.documentRef;
-      const extractedPo = draft.find((row) => typeof row.poNumber === "string" && row.poNumber.trim())?.poNumber;
+      const extractedRef = draft.find((row: Record<string, unknown>) => typeof row.documentRef === "string" && row.documentRef.trim())?.documentRef;
+      const extractedPo = draft.find((row: Record<string, unknown>) => typeof row.poNumber === "string" && row.poNumber.trim())?.poNumber;
       const effectiveRef = documentRef.trim()
         || (typeof extractedRef === "string" ? extractedRef.trim() : "")
         || (typeof extractedPo === "string" ? extractedPo.trim() : "");
@@ -158,7 +172,8 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
         return {
           ...line,
           id: makeId("pdf-line"),
-          confirmationId: makeId("pdf-confirm"),
+          // confirmationId is now a presentation key only; deterministic identity comes from server
+          confirmationId: line.deterministicIdentity ?? makeId("pdf-confirm"),
           orderedQty: numberOrNull(source.orderedQuantity ?? source.ordered_quantity ?? source.orderedQty ?? source.ordered_qty),
           selected: line.matchStatus === "matched",
           commitStatus: "idle",
@@ -166,6 +181,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
         };
       });
       setLines(reviewed);
+      setReview(review);
       const matched = reviewed.filter((line) => line.matchStatus === "matched").length;
       setStatus(`PDF reviewed: ${reviewed.length} physical line${reviewed.length === 1 ? "" : "s"}, ${matched} exact inventory match${matched === 1 ? "" : "es"}. Nothing changes inventory until you confirm.`);
     } catch (error) {
@@ -196,7 +212,8 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
           qty: line.qtyOcr ?? 0,
           confirmationId: line.confirmationId,
           documentRef: documentRef.trim() || undefined,
-          lineNo: line.lineNo,
+          sourcePage: line.sourcePage ?? undefined,
+          sourceLineNo: line.sourceLineNo,
         }) as unknown as { receipt?: Record<string, unknown> };
         const duplicate = Boolean(result.receipt?.duplicate);
         setLines((previous) => previous.map((candidate) => candidate.id === line.id
@@ -247,7 +264,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
             <input
               value={documentRef}
               onChange={(event) => setDocumentRef(event.target.value.slice(0, 200))}
-              placeholder="Optional reference used for traceability"
+              placeholder="Required for deterministic receipt identity"
               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
               style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }}
             />
@@ -264,11 +281,29 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
+        {/* Aggregate summary by canonical part number (review-only, does not collapse commit identities) */}
+        {review?.aggregateSummary && review.aggregateSummary.length > 0 && (
+          <div className="border-b p-4" style={{ borderColor: theme.cardBorder }}>
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: theme.textMuted }}>AGGREGATE SUMMARY BY CANONICAL PART NUMBER (REVIEW ONLY)</div>
+            <div className="grid gap-2 md:grid-cols-4">
+              {review.aggregateSummary.map((agg, idx) => (
+                <div key={idx} className="rounded-lg px-3 py-2 text-xs" style={{ backgroundColor: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+                  <div className="font-bold" style={{ color: theme.accentBlue }}>{agg.canonicalPartNumber}</div>
+                  <div style={{ color: theme.textSecondary }}>Lines: {agg.lineCount} | Matched: {agg.matchedCount}</div>
+                  <div style={{ color: theme.textPrimary }}>Total Qty: {agg.totalQty}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="min-h-0 flex-1 overflow-auto overscroll-contain" tabIndex={0} aria-label="PDF Incoming Stock human confirmation table">
-          <div className="min-w-[980px]">
-            <div className="sticky top-0 z-10 grid grid-cols-[42px_58px_160px_90px_1fr_100px_105px_135px] items-center gap-2 border-b px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: "#0f172a", borderColor: theme.cardBorder, color: theme.textMuted }}>
+          <div className="min-w-[1180px]">
+            <div className="sticky top-0 z-10 grid grid-cols-[42px_58px_80px_60px_160px_90px_1fr_100px_105px_135px] items-center gap-2 border-b px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: "#0f172a", borderColor: theme.cardBorder, color: theme.textMuted }}>
               <span />
               <span>Line</span>
+              <span>Page</span>
+              <span>SrcLine</span>
               <span>Part #</span>
               <span>Ship Qty</span>
               <span>Description</span>
@@ -286,7 +321,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
               const presentation = statusLabel(line.matchStatus);
               const selectable = line.matchStatus === "matched" && line.commitStatus !== "received" && line.commitStatus !== "committing";
               return (
-                <div key={line.id} className="grid grid-cols-[42px_58px_160px_90px_1fr_100px_105px_135px] items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: theme.cardBorder, backgroundColor: line.selected ? `${theme.accentBlue}0d` : undefined }}>
+                <div key={line.id} className="grid grid-cols-[42px_58px_80px_60px_160px_90px_1fr_100px_105px_135px] items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: theme.cardBorder, backgroundColor: line.selected ? `${theme.accentBlue}0d` : undefined }}>
                   <button
                     type="button"
                     disabled={!selectable}
@@ -298,6 +333,8 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
                     {line.selected && <Check className="h-3 w-3 text-white" />}
                   </button>
                   <span className="text-xs" style={{ color: theme.textSecondary }}>{line.lineNo}</span>
+                  <span className="text-xs font-mono" style={{ color: theme.textSecondary }}>{line.sourcePage || "—"}</span>
+                  <span className="text-xs font-mono" style={{ color: theme.textSecondary }}>{line.sourceLineNo}</span>
                   <span className="text-xs font-bold" style={{ color: theme.accentBlue }}>{(line.resolvedPartNumber ?? line.partNumberOcr) || "—"}</span>
                   <span className="text-xs font-bold" style={{ color: theme.textPrimary }}>{line.qtyOcr ?? "—"}</span>
                   <span className="truncate text-xs" title={line.stockDescription ?? line.descriptionOcr} style={{ color: theme.textSecondary }}>{(line.stockDescription ?? line.descriptionOcr) || "—"}</span>
@@ -307,9 +344,9 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
                     {line.commitStatus === "committing" ? "RECEIVING…" : line.commitStatus === "received" ? "RECEIVED" : line.commitStatus === "failed" ? "FAILED" : presentation.label}
                   </span>
                   {line.orderedQty != null && line.qtyOcr != null && line.orderedQty !== line.qtyOcr && (
-                    <div className="col-span-8 text-[10px]" style={{ color: "#f59e0b" }}>Ordered {line.orderedQty}, shipped {line.qtyOcr}. RECEIVE uses shipped quantity.</div>
+                    <div className="col-span-10 text-[10px]" style={{ color: "#f59e0b" }}>Ordered {line.orderedQty}, shipped {line.qtyOcr}. RECEIVE uses shipped quantity.</div>
                   )}
-                  {line.message && <div className="col-span-8 text-[10px]" style={{ color: line.commitStatus === "failed" ? "#ef4444" : theme.textSecondary }}>{line.message}</div>}
+                  {line.message && <div className="col-span-10 text-[10px]" style={{ color: line.commitStatus === "failed" ? "#ef4444" : theme.textSecondary }}>{line.message}</div>}
                 </div>
               );
             })}

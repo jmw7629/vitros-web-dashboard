@@ -43,6 +43,8 @@ jobs:
         run: node scripts/dhr-session-lifecycle-security-check.mjs
       - name: Incoming Stock PDF security check
         run: node scripts/incoming-stock-pdf-security-check.mjs
+      - name: Incoming Stock deterministic identity check
+        run: node scripts/incoming-stock-deterministic-identity-check.mjs
       - name: 30-user refresh storm check
         run: node scripts/refresh-coordinator-check.mjs
       - name: Lint

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { Camera, Check, FileImage, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Camera, Check, FileImage, Hash, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
 
@@ -27,6 +27,16 @@ interface ReviewLine {
   stockId: string | null;
   stockDescription: string | null;
   qtyOnHand: number | null;
+  sourcePage: string | null;
+  sourceLineNo: number;
+  deterministicIdentity: string | null;
+}
+
+interface AggregateSummaryLine {
+  canonicalPartNumber: string;
+  totalQty: number;
+  lineCount: number;
+  matchedCount: number;
 }
 
 interface ReviewResponse {
@@ -37,6 +47,7 @@ interface ReviewResponse {
   quantityRule: string;
   lines: ReviewLine[];
   summary: Record<string, number>;
+  aggregateSummary: AggregateSummaryLine[];
 }
 
 interface IncomingLine {
@@ -55,6 +66,8 @@ interface IncomingLine {
   selected: boolean;
   commitStatus: CommitStatus;
   message: string | null;
+  sourcePage: string | null;
+  deterministicIdentity: string | null;
 }
 
 function makeId(prefix: string) {
@@ -70,6 +83,7 @@ function safeError(error: unknown) {
   if (/not present|not found/i.test(message)) return "Part number is not present in Stock Summary. Nothing was received.";
   if (/quantity/i.test(message)) return "Receive quantity must be a positive whole number.";
   if (/capability|authenticated|unauthorized/i.test(message)) return "Your authenticated session is not authorized for Incoming Stock receiving.";
+  if (/document reference is required/i.test(message)) return "Document / Delivery / PO reference is required for deterministic receipt identity.";
   return message.slice(0, 220);
 }
 
@@ -120,6 +134,7 @@ export function IncomingStockSecure() {
 
   const [documentRef, setDocumentRef] = useState("");
   const [lines, setLines] = useState<IncomingLine[]>([]);
+  const [review, setReview] = useState<ReviewResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [commitBusy, setCommitBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -135,18 +150,19 @@ export function IncomingStockSecure() {
   const receivedCount = lines.filter((line) => line.commitStatus === "received").length;
   const unresolvedCount = lines.filter((line) => line.matchStatus !== "matched").length;
 
-  const mergeReview = (
-    source: Array<Record<string, unknown>>,
-    review: ReviewResponse,
-    existing?: IncomingLine,
-  ): IncomingLine[] => review.lines.map((row, index) => {
+const mergeReview = (
+  source: Array<Record<string, unknown>>,
+  review: ReviewResponse,
+  existing?: IncomingLine,
+): IncomingLine[] => review.lines.map((row, index) => {
     const raw = source[index] ?? {};
     const orderedQty = numberOrNull(raw.orderedQuantity ?? raw.ordered_quantity ?? raw.orderedQty ?? raw.ordered_qty);
     const match = row.matchStatus === "matched";
     return {
       id: existing?.id ?? makeId("incoming-line"),
-      confirmationId: existing?.confirmationId ?? makeId("confirm"),
-      sourceLineNo: row.lineNo || index + 1,
+      // confirmationId is now a presentation key only; deterministic identity comes from server
+      confirmationId: row.deterministicIdentity ?? existing?.confirmationId ?? makeId("confirm"),
+      sourceLineNo: row.sourceLineNo || index + 1,
       partNumber: row.resolvedPartNumber ?? row.partNumberOcr,
       description: row.stockDescription ?? row.descriptionOcr,
       qty: row.qtyOcr ?? 0,
@@ -159,14 +175,24 @@ export function IncomingStockSecure() {
       selected: match,
       commitStatus: "idle",
       message: null,
+      sourcePage: row.sourcePage,
+      deterministicIdentity: row.deterministicIdentity,
     };
   });
 
-  const serverReview = async (draft: Array<Record<string, unknown>>, existing?: IncomingLine) => {
+  const serverReview = async (
+    draft: Array<Record<string, unknown>>,
+    existing?: IncomingLine,
+    documentRefOverride?: string,
+  ) => {
+    const effectiveDocumentRef = (documentRefOverride ?? documentRef).trim();
     const review = await reviewPackingListDraft({
       ocrJson: JSON.stringify(draft),
-      documentRef: documentRef.trim() || undefined,
+      documentRef: effectiveDocumentRef || undefined,
     }) as unknown as ReviewResponse;
+    if (!existing) {
+      setReview(review);
+    }
     return mergeReview(draft, review, existing);
   };
 
@@ -185,10 +211,13 @@ export function IncomingStockSecure() {
 
       const firstRef = draft.find((row) => typeof row.documentRef === "string" && row.documentRef.trim())?.documentRef;
       const firstPo = draft.find((row) => typeof row.poNumber === "string" && row.poNumber.trim())?.poNumber;
-      if (!documentRef && typeof firstRef === "string") setDocumentRef(firstRef.trim());
-      else if (!documentRef && typeof firstPo === "string") setDocumentRef(firstPo.trim());
+      const effectiveRef = documentRef.trim()
+        || (typeof firstRef === "string" ? firstRef.trim() : "")
+        || (typeof firstPo === "string" ? firstPo.trim() : "");
+      const boundedEffectiveRef = effectiveRef.slice(0, 200);
+      if (!documentRef && boundedEffectiveRef) setDocumentRef(boundedEffectiveRef);
 
-      const reviewed = await serverReview(draft);
+      const reviewed = await serverReview(draft, undefined, boundedEffectiveRef);
       setLines((previous) => [...previous, ...reviewed]);
       const matched = reviewed.filter((line) => line.matchStatus === "matched").length;
       setStatus(`Reviewed ${reviewed.length} line${reviewed.length === 1 ? "" : "s"}: ${matched} exact part-number match${matched === 1 ? "" : "es"}. Human confirmation is required before inventory changes.`);
@@ -238,7 +267,13 @@ export function IncomingStockSecure() {
   const reReviewLine = async (line: IncomingLine) => {
     setBusy(true);
     try {
-      const draft = [{ partNumber: line.partNumber, description: line.description, qty: line.qty }];
+      const draft = [{
+        partNumber: line.partNumber,
+        description: line.description,
+        qty: line.qty,
+        page: line.sourcePage,
+        lineNo: line.sourceLineNo,
+      }];
       const [reviewed] = await serverReview(draft, line);
       setLines((previous) => previous.map((candidate) => candidate.id === line.id ? reviewed : candidate));
       setStatus(reviewed.matchStatus === "matched"
@@ -271,7 +306,8 @@ export function IncomingStockSecure() {
           qty: line.qty,
           confirmationId: line.confirmationId,
           documentRef: documentRef.trim() || undefined,
-          lineNo: line.sourceLineNo,
+          sourcePage: line.sourcePage ?? undefined,
+          sourceLineNo: line.sourceLineNo,
         }) as unknown as { receipt?: Record<string, unknown>; correlationId?: string };
         const duplicate = Boolean(result.receipt?.duplicate);
         setLines((previous) => previous.map((candidate) => candidate.id === line.id
@@ -332,7 +368,7 @@ export function IncomingStockSecure() {
             <input
               value={documentRef}
               onChange={(event) => setDocumentRef(event.target.value.slice(0, 200))}
-              placeholder="Optional reference used for traceability"
+              placeholder="Required for deterministic receipt identity"
               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
               style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }}
             />
@@ -351,6 +387,22 @@ export function IncomingStockSecure() {
         {status && <div className="mt-3 rounded-lg px-3 py-2 text-xs" style={{ backgroundColor: theme.inputBg, color: status.startsWith("Error:") ? "#ef4444" : theme.textSecondary }}>{status}</div>}
       </WebCard>
 
+      {/* Aggregate summary by canonical part number (review-only, does not collapse commit identities) */}
+      {review?.aggregateSummary && review.aggregateSummary.length > 0 && (
+        <WebCard className="p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: theme.textMuted }}>AGGREGATE SUMMARY BY CANONICAL PART NUMBER (REVIEW ONLY)</div>
+          <div className="grid gap-2 md:grid-cols-4">
+            {review.aggregateSummary.map((agg, idx) => (
+              <div key={idx} className="rounded-lg px-3 py-2 text-xs" style={{ backgroundColor: theme.cardBg, border: `1px solid ${theme.cardBorder}` }}>
+                <div className="font-bold" style={{ color: theme.accentBlue }}>{agg.canonicalPartNumber}</div>
+                <div style={{ color: theme.textSecondary }}>Lines: {agg.lineCount} | Matched: {agg.matchedCount}</div>
+                <div style={{ color: theme.textPrimary }}>Total Qty: {agg.totalQty}</div>
+              </div>
+            ))}
+          </div>
+        </WebCard>
+      )}
+
       <WebCard className="p-4">
         <div className="mb-3 flex items-center gap-2">
           <Plus className="h-4 w-4" style={{ color: theme.accentBlue }} />
@@ -366,10 +418,12 @@ export function IncomingStockSecure() {
 
       <WebCard className="overflow-hidden">
         <div className="max-h-[58vh] overflow-auto overscroll-contain" tabIndex={0} aria-label="Incoming Stock human confirmation table">
-          <div className="min-w-[1040px]">
-            <div className="sticky top-0 z-10 grid grid-cols-[42px_58px_150px_85px_1fr_110px_110px_130px_110px] items-center gap-2 border-b px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: "#0f172a", borderColor: theme.cardBorder, color: theme.textMuted }}>
+          <div className="min-w-[1180px]">
+            <div className="sticky top-0 z-10 grid grid-cols-[42px_58px_80px_60px_150px_85px_1fr_110px_110px_130px_110px] items-center gap-2 border-b px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ backgroundColor: "#0f172a", borderColor: theme.cardBorder, color: theme.textMuted }}>
               <span />
               <span>Line</span>
+              <span>Page</span>
+              <span>SrcLine</span>
               <span>Part #</span>
               <span>Ship Qty</span>
               <span>Description</span>
@@ -388,7 +442,7 @@ export function IncomingStockSecure() {
               const presentation = statusPresentation(line.matchStatus);
               const editable = line.commitStatus !== "received" && line.commitStatus !== "committing";
               return (
-                <div key={line.id} className="grid grid-cols-[42px_58px_150px_85px_1fr_110px_110px_130px_110px] items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: theme.cardBorder, backgroundColor: line.selected ? `${theme.accentBlue}0d` : undefined }}>
+                <div key={line.id} className="grid grid-cols-[42px_58px_80px_60px_150px_85px_1fr_110px_110px_130px_110px] items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: theme.cardBorder, backgroundColor: line.selected ? `${theme.accentBlue}0d` : undefined }}>
                   <button
                     type="button"
                     disabled={line.matchStatus !== "matched" || line.commitStatus === "received" || line.commitStatus === "committing"}
@@ -400,6 +454,8 @@ export function IncomingStockSecure() {
                     {line.selected && <Check className="h-3 w-3 text-white" />}
                   </button>
                   <span className="text-xs" style={{ color: theme.textSecondary }}>{line.sourceLineNo}</span>
+                  <span className="text-xs font-mono" style={{ color: theme.textSecondary }}>{line.sourcePage || "—"}</span>
+                  <span className="text-xs font-mono" style={{ color: theme.textSecondary }}>{line.sourceLineNo}</span>
                   <input disabled={!editable} value={line.partNumber} onChange={(event) => updateLine(line.id, { partNumber: event.target.value })} className="w-full rounded px-2 py-1.5 text-xs font-bold outline-none disabled:opacity-80" style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.cardBorder}`, color: theme.accentBlue }} />
                   <input disabled={!editable} value={String(line.qty)} inputMode="numeric" onChange={(event) => updateLine(line.id, { qty: Number(event.target.value) })} className="w-full rounded px-2 py-1.5 text-xs font-bold outline-none disabled:opacity-80" style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }} />
                   <input disabled={!editable} value={line.description} onChange={(event) => updateLine(line.id, { description: event.target.value })} className="w-full rounded px-2 py-1.5 text-xs outline-none disabled:opacity-80" style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.cardBorder}`, color: theme.textSecondary }} />
@@ -416,9 +472,9 @@ export function IncomingStockSecure() {
                     {line.commitStatus === "committing" && <Loader2 className="h-4 w-4 animate-spin" style={{ color: theme.accentBlue }} />}
                   </div>
                   {line.orderedQty != null && line.orderedQty !== line.qty && (
-                    <div className="col-span-9 text-[10px]" style={{ color: "#f59e0b" }}>Ordered {line.orderedQty}, shipped {line.qty}. RECEIVE uses shipped quantity.</div>
+                    <div className="col-span-11 text-[10px]" style={{ color: "#f59e0b" }}>Ordered {line.orderedQty}, shipped {line.qty}. RECEIVE uses shipped quantity.</div>
                   )}
-                  {line.message && <div className="col-span-9 text-[10px]" style={{ color: line.commitStatus === "failed" ? "#ef4444" : theme.textSecondary }}>{line.message}</div>}
+                  {line.message && <div className="col-span-11 text-[10px]" style={{ color: line.commitStatus === "failed" ? "#ef4444" : theme.textSecondary }}>{line.message}</div>}
                 </div>
               );
             })}

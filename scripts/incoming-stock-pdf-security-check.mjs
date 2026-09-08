@@ -3,6 +3,7 @@ import fs from "node:fs";
 const server = fs.readFileSync("convex/incomingStockPdfOcr.ts", "utf8");
 const review = fs.readFileSync("convex/incomingStockActions.ts", "utf8");
 const ui = fs.readFileSync("src/pages/inventory/IncomingStockDocument.tsx", "utf8");
+const imageUi = fs.readFileSync("src/pages/inventory/IncomingStockSecure.tsx", "utf8");
 const app = fs.readFileSync("src/App.tsx", "utf8");
 
 function requireTokens(source, label, tokens) {
@@ -48,7 +49,7 @@ requireTokens(review, "Incoming Stock reviewed receive boundary", [
   'obj.shippedQuantity',
   'apply_inventory_transition',
   'p_mode: "RECEIVE"',
-  'const correlationId = `incoming:${args.confirmationId.trim()}`',
+  'canonicalReceiptLineIdentity',
   'actor: String(actorId)',
 ]);
 
@@ -71,6 +72,15 @@ forbidTokens(ui, "Incoming Stock PDF UI", [
   'sbUpdate("stock"',
   'sbInsert("stock"',
   'fetch("/rest/v1',
+]);
+
+requireTokens(imageUi, "Incoming Stock image provenance", [
+  'sourceLineNo: row.sourceLineNo || index + 1',
+  'page: line.sourcePage',
+  'lineNo: line.sourceLineNo',
+  'documentRefOverride?: string',
+  'const boundedEffectiveRef = effectiveRef.slice(0, 200)',
+  'serverReview(draft, undefined, boundedEffectiveRef)',
 ]);
 
 requireTokens(app, "Incoming Stock route", [
