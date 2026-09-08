@@ -76,6 +76,10 @@ verifier_provision_control() {
   mkdir -p "$(dirname "$target")"
   git clone --quiet --no-checkout -- "$remote" "$target" || \
     verifier_fail "Failed to clone dedicated verifier control checkout; falling back to builder root is prohibited." || return 1
+  # Canonicalize origin back to the validated source URL. This avoids persisting
+  # any local Git URL rewrite while keeping the control checkout tied to GitHub.
+  git -C "$target" remote set-url origin "$remote" || \
+    verifier_fail "Dedicated verifier checkout origin could not be canonicalized; installation failed closed at $target." || return 1
   git -C "$target" checkout --quiet --detach "$source_head" || \
     verifier_fail "Dedicated verifier checkout could not pin exact source HEAD; installation failed closed at $target." || return 1
 
