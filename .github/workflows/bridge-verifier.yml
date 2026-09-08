@@ -23,11 +23,11 @@ jobs:
       - name: Python syntax
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 -m py_compile bridge/verifier_runner.py bridge/verifier_gate_runner.py bridge/test_verifier_runner.py bridge/test_verifier_gate_runner.py
+        run: python3 -m py_compile bridge/verifier_runner.py bridge/verifier_gate_runner.py bridge/test_verifier_runner.py bridge/test_verifier_gate_runner.py bridge/test_verifier_effective_unit.py
       - name: Verifier runner tests
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 -m unittest bridge/test_verifier_runner.py bridge/test_verifier_gate_runner.py
+        run: python3 -m unittest bridge/test_verifier_runner.py bridge/test_verifier_gate_runner.py bridge/test_verifier_effective_unit.py
       - name: Shell syntax
         run: bash -n bridge/install_verifier.sh bridge/verifier_install_helpers.sh bridge/uninstall.sh bridge/install.sh
       - name: Verifier isolation and deployment-evidence policy
