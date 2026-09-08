@@ -47,5 +47,7 @@ jobs:
         run: node scripts/refresh-coordinator-check.mjs
       - name: Lint
         run: npm run lint || true
+      - name: Vercel Convex runtime env sync regression gate
+        run: node scripts/regression-gate.mjs
       - name: Git diff check
         run: git diff --check
