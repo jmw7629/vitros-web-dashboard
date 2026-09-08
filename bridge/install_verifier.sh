@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 # Keep verifier control checkouts clean: Python bytecode is runtime cache, not source.
 export PYTHONDONTWRITEBYTECODE=1
@@ -21,21 +22,6 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   echo "Run from inside vitros-web-dashboard." >&2
   exit 1
 }
-REMOTE="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
-[[ "$REMOTE" == *"jmw7629/vitros-web-dashboard"* ]] || {
-  echo "Unexpected origin; verifier installation refused." >&2
-  exit 1
-}
-[[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "$ROOT" status --porcelain --untracked-files=all)" ]] || {
-  echo "Control checkout must be clean before installing verifier service; preserving it byte-for-byte and failing closed." >&2
-  exit 1
-}
-SOURCE_HEAD="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
-[[ "$SOURCE_HEAD" =~ ^[0-9a-fA-F]{40}$ ]] || {
-  echo "Cannot resolve exact installer source HEAD." >&2
-  exit 1
-}
-
 HELPERS="$ROOT/bridge/verifier_install_helpers.sh"
 [[ -f "$HELPERS" ]] || {
   echo "Missing verifier installer helper library: $HELPERS" >&2
@@ -43,6 +29,10 @@ HELPERS="$ROOT/bridge/verifier_install_helpers.sh"
 }
 # shellcheck disable=SC1090
 source "$HELPERS"
+
+verifier_validate_source_checkout "$ROOT" || exit 1
+REMOTE="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+SOURCE_HEAD="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
 
 CONFIG_DIR="$HOME/.config/joeos-opencode-bridge"
 ENV_FILE="$CONFIG_DIR/vitros.env"
