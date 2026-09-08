@@ -47,6 +47,39 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
+# Dedicated verifier control root - independent from builder BRIDGE_ROOT.
+# The verifier must not inherit root from builder environment (requirement #5).
+# The VPS verifier is presently running from
+#   /home/joevps/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2
+VERIFIER_CONTROL_ROOT_DEFAULT="/home/joevps/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2"
+
+if [[ -d "$VERIFIER_CONTROL_ROOT_DEFAULT" ]]; then
+  # Existing verifier control checkout present - verify it is clean
+  if [[ -n "$(cd "$VERIFIER_CONTROL_ROOT_DEFAULT" && git status --porcelain 2>/dev/null)" ]]; then
+    echo "Verifier control checkout is dirty; preserving byte-for-byte and failing closed." >&2
+    echo "Location: $VERIFIER_CONTROL_ROOT_DEFAULT" >&2
+    exit 1
+  fi
+  # Verify HEAD is on expected commit (334 restore)
+  EXPECTED_HEAD="230eedc"
+  ACTUAL_HEAD="$(cd "$VERIFIER_CONTROL_ROOT_DEFAULT" && git rev-parse HEAD 2>/dev/null)"
+  if [[ "$ACTUAL_HEAD" != "$EXPECTED_HEAD" ]]; then
+    echo "Verifier control checkout HEAD mismatch (expected $EXPECTED_HEAD, got $ACTUAL_HEAD); preserving byte-for-byte and failing closed." >&2
+    exit 1
+  fi
+  VERIFIER_CONTROL_ROOT="$VERIFIER_CONTROL_ROOT_DEFAULT"
+else
+  # No existing verifier control checkout - create a new unique clean control path
+  # without touching any existing tree (requirement #3).
+  VERIFIER_CONTROL_ROOT="/home/joevps/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2-installer-$RANDOM"
+  echo "[INFO] Creating new verifier control checkout at $VERIFIER_CONTROL_ROOT"
+  git clone "$REMOTE" "$VERIFIER_CONTROL_ROOT" 2>/dev/null || {
+    echo "Failed to clone verifier control checkout; falling back to builder root is prohibited (requirement #4)." >&2
+    exit 1
+  }
+  cd "$VERIFIER_CONTROL_ROOT" && git checkout main 2>/dev/null
+fi
+
 OPENCODE_BIN_PATH="${OPENCODE_BIN:-$(command -v opencode 2>/dev/null || true)}"
 [[ -n "$OPENCODE_BIN_PATH" && -x "$OPENCODE_BIN_PATH" ]] || {
   echo "OpenCode executable is missing. Set OPENCODE_BIN in $ENV_FILE to a working user-local binary." >&2
@@ -98,10 +131,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=$ROOT
+WorkingDirectory=$VERIFIER_CONTROL_ROOT
 EnvironmentFile=-$ENV_FILE
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/env python3 $ROOT/bridge/verifier_gate_runner.py
+ExecStart=/usr/bin/env python3 $VERIFIER_CONTROL_ROOT/bridge/verifier_gate_runner.py --root $VERIFIER_CONTROL_ROOT
 Restart=on-failure
 RestartSec=30
 NoNewPrivileges=true

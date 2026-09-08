@@ -102,5 +102,122 @@ class VerifierGateRunnerTests(unittest.TestCase):
         self.assertEqual(evidence, "Auth Guard Fail-Closed Security, CI; Vercel Preview")
 
 
-if __name__ == "__main__":
-    unittest.main()
+class InstallerContractTests(unittest.TestCase):
+    def test_execstart_argv_order_correct(self):
+        """Verify installer generates ExecStart using python3 <script> --root <root> order."""
+        installer_path = pathlib.Path("/home/joevps/.cache/joeos-opencode-bridge/jmw7629__vitros-web-dashboard/project-byte-live-builder/issue-339/bridge/install_verifier.sh")
+        content = installer_path.read_text()
+        # The ExecStart in the generated service must use correct argv order:
+        # python3 <script> --root <root> (not python3 --root <root> <script>)
+        self.assertIn(
+            "python3 $VERIFIER_CONTROL_ROOT/bridge/verifier_gate_runner.py --root $VERIFIER_CONTROL_ROOT",
+            content,
+            "Installer must generate ExecStart with correct argv order: script before --root"
+        )
+        # Verify the old bug pattern is NOT present
+        self.assertNotIn(
+            "$ROOT/bridge/verifier_gate_runner.py",
+            content,
+            "Installer must not generate the PR #338 bug pattern"
+        )
+        # Verify --root comes after the script path in the ExecStart
+        import re
+        matches = re.findall(r"ExecStart=/usr/bin/env python3 (.+)", content)
+        self.assertTrue(matches, "Could not find ExecStart in installer content")
+        args = matches[0]
+        script_path = "/bridge/verifier_gate_runner.py"
+        root_arg = "--root"
+        self.assertIn(script_path, args, "Script path must appear in ExecStart args")
+        root_index = args.find(root_arg)
+        script_index = args.find(script_path)
+        self.assertGreater(root_index, script_index, "--root must come after script path in ExecStart")
+
+    def test_builder_root_cannot_redirect_verifier(self):
+        """Verify that the installer uses an explicit independent verifier control root,
+        not BRIDGE_ROOT from builder environment."""
+        installer_path = pathlib.Path("/home/joevps/.cache/joeos-opencode-bridge/jmw7629__vitros-web-dashboard/project-byte-live-builder/issue-339/bridge/install_verifier.sh")
+        content = installer_path.read_text()
+        # The installer must define VERIFIER_CONTROL_ROOT_DEFAULT independent from BRIDGE_ROOT
+        self.assertIn(
+            "VERIFIER_CONTROL_ROOT_DEFAULT",
+            content,
+            "Installer must define VERIFIER_CONTROL_ROOT_DEFAULT"
+        )
+        # The dedicated path must not be derived from BRIDGE_ROOT or $ROOT
+        self.assertIn(
+            "/home/joevps/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2",
+            content,
+            "Installer must use the dedicated verifier control checkout path"
+        )
+        # The generated service must use VERIFIER_CONTROL_ROOT, not $ROOT
+        # Check that the installer does not use $ROOT for the verifier ExecStart
+        self.assertNotIn(
+            "$ROOT/bridge/verifier_gate_runner.py",
+            content,
+            "Installer must not use $ROOT/bridge/verifier_gate_runner.py for verifier ExecStart"
+        )
+        # Check that the installer defines the dirty-fail-closed logic for verifier control
+        self.assertIn(
+            "git status --porcelain",
+            content,
+            "Installer must check verifier control checkout cleanliness"
+        )
+
+    def test_dirty_verifier_control_root_fails_closed(self):
+        """Verify that installation fails closed when verifier control checkout is dirty."""
+        installer_path = pathlib.Path("/home/joevps/.cache/joeos-opencode-bridge/jmw7629__vitros-web-dashboard/project-byte-live-builder/issue-339/bridge/install_verifier.sh")
+        content = installer_path.read_text()
+        # The installer must have dirty-check logic for the verifier control checkout
+        self.assertIn(
+            "git status --porcelain",
+            content,
+            "Installer must check verifier control checkout cleanliness"
+        )
+        self.assertIn(
+            "exit 1",
+            content,
+            "Installer must exit 1 when verifier control checkout is dirty"
+        )
+        self.assertIn(
+            "failing closed",
+            content.lower(),
+            "Installer must fail closed on dirty verifier control checkout"
+        )
+
+    def test_clone_provision_failure_never_falls_back(self):
+        """Verify that clone/provision failure never falls back to live/builder root."""
+        installer_path = pathlib.Path("/home/joevps/.cache/joeos-opencode-bridge/jmw7629__vitros-web-dashboard/project-byte-live-builder/issue-339/bridge/install_verifier.sh")
+        content = installer_path.read_text()
+        # The installer must explicitly prohibit falling back to builder root
+        self.assertIn(
+            "falling back to builder root is prohibited",
+            content,
+            "Installer must explicitly prohibit falling back to builder root on failure"
+        )
+        # Verify there's no fallback to BRIDGE_ROOT or $ROOT as fallback
+        self.assertIn(
+            "Failed to clone verifier control checkout",
+            content,
+            "Installer must report clone failure"
+        )
+        self.assertIn(
+            "exit 1",
+            content,
+            "Installer must exit 1 on clone failure (no fallback)"
+        )
+
+    def test_no_pyc_in_changed_files(self):
+        """Verify that no __pycache__ or .pyc appears in changed files after tests."""
+        import subprocess
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],
+            capture_output=True, text=True,
+            cwd="/home/joevps/.cache/joeos-opencode-bridge/jmw7629__vitros-web-dashboard/project-byte-live-builder/issue-339"
+        )
+        changed = result.stdout.splitlines()
+        pyc_files = [f for f in changed if "__pycache__" in f or f.endswith(".pyc")]
+        self.assertEqual(
+            len(pyc_files),
+            0,
+            f"No .pyc or __pycache__ files should be in changed files, found: {pyc_files}"
+        )
