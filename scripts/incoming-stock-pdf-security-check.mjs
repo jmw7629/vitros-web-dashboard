@@ -48,7 +48,7 @@ requireTokens(review, "Incoming Stock reviewed receive boundary", [
   'obj.shippedQuantity',
   'apply_inventory_transition',
   'p_mode: "RECEIVE"',
-  'const correlationId = `incoming:${args.confirmationId.trim()}`',
+  'canonicalReceiptLineIdentity',
   'actor: String(actorId)',
 ]);
 
