@@ -1,71 +1,54 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
-import { writeFileSync, unlinkSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 
-const env = process.env;
+const { env } = process;
 
-// Only run in production; previews must not mutate production Convex runtime
 if (env.VERCEL_ENV !== "production") {
-  console.log("SKIP: Not production environment");
+  console.log("CONVEX_RUNTIME_ENV_SYNC=SKIPPED_NON_PRODUCTION");
   process.exit(0);
 }
 
-// Required server vars to sync (read from Vercel build environment)
-const requiredVars = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENAI_API_KEY"];
-const optionalVar = "VITROS_SUPERUSER_PASSWORD_HASH";
+const requiredNames = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "OPENAI_API_KEY",
+];
+const optionalNames = ["VITROS_SUPERUSER_PASSWORD_HASH"];
 
-// Collect all vars to sync: required ones must exist, optional one is included if configured
-const varsToSet = {};
+if (!env.CONVEX_DEPLOY_KEY) {
+  console.error("CONVEX_RUNTIME_ENV_SYNC=FAIL missing CONVEX_DEPLOY_KEY");
+  process.exit(1);
+}
 
-for (const varName of requiredVars) {
-  const value = env[varName];
+const values = new Map();
+for (const name of requiredNames) {
+  const value = env[name];
   if (!value) {
-    console.error(`Missing required Vercel env var: ${varName}`);
+    console.error(`CONVEX_RUNTIME_ENV_SYNC=FAIL missing ${name}`);
     process.exit(1);
   }
-  varsToSet[varName] = value;
+  values.set(name, value);
+}
+for (const name of optionalNames) {
+  const value = env[name];
+  if (value) values.set(name, value);
 }
 
-for (const varName of [optionalVar]) {
-  const value = env[varName];
-  if (value) {
-    varsToSet[varName] = value;
+const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+for (const [name, value] of values) {
+  const result = spawnSync(npx, ["convex", "env", "set", "--prod", name], {
+    input: value,
+    encoding: "utf8",
+    env,
+    shell: false,
+    stdio: ["pipe", "ignore", "ignore"],
+  });
+
+  if (result.error || result.status !== 0) {
+    const status = result.status ?? "spawn-error";
+    console.error(`CONVEX_RUNTIME_ENV_SYNC=FAIL variable=${name} status=${status}`);
+    process.exit(1);
   }
 }
 
-// If nothing to set, exit successfully (optional vars may be absent)
-if (Object.keys(varsToSet).length === 0) {
-  console.log("No approved server vars configured; sync skipped");
-  process.exit(0);
-}
-
-// Create a temp .env file for convex env set --from-file
-const tempPath = join(tmpdir(), `convex-env-sync-${Date.now()}.env`);
-try {
-  const lines = Object.entries(varsToSet)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n") + "\n";
-  writeFileSync(tempPath, lines, { mode: 0o600 });
-
-  // Set env vars in Convex production via stdin-derived file path
-  // The values come from the Vercel build environment, not command arguments
-  const deployKey = env.CONVEX_DEPLOY_KEY;
-  const convexCmd = deployKey
-    ? `CONVEX_DEPLOY_KEY=${deployKey} npx convex env set --from-file ${tempPath} --prod`
-    : `npx convex env set --from-file ${tempPath} --prod`;
-
-  execSync(convexCmd, { stdio: "inherit" });
-} catch (err) {
-  console.error("Failed to sync Convex runtime env:", err.message);
-  process.exit(1);
-} finally {
-  // Clean up temp file immediately
-  if (existsSync(tempPath)) {
-    unlinkSync(tempPath);
-  }
-}
-
-console.log("CONVEX_RUNTIME_ENV_SYNC=PASS");
-process.exit(0);
+console.log(`CONVEX_RUNTIME_ENV_SYNC=PASS variables=${values.size}`);
