@@ -19,6 +19,45 @@ export interface EnterpriseSettingRow {
   updatedAt: string;
 }
 
+export interface PartMasterRow {
+  id: string;
+  partNumber: string;
+  description: string;
+  type: string;
+  qtyOnHand: number;
+  minQty: number;
+  maxQty: number;
+  onPlan: boolean;
+  binLocation: string;
+  module: string;
+  unitCost: number;
+  version: number;
+  updatedAt: string;
+}
+
+export interface PartMasterUpdateReceipt {
+  eventId: number;
+  partId: string;
+  partNumber: string;
+  version: number;
+  updatedAt: string;
+  duplicate: boolean;
+}
+
+export interface PartMasterCreateReceipt {
+  partId: string;
+  partNumber: string;
+  version: number;
+  createdAt: string;
+  eventId: number;
+}
+
+export interface PartMasterDeleteReceipt {
+  eventId: number;
+  partNumber: string;
+  deleted: boolean;
+}
+
 export interface EnterpriseSettingUpdateReceipt extends EnterpriseSettingRow {
   eventId: number;
   duplicate: boolean;
@@ -98,6 +137,10 @@ export function useServerActions() {
   const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
   const listEditableSettingsAction = useAction(api.adminSettingsActions.listEditableSettings);
   const updateEditableSettingAction = useAction(api.adminSettingsActions.updateEditableSetting);
+  const listPartMasterAction = useAction(api.partMasterActions.listPartMaster);
+  const updatePartMasterAction = useAction(api.partMasterActions.updatePartMaster);
+  const createPartMasterAction = useAction(api.partMasterActions.createPartMaster);
+  const deletePartMasterAction = useAction(api.partMasterActions.deletePartMaster);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
     switch (table) {
@@ -156,6 +199,54 @@ export function useServerActions() {
   }): Promise<EnterpriseSettingUpdateReceipt> => {
     return await updateEditableSettingAction(args) as unknown as EnterpriseSettingUpdateReceipt;
   }, [updateEditableSettingAction]);
+
+  const listPartMaster = useCallback(async (): Promise<PartMasterRow[]> => {
+    return await listPartMasterAction({}) as unknown as PartMasterRow[];
+  }, [listPartMasterAction]);
+
+  const updatePartMaster = useCallback(async (args: {
+    partId: string;
+    updates: {
+      description?: string;
+      type?: string;
+      min_qty?: number;
+      max_qty?: number;
+      on_plan?: boolean;
+      bin_location?: string;
+      module?: string;
+      unit_cost?: number;
+    };
+    expectedVersion: number;
+    correlationId: string;
+    reason?: string;
+  }): Promise<PartMasterUpdateReceipt> => {
+    return await updatePartMasterAction(args) as unknown as PartMasterUpdateReceipt;
+  }, [updatePartMasterAction]);
+
+  const createPartMaster = useCallback(async (args: {
+    partNumber: string;
+    description: string;
+    type?: string;
+    qtyOnHand?: number;
+    minQty?: number;
+    maxQty?: number;
+    onPlan?: boolean;
+    binLocation?: string;
+    module?: string;
+    unitCost?: number;
+    correlationId: string;
+    reason?: string;
+  }): Promise<PartMasterCreateReceipt> => {
+    return await createPartMasterAction(args) as unknown as PartMasterCreateReceipt;
+  }, [createPartMasterAction]);
+
+  const deletePartMaster = useCallback(async (args: {
+    partId: string;
+    correlationId: string;
+    reason?: string;
+  }): Promise<PartMasterDeleteReceipt> => {
+    return await deletePartMasterAction(args) as unknown as PartMasterDeleteReceipt;
+  }, [deletePartMasterAction]);
 
   const loadDhrScannerData = useCallback(async (): Promise<DhrScannerBootstrap> => {
     return await loadDhrScannerDataAction({}) as unknown as DhrScannerBootstrap;
@@ -236,6 +327,10 @@ export function useServerActions() {
     sbUpload,
     listEditableSettings,
     updateEditableSetting,
+    listPartMaster,
+    updatePartMaster,
+    createPartMaster,
+    deletePartMaster,
     loadDhrScannerData,
     loadDhrSessionResults,
     createDhrScannerSession,
