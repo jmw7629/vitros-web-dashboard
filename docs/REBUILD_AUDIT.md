@@ -47,3 +47,21 @@ The J32133 reconciliation slice is database-only plus focused regression evidenc
 - Independent exact-head verifier PASS before merge.
 - Only after merge/review: apply the migration once, confirm one canonical J32133 row remains with unchanged physical QOH, immutable history remains queryable, and unconditional canonical uniqueness is active.
 - No production SAP posting.
+- Verifier control root isolated from builder/live runtime BRIDGE_ROOT (issue #337).
+
+## Verifier-control isolation (issue #337)
+
+**Problem**: The verifier service was using the live VITROS builder checkout (`BRIDGE_ROOT=/home/joevps/vitros-web-dashboard`) as its control root. Since the live checkout had unreviewed working-tree changes (`.gitignore` adds `.env*`), the verifier correctly refused to operate on a dirty checkout, stalling verification.
+
+**Architecture**: The installer now creates a dedicated, clean verifier control clone at `$HOME/.local/share/joeos-opencode-bridge/vitros-verifier-control` when `BRIDGE_ROOT` from the builder env points to the same directory as the builder control root. The verifier runner (`verifier_runner.py:main()`) gives `--root` precedence over `BRIDGE_ROOT` environment variable, so the systemd service's `ExecStart python3 --root <dedicated-path> ...` overrides the env-file `BRIDGE_ROOT`. The live builder checkout is never mutated, reset, stashed, or cleaned.
+
+**Recovery rule**: If `BRIDGE_ROOT` in `~/.config/joeos-opencode-bridge/vitros.env` equals the builder control root, the installer provisions a dedicated clean clone and redirects the verifier to it. The original live checkout remains untouched. The systemd drop-in `20-isolated-control.conf` is no longer needed as a workaround, since the installer embeds this topology.
+
+**Acceptance criteria**:
+- `VERIFIER_CONTROL_ISOLATED`: Dedicated control root is independent from builder/live runtime
+- `BUILDER_ROOT_CANNOT_REDIRECT_VERIFIER`: Builder env `BRIDGE_ROOT` cannot redirect verifier back to live checkout
+- `LIVE_DIRTY_CHECKOUT_PRESERVED`: Live checkout retains its original state without modification
+- `VERIFIER_DIRTY_FAIL_CLOSED`: Verifier refuses to run if its own control root is dirty
+- `VERIFIER_TESTS`: All verifier unit tests pass (24/24)
+- `EXACT_HEAD_VERIFIER`: Exact-head CI + independent verifier pass required
+- `BLOCKERS`: none

@@ -3,6 +3,7 @@ import json
 import pathlib
 import unittest
 from unittest import mock
+from pathlib import Path
 
 MODULE_PATH = pathlib.Path(__file__).with_name("verifier_runner.py")
 SPEC = importlib.util.spec_from_file_location("vitros_verifier_runner", MODULE_PATH)
@@ -221,6 +222,52 @@ class VerifierRunnerTests(unittest.TestCase):
     def test_verifier_markers_are_explicit(self):
         self.assertEqual(vr.VERIFY_MARKER, "<!-- vitros-opencode-verify:v1 -->")
         self.assertEqual(vr.LEGACY_VERIFY_MARKER, "joeos-opencode-bridge:v1")
+
+
+class EnsureRepoTests(unittest.TestCase):
+    def test_ensure_repo_clean_succeeds(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            git_dir = Path(tmp) / ".git"
+            git_dir.mkdir(parents=True, exist_ok=True)
+            (git_dir / "HEAD").write_text("ref: refs/heads/main\n")
+            with mock.patch.object(vr, "run") as run_mock:
+                status_proc = mock.Mock(stdout="", stderr="")
+                remote_proc = mock.Mock(stdout="https://github.com/jmw7629/vitros-web-dashboard.git\n", stderr="")
+                run_mock.side_effect = lambda *args, **kwargs: status_proc if args[0] == ["git", "status", "--porcelain"] else remote_proc
+                vr.ensure_repo(Path(tmp), "jmw7629/vitros-web-dashboard")
+
+    def test_ensure_repo_dirty_fails(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            git_dir = Path(tmp) / ".git"
+            git_dir.mkdir(parents=True, exist_ok=True)
+            (git_dir / "HEAD").write_text("ref: refs/heads/main\n")
+            (Path(tmp) / "test.txt").write_text("hello")
+            with mock.patch.object(vr, "run") as run_mock:
+                dirty_proc = mock.Mock(stdout="test.txt\n", stderr="")
+                remote_proc = mock.Mock(stdout="https://github.com/jmw7629/vitros-web-dashboard.git\n", stderr="")
+                run_mock.side_effect = lambda *args, **kwargs: dirty_proc if args[0] == ["git", "status", "--porcelain"] else remote_proc
+                with self.assertRaises(vr.BridgeError) as ctx:
+                    vr.ensure_repo(Path(tmp), "jmw7629/vitros-web-dashboard")
+                self.assertIn("dirty", str(ctx.exception).lower())
+
+    def test_ensure_repo_wrong_origin_fails(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            git_dir = Path(tmp) / ".git"
+            git_dir.mkdir(parents=True, exist_ok=True)
+            (git_dir / "HEAD").write_text("ref: refs/heads/main\n")
+            with mock.patch.object(vr, "run") as run_mock:
+                status_proc = mock.Mock(stdout="", stderr="")
+                remote_proc = mock.Mock(stdout="https://github.com/other/repo.git\n", stderr="")
+                run_mock.side_effect = lambda *args, **kwargs: status_proc if args[0] == ["git", "status", "--porcelain"] else remote_proc
+                with self.assertRaises(vr.BridgeError) as ctx:
+                    vr.ensure_repo(Path(tmp), "jmw7629/vitros-web-dashboard")
+                self.assertIn("Unexpected origin", str(ctx.exception))
 
 
 if __name__ == "__main__":
