@@ -150,3 +150,52 @@ UMask=0077
 WantedBy=default.target
 EOF
 }
+
+verifier_validate_effective_unit_properties() {
+  local control_root="$1"
+  local service_name="$2"
+  local working_dir exec_start exec_path exec_argv
+
+  if ! working_dir="$(systemctl --user show "$service_name" --property=WorkingDirectory --value --no-pager 2>/dev/null)"; then
+    verifier_fail "Effective WorkingDirectory inspection failed; failing closed."
+    return 1
+  fi
+  if [[ -z "$working_dir" || "$working_dir" != "$control_root" ]]; then
+    verifier_fail "Effective WorkingDirectory invariant failed; failing closed."
+    return 1
+  fi
+
+  if ! exec_start="$(systemctl --user show "$service_name" --property=ExecStart --value --no-pager 2>/dev/null)"; then
+    verifier_fail "Effective ExecStart inspection failed; failing closed."
+    return 1
+  fi
+  if [[ -z "$exec_start" ]]; then
+    verifier_fail "Effective ExecStart invariant failed; failing closed."
+    return 1
+  fi
+
+  # systemctl show --property=ExecStart --value emits a structured record such as
+  # { path=/usr/bin/env ; argv[]=/usr/bin/env python3 ... ; ignore_errors=no ; ... }.
+  # Accept only that structured shape and extract only path/argv. Never echo the
+  # observed property: future systemd fields may contain values unsuitable for logs.
+  if [[ "$exec_start" =~ ^\{[[:space:]]*path=([^\;[:space:]]+)[[:space:]]*\;[[:space:]]*argv\[\]=([^\;]+)[[:space:]]*\;[[:space:]]*ignore_errors= ]]; then
+    exec_path="${BASH_REMATCH[1]}"
+    exec_argv="${BASH_REMATCH[2]}"
+    exec_argv="${exec_argv#"${exec_argv%%[![:space:]]*}"}"
+    exec_argv="${exec_argv%"${exec_argv##*[![:space:]]}"}"
+  else
+    verifier_fail "Effective ExecStart structure invariant failed; failing closed."
+    return 1
+  fi
+
+  if [[ "$exec_path" != "/usr/bin/env" ]]; then
+    verifier_fail "Effective ExecStart path invariant failed; failing closed."
+    return 1
+  fi
+
+  local expected_argv="/usr/bin/env python3 ${control_root}/bridge/verifier_gate_runner.py --root ${control_root}"
+  if [[ "$exec_argv" != "$expected_argv" ]]; then
+    verifier_fail "Effective ExecStart argv invariant failed; failing closed."
+    return 1
+  fi
+}

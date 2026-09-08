@@ -113,6 +113,12 @@ fi
 verifier_render_unit "$VERIFIER_CONTROL_ROOT" "$ENV_FILE" "$HOME" > "$SERVICE_FILE"
 
 systemctl --user daemon-reload
+
+verifier_validate_effective_unit_properties "$VERIFIER_CONTROL_ROOT" "vitros-opencode-verifier.service" || {
+  echo "Verifier effective-unit validation failed; installation aborted." >&2
+  exit 1
+}
+
 systemctl --user enable --now vitros-opencode-verifier.service
 
 systemctl --user --no-pager --full status vitros-opencode-verifier.service || true
