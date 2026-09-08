@@ -23,13 +23,26 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 }
 REMOTE="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
 [[ "$REMOTE" == *"jmw7629/vitros-web-dashboard"* ]] || {
-  echo "Unexpected origin: $REMOTE" >&2
+  echo "Unexpected origin; verifier installation refused." >&2
   exit 1
 }
-[[ -z "$(git -C "$ROOT" status --porcelain)" ]] || {
-  echo "Control checkout must be clean before installing verifier service." >&2
+[[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "$ROOT" status --porcelain --untracked-files=all)" ]] || {
+  echo "Control checkout must be clean before installing verifier service; preserving it byte-for-byte and failing closed." >&2
   exit 1
 }
+SOURCE_HEAD="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+[[ "$SOURCE_HEAD" =~ ^[0-9a-fA-F]{40}$ ]] || {
+  echo "Cannot resolve exact installer source HEAD." >&2
+  exit 1
+}
+
+HELPERS="$ROOT/bridge/verifier_install_helpers.sh"
+[[ -f "$HELPERS" ]] || {
+  echo "Missing verifier installer helper library: $HELPERS" >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+source "$HELPERS"
 
 CONFIG_DIR="$HOME/.config/joeos-opencode-bridge"
 ENV_FILE="$CONFIG_DIR/vitros.env"
@@ -38,8 +51,9 @@ SERVICE_FILE="$SERVICE_DIR/vitros-opencode-verifier.service"
 mkdir -p "$CONFIG_DIR" "$SERVICE_DIR"
 chmod 700 "$CONFIG_DIR"
 
-# Reuse the builder's environment when present so model/provider configuration
-# stays identical. Never echo env-file contents because it may contain tokens.
+# Reuse shared non-root builder settings when present. BRIDGE_ROOT from this
+# file is never authoritative for the verifier because ExecStart always passes
+# an explicit dedicated --root selected below.
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -47,38 +61,21 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-# Dedicated verifier control root - independent from builder BRIDGE_ROOT.
-# The verifier must not inherit root from builder environment (requirement #5).
-# The VPS verifier is presently running from
-#   /home/joevps/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2
-VERIFIER_CONTROL_ROOT_DEFAULT="/home/joevps/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2"
-
-if [[ -d "$VERIFIER_CONTROL_ROOT_DEFAULT" ]]; then
-  # Existing verifier control checkout present - verify it is clean
-  if [[ -n "$(cd "$VERIFIER_CONTROL_ROOT_DEFAULT" && git status --porcelain 2>/dev/null)" ]]; then
-    echo "Verifier control checkout is dirty; preserving byte-for-byte and failing closed." >&2
-    echo "Location: $VERIFIER_CONTROL_ROOT_DEFAULT" >&2
-    exit 1
-  fi
-  # Verify HEAD is on expected commit (334 restore)
-  EXPECTED_HEAD="230eedc"
-  ACTUAL_HEAD="$(cd "$VERIFIER_CONTROL_ROOT_DEFAULT" && git rev-parse HEAD 2>/dev/null)"
-  if [[ "$ACTUAL_HEAD" != "$EXPECTED_HEAD" ]]; then
-    echo "Verifier control checkout HEAD mismatch (expected $EXPECTED_HEAD, got $ACTUAL_HEAD); preserving byte-for-byte and failing closed." >&2
-    exit 1
-  fi
-  VERIFIER_CONTROL_ROOT="$VERIFIER_CONTROL_ROOT_DEFAULT"
-else
-  # No existing verifier control checkout - create a new unique clean control path
-  # without touching any existing tree (requirement #3).
-  VERIFIER_CONTROL_ROOT="/home/joevps/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2-installer-$RANDOM"
-  echo "[INFO] Creating new verifier control checkout at $VERIFIER_CONTROL_ROOT"
-  git clone "$REMOTE" "$VERIFIER_CONTROL_ROOT" 2>/dev/null || {
-    echo "Failed to clone verifier control checkout; falling back to builder root is prohibited (requirement #4)." >&2
-    exit 1
-  }
-  cd "$VERIFIER_CONTROL_ROOT" && git checkout main 2>/dev/null
-fi
+# Authoritative verifier control root. It cannot be redirected by BRIDGE_ROOT
+# from the builder environment. An existing dirty/non-git checkout fails closed;
+# an existing clean checkout at a different HEAD is preserved and a unique
+# sibling is provisioned at the exact installer source SHA.
+VERIFIER_CONTROL_ROOT_DEFAULT="$HOME/.local/share/joeos-opencode-bridge/vitros-verifier-control-v2"
+VERIFIER_CONTROL_ROOT="$(
+  verifier_select_control_root "$REMOTE" "$VERIFIER_CONTROL_ROOT_DEFAULT" "$SOURCE_HEAD"
+)" || {
+  echo "Dedicated verifier control provisioning failed; builder-root fallback is prohibited." >&2
+  exit 1
+}
+[[ -n "$VERIFIER_CONTROL_ROOT" ]] || {
+  echo "Dedicated verifier control provisioning returned no root; failing closed." >&2
+  exit 1
+}
 
 OPENCODE_BIN_PATH="${OPENCODE_BIN:-$(command -v opencode 2>/dev/null || true)}"
 [[ -n "$OPENCODE_BIN_PATH" && -x "$OPENCODE_BIN_PATH" ]] || {
@@ -123,29 +120,7 @@ EOF
   chmod 600 "$ENV_FILE"
 fi
 
-cat > "$SERVICE_FILE" <<EOF
-[Unit]
-Description=VITROS independent OpenCode verifier worker
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=$VERIFIER_CONTROL_ROOT
-EnvironmentFile=-$ENV_FILE
-Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/env python3 $VERIFIER_CONTROL_ROOT/bridge/verifier_gate_runner.py --root $VERIFIER_CONTROL_ROOT
-Restart=on-failure
-RestartSec=30
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=$HOME/.local/state/joeos-opencode-bridge $HOME/.cache/joeos-opencode-bridge
-UMask=0077
-
-[Install]
-WantedBy=default.target
-EOF
+verifier_render_unit "$VERIFIER_CONTROL_ROOT" "$ENV_FILE" "$HOME" > "$SERVICE_FILE"
 
 systemctl --user daemon-reload
 systemctl --user enable --now vitros-opencode-verifier.service
