@@ -112,10 +112,7 @@ fi
 
 verifier_render_unit "$VERIFIER_CONTROL_ROOT" "$ENV_FILE" "$HOME" > "$SERVICE_FILE"
 
-systemctl --user daemon-reload
-systemctl --user enable --now vitros-opencode-verifier.service
-
-systemctl --user --no-pager --full status vitros-opencode-verifier.service || true
+verifier_activate_unit "$SERVICE_FILE" "$VERIFIER_CONTROL_ROOT" || exit 1
 
 echo
 echo "VITROS verifier service installed."

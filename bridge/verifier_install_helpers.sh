@@ -150,3 +150,97 @@ UMask=0077
 WantedBy=default.target
 EOF
 }
+
+verifier_inspect_working_directory() {
+  local service="$1"
+
+  local output
+  output=$(systemctl --user show "$service" --property=WorkingDirectory --value --no-pager 2>/dev/null) || {
+    verifier_fail "systemctl show --property=WorkingDirectory failed for $service"
+    return 1
+  }
+
+  if [[ -z "$output" ]]; then
+    verifier_fail "Empty WorkingDirectory value from systemctl show for $service"
+    return 1
+  fi
+
+  # No grep/PCRE/prefix stripping — just validate we have a non‑empty path.
+  # --value should strip the “WorkingDirectory=” prefix, leaving just the path.
+  printf '%s' "$output"
+  return 0
+}
+
+verifier_inspect_execstart() {
+  local service="$1"
+  local control_root="$2"
+
+  local output
+  output=$(systemctl --user show "$service" --property=ExecStart --value --no-pager 2>/dev/null) || {
+    verifier_fail "systemctl show --property=ExecStart failed for $service"
+    return 1
+  }
+
+  if [[ -z "$output" ]]; then
+    verifier_fail "Empty ExecStart value from systemctl show for $service"
+    return 1
+  fi
+
+  # Prove path=/usr/bin/env exists in the structured effective value.
+  if [[ "$output" != *'/usr/bin/env'* ]]; then
+    verifier_fail "ExecStart path is not /usr/bin/env"
+    return 1
+  fi
+
+  # Extract argv[]= segment using shell parameter expansion (no grep -oP).
+  local argv_value=""
+  if [[ "$output" == *'argv[]='* ]]; then
+    argv_value="${output#*argv[]=}"
+    argv_value="${argv_value%%;*}"
+    argv_value="${argv_value%%}*}"
+    argv_value="${argv_value# }"
+  fi
+
+  # Verify the argv segment contains the required components.
+  # Must equal /usr/bin/env python3 <control>/bridge/verifier_gate_runner.py --root <control>
+  local expected_argv="/usr/bin/env python3 ${control_root}/bridge/verifier_gate_runner.py --root ${control_root}"
+  if [[ "$argv_value" != "$expected_argv" ]]; then
+    verifier_fail "ExecStart argv does not match expected [$expected_argv]; got ${argv_value:-<empty>}"
+    return 1
+  fi
+
+  return 0
+}
+
+verifier_activate_unit() {
+  local service="$1"
+  local control_root="$2"
+
+  # Step 1: daemon-reload
+  systemctl --user daemon-reload || {
+    verifier_fail "systemctl --user daemon-reload failed"
+    return 1
+  }
+
+  # Step 2: validate effective WorkingDirectory
+  local wd
+  wd=$(verifier_inspect_working_directory "$service") || {
+    verifier_fail "WorkingDirectory inspection failed; failing closed before activation"
+    return 1
+  }
+
+  # Step 3: validate effective ExecStart
+  local es
+  es=$(verifier_inspect_execstart "$service" "$control_root") || {
+    verifier_fail "ExecStart inspection failed; failing closed before activation"
+    return 1
+  }
+
+  # Step 4: enable and start the unit — only if all inspections passed
+  systemctl --user enable --now "$service" || {
+    verifier_fail "systemctl --user enable --now failed for $service"
+    return 1
+  }
+
+  return 0
+}
