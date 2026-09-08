@@ -5,3 +5,5 @@ dist
 .env.*.local
 .vercel
 tmp/
+__pycache__/
+*.py[cod]

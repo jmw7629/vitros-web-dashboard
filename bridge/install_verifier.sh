@@ -47,34 +47,43 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-# If BRIDGE_ROOT from the builder env points to the same directory as the
-# builder control root (the live checkout we're running from), create a
-# dedicated, clean verifier control clone so the builder env cannot redirect
-# the verifier back to the live/runtime checkout. The verifier runner gives
-# --root precedence over BRIDGE_ROOT, so passing --root from the systemd
-# service takes effect.
-if [[ -n "${BRIDGE_ROOT:-}" && "$ROOT" == "$BRIDGE_ROOT" ]]; then
-  echo "BRIDGE_ROOT equals builder control root; provisioning dedicated verifier control clone." >&2
-  BRIDGE_HEAD=$(git rev-parse HEAD)
-  VERIFIER_CONTROL_ROOT="$HOME/.local/share/joeos-opencode-bridge/vitros-verifier-control"
-  if [[ -d "$VERIFIER_CONTROL_ROOT/.git" ]] || [[ -d "$VERIFIER_CONTROL_ROOT" ]]; then
-    CONTROL_HEAD=$(git -C "$VERIFIER_CONTROL_ROOT" rev-parse HEAD 2>/dev/null || true)
-    if [[ "$CONTROL_HEAD" != "$BRIDGE_HEAD" ]]; then
-      rm -rf "$VERIFIER_CONTROL_ROOT"
-      VERIFIER_CONTROL_ROOT=""
-    fi
-  fi
-  if [[ ! -d "$VERIFIER_CONTROL_ROOT/.git" ]]; then
-    git clone "$REMOTE" "$VERIFIER_CONTROL_ROOT"
-    git -C "$VERIFIER_CONTROL_ROOT" checkout "$BRIDGE_HEAD" >/dev/null 2>&1 || true
-  fi
-  if [[ -d "$VERIFIER_CONTROL_ROOT/.git" ]]; then
-    BRIDGE_ROOT="$VERIFIER_CONTROL_ROOT"
-    echo "Dedicated verifier control root: $BRIDGE_ROOT" >&2
-  else
-    echo "WARNING: could not establish dedicated verifier control clone; continuing with BRIDGE_ROOT=$BRIDGE_ROOT" >&2
-  fi
+# Always isolate verifier control from the builder/live checkout. The builder
+# environment may set BRIDGE_ROOT to a dirty runtime checkout; the verifier must
+# never trust that path for its own control code. Provision a dedicated clean
+# clone pinned to the exact installer commit and pass it explicitly via --root.
+BRIDGE_HEAD=$(git rev-parse HEAD)
+VERIFIER_CONTROL_ROOT="$HOME/.local/share/joeos-opencode-bridge/vitros-verifier-control"
+if [[ -e "$VERIFIER_CONTROL_ROOT" ]]; then
+  [[ -d "$VERIFIER_CONTROL_ROOT/.git" ]] || {
+    echo "Verifier control root exists but is not a git checkout: $VERIFIER_CONTROL_ROOT" >&2
+    exit 1
+  }
+  CONTROL_REMOTE=$(git -C "$VERIFIER_CONTROL_ROOT" remote get-url origin 2>/dev/null || true)
+  [[ "$CONTROL_REMOTE" == *"jmw7629/vitros-web-dashboard"* ]] || {
+    echo "Unexpected verifier control origin: $CONTROL_REMOTE" >&2
+    exit 1
+  }
+  [[ -z "$(git -C "$VERIFIER_CONTROL_ROOT" status --porcelain)" ]] || {
+    echo "Verifier control checkout is dirty; refusing to overwrite it." >&2
+    exit 1
+  }
+else
+  mkdir -p "$(dirname "$VERIFIER_CONTROL_ROOT")"
+  git clone --no-checkout "$REMOTE" "$VERIFIER_CONTROL_ROOT"
 fi
+
+git -C "$VERIFIER_CONTROL_ROOT" fetch --quiet origin "$BRIDGE_HEAD"
+git -C "$VERIFIER_CONTROL_ROOT" checkout --quiet --detach "$BRIDGE_HEAD"
+[[ "$(git -C "$VERIFIER_CONTROL_ROOT" rev-parse HEAD)" == "$BRIDGE_HEAD" ]] || {
+  echo "Verifier control checkout did not pin to installer head $BRIDGE_HEAD" >&2
+  exit 1
+}
+[[ -z "$(git -C "$VERIFIER_CONTROL_ROOT" status --porcelain)" ]] || {
+  echo "Verifier control checkout became dirty during provisioning." >&2
+  exit 1
+}
+BRIDGE_ROOT="$VERIFIER_CONTROL_ROOT"
+echo "Dedicated verifier control root: $BRIDGE_ROOT" >&2
 
 OPENCODE_BIN_PATH="${OPENCODE_BIN:-$(command -v opencode 2>/dev/null || true)}"
 [[ -n "$OPENCODE_BIN_PATH" && -x "$OPENCODE_BIN_PATH" ]] || {
@@ -107,9 +116,9 @@ python3 "$ROOT/bridge/test_verifier_runner.py"
 python3 "$ROOT/bridge/test_verifier_gate_runner.py"
 
 # Write only non-secret bridge defaults when an env file does not yet exist.
-# BRIDGE_ROOT has already been potentially overridden to the dedicated control
-# clone above; if it still points to the builder/live root, that is preserved
-# but the systemd service will pass --root to override it.
+# BRIDGE_ROOT is always the dedicated verifier control clone. If an existing
+# env file still names a builder/live root, the service CLI --root below takes
+# precedence and keeps verifier control isolated.
 if [[ ! -f "$ENV_FILE" ]]; then
   cat > "$ENV_FILE" <<EOF
 BRIDGE_REPO=jmw7629/vitros-web-dashboard
@@ -133,7 +142,7 @@ Type=simple
 WorkingDirectory=$BRIDGE_ROOT
 EnvironmentFile=-$ENV_FILE
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/env python3 --root $BRIDGE_ROOT $BRIDGE_ROOT/bridge/verifier_gate_runner.py
+ExecStart=/usr/bin/env python3 $BRIDGE_ROOT/bridge/verifier_gate_runner.py --root $BRIDGE_ROOT
 Restart=on-failure
 RestartSec=30
 NoNewPrivileges=true
