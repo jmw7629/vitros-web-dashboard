@@ -3,9 +3,9 @@ import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { browserSafeRead } from "../lib/browserSafeRead";
 import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
+import type { RemBuildPlanRow, RemStaffPlanningRow, RemTargetPlanningRow, RemTrackerPlanningRow } from "./useRemPlanningData";
 
-// ─── Convex action hooks for authoritative REM server-side data access ───
-const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
+// ─── Legacy Convex HTTP helper is retained only for Cycle Count until that separate lane is migrated. ───
 const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
 
 async function convexQuery<T>(url: string, fn: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -176,12 +176,7 @@ export interface LVCCItem {
   sapReleasePct: number;
 }
 
-export interface StaffMember {
-  _id: string;
-  name: string;
-  role: string;
-  skills: Record<string, string>;
-}
+export type StaffMember = RemStaffPlanningRow;
 
 export interface WeeklyNoteEntry {
   _id?: string;
@@ -191,25 +186,9 @@ export interface WeeklyNoteEntry {
   notes: { content: string; product: string }[];
 }
 
-export interface WeeklyBuildPlan {
-  _id: string;
-  weekOf: string;
-  planned: number;
-  actual: number;
-  notes?: string;
-}
+export type WeeklyBuildPlan = RemBuildPlanRow;
 
-export interface TrackerWeekly {
-  _id: string;
-  weekOf: string;
-  teardown: number;
-  cleaning: number;
-  rebuild: number;
-  testing: number;
-  qa: number;
-  shipping: number;
-  complete: number;
-}
+export type TrackerWeekly = RemTrackerPlanningRow;
 
 export interface IncomingStockBatch {
   _id: string;
@@ -253,12 +232,7 @@ export interface IncomingStockLog {
   qtyAfter: number;
 }
 
-export interface AnnualTarget {
-  _id: string;
-  year: number;
-  target: number;
-  actual: number;
-}
+export type AnnualTarget = RemTargetPlanningRow;
 
 // ─── Supabase → App type mappers ───
 
@@ -308,52 +282,6 @@ function mapUserToEmployee(row: any): Employee {
     active: row.is_active ?? true,
     createdAt: new Date(row.created_at).getTime(),
     role: row.role || "engineer",
-  };
-}
-
-function mapTrackerPlanningRow(row: any): TrackerWeekly {
-  return {
-    _id: String(row.id ?? ""),
-    weekOf: String(row.product ?? "").slice(0, 80),
-    teardown: 0,
-    cleaning: 0,
-    rebuild: 0,
-    testing: 0,
-    shipping: 0,
-    complete: numberOrZero(row.plan),
-  };
-}
-
-function mapBuildPlanRow(row: any): WeeklyBuildPlan {
-  const data = objectValue(row.data);
-  return {
-    _id: String(row.id ?? ""),
-    weekOf: String(data.weekStart ?? data.quarter ?? "").slice(0, 40),
-    planned: numberOrZero(data.plan),
-    actual: optionalNumber(data.actual),
-    notes: undefined,
-  };
-}
-
-function mapStaffPlanningRow(row: any): StaffMember {
-  return {
-    _id: String(row.id ?? ""),
-    name: String(row.name ?? "").slice(0, 160),
-    initials: (String(row.name ?? "").split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)),
-    email: row.email,
-    active: true,
-    createdAt: new Date().getTime(),
-    role: String(row.role ?? "").slice(0, 120) || "engineer",
-  };
-}
-
-function mapTargetPlanningRow(row: any): AnnualTarget {
-  const data = objectValue(row.data);
-  return {
-    _id: String(row.id ?? ""),
-    year: numberOrZero(row.year),
-    target: numberOrZero(row.targetValue),
-    actual: numberOrZero(data.actualValue),
   };
 }
 
