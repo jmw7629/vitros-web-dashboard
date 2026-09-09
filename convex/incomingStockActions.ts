@@ -3,84 +3,46 @@
 // explicit human-confirmed line is submitted through the atomic inventory transition RPC.
 // Deterministic receipt-line identity: documentRef + sourcePage + sourceLineNo (normalized).
 // Random confirmation IDs are presentation keys only; they are not authoritative for idempotency.
-import { action } from "./_generated/server";
+// All parse/validate/match/aggregate/provenance logic lives in the side-effect-free
+// ./incomingStockReview module; this file owns only auth, stock lookup and writes.
+
 import { v } from "convex/values";
+import { action } from "./_generated/server";
 import { requireCapability } from "./authGuard";
+import {
+  canonicalPartNumber,
+  canonicalReceiptLineIdentity,
+  MAX_DOCUMENT_REF_CHARS,
+  MAX_SOURCE_PAGE_CHARS,
+  normalizeDocumentRef,
+} from "./incomingStockDeterministicIdentity";
+import {
+  computeAggregateSummary,
+  computeSummary,
+  indexStockByCanonical,
+  MAX_LINES,
+  parseOcrArray,
+  reviewOcrLines,
+  type StockRow,
+} from "./incomingStockReview";
 import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
-const MAX_OCR_JSON_CHARS = 256_000;
-const MAX_LINES = 500;
-const MAX_DOCUMENT_REF_CHARS = 200;
 const MAX_CONFIRMATION_ID_CHARS = 180;
-const MAX_SOURCE_PAGE_CHARS = 50;
-
-type StockRow = {
-  id: string;
-  part_number: string;
-  description?: string | null;
-  qty_on_hand?: number | string | null;
-};
-
-type MatchStatus =
-  | "matched"
-  | "unknown_part"
-  | "ambiguous_part"
-  | "invalid_part_number"
-  | "invalid_quantity";
-
-export function canonicalPartNumber(value: string): string {
-  return value.trim().toUpperCase();
-}
-
-export function normalizeDocumentRef(value: string): string {
-  return value.trim().toUpperCase().replace(/\s+/g, " ");
-}
-
-export function normalizeSourcePage(value: string): string {
-  return value.trim().toUpperCase().replace(/\s+/g, " ").slice(0, MAX_SOURCE_PAGE_CHARS);
-}
-
-export function canonicalReceiptLineIdentity(args: {
-  documentRef: string;
-  sourcePage: string | null | undefined;
-  sourceLineNo: number;
-}): string {
-  const doc = normalizeDocumentRef(args.documentRef);
-  const page = args.sourcePage ? normalizeSourcePage(args.sourcePage) : "PAGE_UNKNOWN";
-  const line = Number.isInteger(args.sourceLineNo) && args.sourceLineNo > 0 ? args.sourceLineNo : 0;
-  return `incoming:${doc}|${page}|${line}`;
-}
-
-function parseOcrArray(raw: string): unknown[] {
-  if (!raw.trim()) return [];
-  if (raw.length > MAX_OCR_JSON_CHARS) throw new Error("OCR result is too large");
-
-  let text = raw.trim();
-  if (text.startsWith("```")) {
-    text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("OCR result is not valid JSON");
-  }
-  if (!Array.isArray(parsed)) throw new Error("OCR result must be a JSON array");
-  if (parsed.length > MAX_LINES) throw new Error(`OCR result exceeds ${MAX_LINES} lines`);
-  return parsed;
-}
 
 function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) throw new Error("Server inventory configuration is unavailable");
+  if (!url || !serviceKey)
+    throw new Error("Server inventory configuration is unavailable");
   return { url, serviceKey };
 }
 
-async function listStockRows(url: string, serviceKey: string): Promise<StockRow[]> {
+async function listStockRows(
+  url: string,
+  serviceKey: string,
+): Promise<StockRow[]> {
   const res = await fetch(
     `${url}/rest/v1/stock?select=id,part_number,description,qty_on_hand&limit=5000`,
     {
@@ -94,22 +56,9 @@ async function listStockRows(url: string, serviceKey: string): Promise<StockRow[
   );
   if (!res.ok) throw new Error("Inventory match lookup failed");
   const body = await res.json();
-  if (!Array.isArray(body)) throw new Error("Inventory match lookup returned an invalid response");
+  if (!Array.isArray(body))
+    throw new Error("Inventory match lookup returned an invalid response");
   return body as StockRow[];
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function asFiniteNumber(value: unknown): number | null {
-  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(n) ? n : null;
-}
-
-function matchingCanonicalRows(stockRows: StockRow[], partNumber: string): StockRow[] {
-  const canonical = canonicalPartNumber(partNumber);
-  return stockRows.filter((row) => canonicalPartNumber(asString(row.part_number)) === canonical);
 }
 
 async function applyConfirmedReceive(
@@ -123,23 +72,26 @@ async function applyConfirmedReceive(
     batchId?: string;
   },
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${url}/rest/v1/rpc/apply_inventory_transition`, {
-    method: "POST",
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-      "Content-Type": "application/json",
+  const response = await fetch(
+    `${url}/rest/v1/rpc/apply_inventory_transition`,
+    {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_part_number: args.partNumber,
+        p_mode: "RECEIVE",
+        p_qty: args.qty,
+        p_user: args.actor,
+        p_correlation_id: args.correlationId,
+        p_analyzer_serial: null,
+        p_batch_id: args.batchId ?? null,
+      }),
     },
-    body: JSON.stringify({
-      p_part_number: args.partNumber,
-      p_mode: "RECEIVE",
-      p_qty: args.qty,
-      p_user: args.actor,
-      p_correlation_id: args.correlationId,
-      p_analyzer_serial: null,
-      p_batch_id: args.batchId ?? null,
-    }),
-  });
+  );
 
   if (!response.ok) {
     // The PostgREST/RPC response body is provider-controlled and can contain schema,
@@ -149,7 +101,8 @@ async function applyConfirmedReceive(
   }
 
   const body = await response.json();
-  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Receive returned an invalid receipt");
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    throw new Error("Receive returned an invalid receipt");
   return body as Record<string, unknown>;
 }
 
@@ -161,101 +114,17 @@ export const reviewPackingListDraft = action({
   returns: v.any(),
   handler: async (ctx, { ocrJson, documentRef }) => {
     await requireCapability(ctx, "inventory.write");
-    if ((documentRef?.length ?? 0) > MAX_DOCUMENT_REF_CHARS) throw new Error("Document reference is too long");
+    if ((documentRef?.length ?? 0) > MAX_DOCUMENT_REF_CHARS)
+      throw new Error("Document reference is too long");
 
     const rawLines = parseOcrArray(ocrJson);
     const { url, serviceKey } = getSupabaseConfig();
     const stockRows = await listStockRows(url, serviceKey);
+    const stockByCanonical = indexStockByCanonical(stockRows);
 
-    const stockByCanonical = new Map<string, StockRow[]>();
-    for (const row of stockRows) {
-      const key = canonicalPartNumber(asString(row.part_number));
-      if (!key) continue;
-      const existing = stockByCanonical.get(key) ?? [];
-      existing.push(row);
-      stockByCanonical.set(key, existing);
-    }
-
-    const lines = rawLines.map((raw, index) => {
-      const obj = raw && typeof raw === "object" && !Array.isArray(raw)
-        ? raw as Record<string, unknown>
-        : {};
-      const partNumberOcr = asString(obj.partNumber ?? obj.part_number);
-      const canonical = canonicalPartNumber(partNumberOcr);
-      const descriptionOcr = asString(obj.description);
-      // Packing-list receipt quantity is SHIP QTY when available. Generic qty is
-      // accepted only as a fallback for document families that expose QTY/UNIT.
-      const qtyNumber = asFiniteNumber(
-        obj.shippedQuantity ?? obj.shipped_quantity ?? obj.shipQty ?? obj.ship_qty ?? obj.qty ?? obj.quantity,
-      );
-      const confidenceNumber = asFiniteNumber(obj.confidence);
-      const confidence = confidenceNumber !== null && confidenceNumber >= 0 && confidenceNumber <= 1
-        ? confidenceNumber
-        : null;
-
-      // Provenance from OCR: documentRef, page, lineNo
-      const sourcePage = asString(obj.page);
-      const sourceLineNo = asFiniteNumber(obj.lineNo ?? obj.line_no);
-
-      let matchStatus: MatchStatus;
-      let matches: StockRow[] = [];
-      if (!canonical) {
-        matchStatus = "invalid_part_number";
-      } else if (qtyNumber === null || !Number.isInteger(qtyNumber) || qtyNumber <= 0) {
-        matchStatus = "invalid_quantity";
-      } else {
-        matches = stockByCanonical.get(canonical) ?? [];
-        matchStatus = matches.length === 1 ? "matched" : matches.length === 0 ? "unknown_part" : "ambiguous_part";
-      }
-
-      const match = matchStatus === "matched" ? matches[0] : undefined;
-      const effectiveDocRef = documentRef?.trim() || null;
-      const deterministicIdentity = effectiveDocRef
-        ? canonicalReceiptLineIdentity({ documentRef: effectiveDocRef, sourcePage: sourcePage || null, sourceLineNo: sourceLineNo ?? index + 1 })
-        : null;
-      return {
-        lineNo: index + 1,
-        partNumberOcr,
-        partNumberCanonical: canonical,
-        descriptionOcr,
-        qtyOcr: qtyNumber,
-        confidence,
-        matchStatus,
-        resolvedPartNumber: match?.part_number ?? null,
-        stockId: match?.id ?? null,
-        stockDescription: match?.description ?? null,
-        qtyOnHand: match ? Number(match.qty_on_hand ?? 0) : null,
-        sourcePage: sourcePage || null,
-        sourceLineNo: sourceLineNo ?? index + 1,
-        deterministicIdentity,
-      };
-    });
-
-    const summary = lines.reduce(
-      (acc, line) => {
-        acc.total += 1;
-        acc[line.matchStatus] += 1;
-        return acc;
-      },
-      { total: 0, matched: 0, unknown_part: 0, ambiguous_part: 0, invalid_part_number: 0, invalid_quantity: 0 } as Record<"total" | MatchStatus, number>,
-    );
-
-    // Aggregate summary by canonical part number for review (does not collapse commit identities)
-    const aggregateByPart = new Map<string, { canonicalPartNumber: string; totalQty: number; lineCount: number; matchedCount: number }>();
-    for (const line of lines) {
-      const key = line.partNumberCanonical || "INVALID";
-      const existing = aggregateByPart.get(key) || { canonicalPartNumber: key, totalQty: 0, lineCount: 0, matchedCount: 0 };
-      existing.totalQty += line.qtyOcr ?? 0;
-      existing.lineCount += 1;
-      if (line.matchStatus === "matched") existing.matchedCount += 1;
-      aggregateByPart.set(key, existing);
-    }
-    const aggregateSummary = Array.from(aggregateByPart.values()).map((v) => ({
-      canonicalPartNumber: v.canonicalPartNumber,
-      totalQty: v.totalQty,
-      lineCount: v.lineCount,
-      matchedCount: v.matchedCount,
-    }));
+    const lines = reviewOcrLines(rawLines, stockByCanonical, documentRef);
+    const summary = computeSummary(lines);
+    const aggregateSummary = computeAggregateSummary(lines);
 
     return {
       documentRef: documentRef?.trim() || null,
@@ -284,12 +153,25 @@ export const commitConfirmedReceiveLine = action({
     const actorId = await requireCapability(ctx, "inventory.write");
     const canonical = canonicalPartNumber(args.partNumber);
     if (!canonical) throw new Error("Part number is required");
-    if (!Number.isInteger(args.qty) || args.qty <= 0) throw new Error("Receive quantity must be a positive integer");
-    if (!args.confirmationId.trim() || args.confirmationId.length > MAX_CONFIRMATION_ID_CHARS) throw new Error("A bounded confirmation ID is required");
+    if (!Number.isInteger(args.qty) || args.qty <= 0)
+      throw new Error("Receive quantity must be a positive integer");
+    if (
+      !args.confirmationId.trim() ||
+      args.confirmationId.length > MAX_CONFIRMATION_ID_CHARS
+    )
+      throw new Error("A bounded confirmation ID is required");
     // Deterministic identity requires a document reference. Fail closed if absent.
-    if (!args.documentRef?.trim()) throw new Error("Document reference is required for deterministic receipt identity");
-    if ((args.documentRef.length ?? 0) > MAX_DOCUMENT_REF_CHARS) throw new Error("Document reference is too long");
-    if (!Number.isInteger(args.sourceLineNo) || args.sourceLineNo <= 0 || args.sourceLineNo > MAX_LINES) {
+    if (!args.documentRef?.trim())
+      throw new Error(
+        "Document reference is required for deterministic receipt identity",
+      );
+    if ((args.documentRef.length ?? 0) > MAX_DOCUMENT_REF_CHARS)
+      throw new Error("Document reference is too long");
+    if (
+      !Number.isInteger(args.sourceLineNo) ||
+      args.sourceLineNo <= 0 ||
+      args.sourceLineNo > MAX_LINES
+    ) {
       throw new Error("Source line number is invalid");
     }
     if (args.sourcePage && args.sourcePage.length > MAX_SOURCE_PAGE_CHARS) {
@@ -298,12 +180,22 @@ export const commitConfirmedReceiveLine = action({
 
     const { url, serviceKey } = getSupabaseConfig();
     const stockRows = await listStockRows(url, serviceKey);
-    const matches = matchingCanonicalRows(stockRows, canonical);
-    if (matches.length === 0) throw new Error("Confirmed part is not present in inventory");
-    if (matches.length > 1) throw new Error("Confirmed part number is ambiguous and cannot be received");
+    const stockByCanonical = indexStockByCanonical(stockRows);
+    const matches = stockByCanonical.get(canonical) ?? [];
+    if (matches.length === 0)
+      throw new Error("Confirmed part is not present in inventory");
+    if (matches.length > 1)
+      throw new Error(
+        "Confirmed part number is ambiguous and cannot be received",
+      );
 
     const match = matches[0];
     const documentRef = args.documentRef.trim();
+    // The user/display document reference stays as entered/trimmed, but the authoritative
+    // correlation identity and the material request batch reference use the same normalized
+    // document reference so that semantically equivalent retries are idempotent and
+    // genuinely changed references still conflict. (matches the RPC IS DISTINCT FROM check)
+    const normalizedBatchRef = normalizeDocumentRef(args.documentRef);
     const correlationId = canonicalReceiptLineIdentity({
       documentRef,
       sourcePage: args.sourcePage?.trim() || null,
@@ -314,7 +206,7 @@ export const commitConfirmedReceiveLine = action({
       qty: args.qty,
       actor: String(actorId),
       correlationId,
-      batchId: documentRef,
+      batchId: normalizedBatchRef,
     });
     await publishRealtimePulse(ctx);
 
@@ -330,6 +222,7 @@ export const commitConfirmedReceiveLine = action({
       stockId: match.id,
       qtyReceived: args.qty,
       correlationId,
+      batchId: normalizedBatchRef,
       receipt,
     };
   },

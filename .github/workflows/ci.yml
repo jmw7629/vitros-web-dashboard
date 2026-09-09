@@ -45,6 +45,10 @@ jobs:
         run: node scripts/incoming-stock-pdf-security-check.mjs
       - name: Incoming Stock deterministic identity check
         run: node scripts/incoming-stock-deterministic-identity-check.mjs
+      - name: Incoming Stock acceptance fixtures
+        run: npm run test:incoming-stock-acceptance
+      - name: Migration structural gate (static, no disposable Postgres in CI)
+        run: npm run test:migration-structural-gate
       - name: 30-user refresh storm check
         run: node scripts/refresh-coordinator-check.mjs
       - name: Lint
