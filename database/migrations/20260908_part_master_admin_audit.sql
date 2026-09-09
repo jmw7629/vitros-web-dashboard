@@ -20,7 +20,8 @@ create table if not exists public.part_master_events (
   reason text,
   previous_values jsonb not null,
   new_values jsonb not null,
-  previous_version integer not null check (previous_version >= 1),
+  request_values jsonb not null,
+  previous_version integer not null check (previous_version >= 0),
   new_version integer not null check (new_version = previous_version + 1),
   created_at timestamptz not null default now()
 );
@@ -112,7 +113,7 @@ begin
     end if;
   end loop;
 
-  if jsonb_typeof(v_safe_updates) = 'object' and jsonb_object_keys(v_safe_updates) is null then
+  if v_safe_updates = '{}'::jsonb then
     raise exception 'no permitted part master fields supplied' using errcode = '22023';
   end if;
 
@@ -153,7 +154,7 @@ begin
   where e.correlation_id = v_correlation;
 
   if found then
-    if v_event.part_id <> v_part_id or v_event.new_values <> v_safe_updates then
+    if v_event.part_id <> v_part_id or v_event.request_values <> v_safe_updates then
       raise exception 'correlation id was already used for a different change' using errcode = '23505';
     end if;
 
@@ -242,6 +243,7 @@ begin
     reason,
     previous_values,
     new_values,
+    request_values,
     previous_version,
     new_version
   ) values (
@@ -252,6 +254,7 @@ begin
     v_reason,
     v_previous_values,
     v_new_values,
+    v_safe_updates,
     v_version,
     v_version + 1
   ) returning * into v_event;
@@ -275,16 +278,15 @@ grant execute on function public.apply_part_master_change(uuid, jsonb, integer, 
 create or replace function public.create_part_master(
   p_part_number text,
   p_description text,
+  p_actor text,
+  p_correlation_id text,
   p_type text default 'Required',
-  p_qty_on_hand integer default 0,
   p_min_qty integer default 0,
   p_max_qty integer default 0,
   p_on_plan boolean default false,
   p_bin_location text default '',
   p_module text default '',
   p_unit_cost numeric default 0,
-  p_actor text,
-  p_correlation_id text,
   p_reason text default null
 )
 returns table (
@@ -302,7 +304,6 @@ declare
   v_part_number text := upper(btrim(p_part_number));
   v_description text := btrim(p_description);
   v_type text := btrim(coalesce(p_type, 'Required'));
-  v_qty integer := coalesce(p_qty_on_hand, 0);
   v_min_qty integer := coalesce(p_min_qty, 0);
   v_max_qty integer := coalesce(p_max_qty, 0);
   v_on_plan boolean := coalesce(p_on_plan, false);
@@ -314,7 +315,9 @@ declare
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_new_id uuid;
   v_created_at timestamptz;
+  v_event public.part_master_events%rowtype;
   v_event_id bigint;
+  v_request_values jsonb;
 begin
   -- Validations
   if v_part_number = '' or char_length(v_part_number) > 64 then
@@ -326,7 +329,7 @@ begin
   if v_type not in ('Required','Optional','Not on BOM','Consumable') then
     raise exception 'invalid part type' using errcode = '22023';
   end if;
-  if v_qty < 0 or v_min_qty < 0 or v_max_qty < 0 then
+  if v_min_qty < 0 or v_max_qty < 0 then
     raise exception 'quantities cannot be negative' using errcode = '22023';
   end if;
   if v_unit_cost < 0 then
@@ -342,9 +345,45 @@ begin
     raise exception 'reason is too long' using errcode = '22023';
   end if;
 
+  v_request_values := jsonb_build_object(
+    'part_number', v_part_number,
+    'description', v_description,
+    'type', v_type,
+    'qty_on_hand', 0,
+    'min_qty', v_min_qty,
+    'max_qty', v_max_qty,
+    'on_plan', v_on_plan,
+    'bin_location', v_bin_location,
+    'module', v_module,
+    'unit_cost', v_unit_cost
+  );
+
   -- Serialize on part number (for uniqueness) and correlation
   perform pg_advisory_xact_lock(hashtextextended('part-master-create:' || v_part_number, 0));
   perform pg_advisory_xact_lock(hashtextextended('part-master-correlation:' || v_correlation, 0));
+
+  -- Exact retry is idempotent; correlation reuse with a different request fails closed.
+  select e.* into v_event
+  from public.part_master_events e
+  where e.correlation_id = v_correlation;
+
+  if found then
+    if v_event.previous_version <> 0
+       or v_event.part_number <> v_part_number
+       or v_event.request_values <> v_request_values then
+      raise exception 'correlation id was already used for a different change' using errcode = '23505';
+    end if;
+
+    select s.created_at into v_created_at
+    from public.stock s
+    where s.id = v_event.part_id;
+    if not found then
+      raise exception 'idempotent part creation target is missing' using errcode = '55000';
+    end if;
+
+    return query select v_event.part_id, v_event.part_number, v_event.new_version, v_created_at, v_event.event_id;
+    return;
+  end if;
 
   -- Check for existing part with same canonical number
   if exists (select 1 from public.stock where upper(btrim(part_number)) = v_part_number) then
@@ -357,7 +396,7 @@ begin
     min_qty, max_qty, on_plan, bin_location, module, unit_cost,
     version, last_activity, updated_at
   ) values (
-    v_part_number, v_description, v_type, v_qty,
+    v_part_number, v_description, v_type, 0,
     v_min_qty, v_max_qty, v_on_plan, v_bin_location, v_module, v_unit_cost,
     1, now(), now()
   ) returning id, created_at into v_new_id, v_created_at;
@@ -371,6 +410,7 @@ begin
     reason,
     previous_values,
     new_values,
+    request_values,
     previous_version,
     new_version
   ) values (
@@ -380,18 +420,8 @@ begin
     v_actor,
     v_reason,
     '{}'::jsonb,
-    jsonb_build_object(
-      'part_number', v_part_number,
-      'description', v_description,
-      'type', v_type,
-      'qty_on_hand', v_qty,
-      'min_qty', v_min_qty,
-      'max_qty', v_max_qty,
-      'on_plan', v_on_plan,
-      'bin_location', v_bin_location,
-      'module', v_module,
-      'unit_cost', v_unit_cost
-    ),
+    v_request_values,
+    v_request_values,
     0,
     1
   ) returning event_id into v_event_id;
@@ -400,117 +430,9 @@ begin
 end;
 $$;
 
-revoke all on function public.create_part_master(text, text, text, integer, integer, integer, boolean, text, text, numeric, text, text, text)
+revoke all on function public.create_part_master(text, text, text, text, text, integer, integer, boolean, text, text, numeric, text)
   from public, anon, authenticated;
-grant execute on function public.create_part_master(text, text, text, integer, integer, integer, boolean, text, text, numeric, text, text, text)
-  to service_role;
-
--- 5) RPC for deleting a part (admin only, with audit)
-create or replace function public.delete_part_master(
-  p_part_id uuid,
-  p_actor text,
-  p_correlation_id text,
-  p_reason text default null
-)
-returns table (
-  event_id bigint,
-  part_number text,
-  deleted boolean
-)
-language plpgsql
-security definer
-set search_path = pg_catalog
-as $$
-declare
-  v_part_id uuid := p_part_id;
-  v_actor text := btrim(coalesce(p_actor, ''));
-  v_correlation text := btrim(coalesce(p_correlation_id, ''));
-  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
-  v_part record;
-  v_event_id bigint;
-  v_part_number text;
-begin
-  -- Validations
-  if v_actor = '' or char_length(v_actor) > 200 then
-    raise exception 'invalid actor' using errcode = '22023';
-  end if;
-  if v_correlation = '' or char_length(v_correlation) > 200 then
-    raise exception 'invalid correlation id' using errcode = '22023';
-  end if;
-  if v_reason is not null and char_length(v_reason) > 500 then
-    raise exception 'reason is too long' using errcode = '22023';
-  end if;
-
-  -- Serialize
-  perform pg_advisory_xact_lock(hashtextextended('part-master:' || v_part_id::text, 0));
-  perform pg_advisory_xact_lock(hashtextextended('part-master-correlation:' || v_correlation, 0));
-
-  -- Idempotency check
-  select e.event_id into v_event_id
-  from public.part_master_events e
-  where e.correlation_id = v_correlation and e.part_id = v_part_id;
-
-  if found then
-    select s.part_number into v_part_number from public.stock s where s.id = v_part_id;
-    if not found then
-      v_part_number := 'deleted';
-    end if;
-    return query select v_event_id, v_part_number, true;
-    return;
-  end if;
-
-  -- Fetch part details for audit
-  select s.* into v_part from public.stock s where s.id = v_part_id;
-  if not found then
-    raise exception 'part not found' using errcode = 'P0002';
-  end if;
-
-  v_part_number := v_part.part_number;
-
-  -- Delete the part (FK constraints will prevent if referenced)
-  delete from public.stock where id = v_part_id;
-
-  -- Insert audit event
-  insert into public.part_master_events (
-    correlation_id,
-    part_id,
-    part_number,
-    actor,
-    reason,
-    previous_values,
-    new_values,
-    previous_version,
-    new_version
-  ) values (
-    v_correlation,
-    v_part_id,
-    v_part_number,
-    v_actor,
-    v_reason,
-    jsonb_build_object(
-      'part_number', v_part.part_number,
-      'description', v_part.description,
-      'type', v_part.type,
-      'qty_on_hand', v_part.qty_on_hand,
-      'min_qty', v_part.min_qty,
-      'max_qty', v_part.max_qty,
-      'on_plan', v_part.on_plan,
-      'bin_location', v_part.bin_location,
-      'module', v_part.module,
-      'unit_cost', v_part.unit_cost
-    ),
-    '{}'::jsonb,
-    v_part.version,
-    v_part.version + 1
-  ) returning event_id into v_event_id;
-
-  return query select v_event_id, v_part_number, true;
-end;
-$$;
-
-revoke all on function public.delete_part_master(uuid, text, text, text)
-  from public, anon, authenticated;
-grant execute on function public.delete_part_master(uuid, text, text, text)
+grant execute on function public.create_part_master(text, text, text, text, text, integer, integer, boolean, text, text, numeric, text)
   to service_role;
 
 commit;

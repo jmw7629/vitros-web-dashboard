@@ -52,12 +52,6 @@ export interface PartMasterCreateReceipt {
   eventId: number;
 }
 
-export interface PartMasterDeleteReceipt {
-  eventId: number;
-  partNumber: string;
-  deleted: boolean;
-}
-
 export interface EnterpriseSettingUpdateReceipt extends EnterpriseSettingRow {
   eventId: number;
   duplicate: boolean;
@@ -140,7 +134,6 @@ export function useServerActions() {
   const listPartMasterAction = useAction(api.partMasterActions.listPartMaster);
   const updatePartMasterAction = useAction(api.partMasterActions.updatePartMaster);
   const createPartMasterAction = useAction(api.partMasterActions.createPartMaster);
-  const deletePartMasterAction = useAction(api.partMasterActions.deletePartMaster);
 
   const sbInsert = useCallback(async (table: string, data: Record<string, unknown>) => {
     switch (table) {
@@ -227,7 +220,6 @@ export function useServerActions() {
     partNumber: string;
     description: string;
     type?: string;
-    qtyOnHand?: number;
     minQty?: number;
     maxQty?: number;
     onPlan?: boolean;
@@ -239,14 +231,6 @@ export function useServerActions() {
   }): Promise<PartMasterCreateReceipt> => {
     return await createPartMasterAction(args) as unknown as PartMasterCreateReceipt;
   }, [createPartMasterAction]);
-
-  const deletePartMaster = useCallback(async (args: {
-    partId: string;
-    correlationId: string;
-    reason?: string;
-  }): Promise<PartMasterDeleteReceipt> => {
-    return await deletePartMasterAction(args) as unknown as PartMasterDeleteReceipt;
-  }, [deletePartMasterAction]);
 
   const loadDhrScannerData = useCallback(async (): Promise<DhrScannerBootstrap> => {
     return await loadDhrScannerDataAction({}) as unknown as DhrScannerBootstrap;
@@ -330,7 +314,6 @@ export function useServerActions() {
     listPartMaster,
     updatePartMaster,
     createPartMaster,
-    deletePartMaster,
     loadDhrScannerData,
     loadDhrSessionResults,
     createDhrScannerSession,

@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "convex/_generated/api.d.ts"
+      - "convex/partMasterActions.ts"
+      - "database/migrations/20260908_part_master_admin_audit.sql"
       - "src/hooks/useServerActions.ts"
       - "src/pages/Settings.tsx"
       - "scripts/admin-settings-ui-integration-check.mjs"

@@ -11,9 +11,34 @@ function assert(condition, message) {
 const api = read("convex/_generated/api.d.ts");
 const hook = read("src/hooks/useServerActions.ts");
 const settings = read("src/pages/Settings.tsx");
+const partMaster = read("convex/partMasterActions.ts");
+const partMasterMigration = read("database/migrations/20260908_part_master_admin_audit.sql");
 
 assert(api.includes('import type * as adminSettingsActions from "../adminSettingsActions.js";'), "Generated API must import adminSettingsActions");
 assert(api.includes("adminSettingsActions: typeof adminSettingsActions;"), "Generated API must register adminSettingsActions");
+
+assert(api.includes('import type * as partMasterActions from "../partMasterActions.js";'), "Generated API must import partMasterActions");
+assert(hook.includes("useAction(api.partMasterActions.listPartMaster)"), "Server hook must bind authoritative part-master read action");
+assert(hook.includes("useAction(api.partMasterActions.updatePartMaster)"), "Server hook must bind authoritative part-master update action");
+assert(hook.includes("useAction(api.partMasterActions.createPartMaster)"), "Server hook must bind authoritative part-master create action");
+assert(!hook.includes("deletePartMaster"), "Destructive part-master deletion must remain unavailable without a separately approved reversible workflow");
+assert(partMaster.includes('await requireCapability(ctx, "inventory.admin")'), "Part-master writes must authorize server-side");
+assert(partMaster.includes("partNumber: String(row.part_number"), "Part-master list must map Supabase snake_case to browser camelCase");
+assert(partMaster.includes("qtyOnHand: Number(row.qty_on_hand"), "Part-master list must map quantity to the browser contract");
+assert(!partMaster.includes("p_qty_on_hand"), "Part-master creation action must not expose an operational starting-quantity RPC argument");
+assert(!partMaster.includes("args.qtyOnHand"), "Browser-supplied initial inventory must not enter part-master creation");
+assert(!partMaster.includes("deletePartMaster"), "Convex must not expose destructive part-master deletion");
+assert(partMasterMigration.includes("previous_version >= 0"), "Creation audit must permit the immutable 0→1 master-data version transition");
+assert(partMasterMigration.includes("request_values jsonb not null"), "Immutable audit must retain the exact idempotency request payload");
+assert(partMasterMigration.includes("v_event.request_values <> v_safe_updates"), "Update retries must compare exact request payload, not full resulting snapshot");
+assert(!partMasterMigration.includes("p_qty_on_hand"), "Create RPC must not accept an initial operational quantity");
+assert(partMasterMigration.includes("'qty_on_hand', 0"), "Create RPC must establish new master records at zero stock");
+assert(partMasterMigration.includes("if v_safe_updates = '{}'::jsonb then"), "Empty metadata updates must fail closed deterministically");
+assert(!partMasterMigration.includes("delete_part_master"), "Migration must not create a destructive delete RPC without approved recovery");
+assert(partMasterMigration.includes("to service_role;"), "Privileged part-master RPCs must remain service-role only");
+assert(settings.includes("Part Master Management"), "Settings must expose the part-master administration slice");
+assert(!settings.includes("Delete <strong"), "Settings must not offer irreversible part deletion");
+assert(!settings.includes("addQtyOnHand"), "Part creation UI must not bypass receiving/inventory transition authority");
 
 assert(hook.includes("useAction(api.adminSettingsActions.listEditableSettings)"), "Server hook must bind authoritative settings read action");
 assert(hook.includes("useAction(api.adminSettingsActions.updateEditableSetting)"), "Server hook must bind authoritative settings write action");
@@ -46,3 +71,6 @@ console.log("OPTIMISTIC_VERSIONING=PASS");
 console.log("AUDIT_CORRELATION=PASS");
 console.log("DESTRUCTIVE_RESET_FAIL_CLOSED=PASS");
 console.log("CLIENT_SECRET_BOUNDARY=PASS");
+console.log("PART_MASTER_ADMIN_BOUNDARY=PASS");
+console.log("PART_MASTER_DESTRUCTIVE_DELETE=DISABLED");
+console.log("PART_MASTER_INITIAL_STOCK=ZERO_ONLY");

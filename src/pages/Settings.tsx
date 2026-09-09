@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useConvexData } from "../hooks/useConvexData";
-import { useServerActions, type EditableSettingKey, type EnterpriseSettingRow, type PartMasterRow, type PartMasterUpdateReceipt, type PartMasterCreateReceipt, type PartMasterDeleteReceipt } from "../hooks/useServerActions";
+import { useServerActions, type EditableSettingKey, type EnterpriseSettingRow, type PartMasterRow } from "../hooks/useServerActions";
 import { WebCard, StatusBadge, theme } from "../components/vitros/SharedComponents";
 import { useRole } from "../hooks/useRole";
-import { Plus, Pencil, Power, X, Check, Shield, Lock, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Plus, Pencil, Power, X, Check, Shield, Lock } from "lucide-react";
 
 const SETTING_DEFINITIONS: Array<{
   key: EditableSettingKey;
@@ -67,7 +67,7 @@ function partMasterErrorMessage(error: unknown): string {
 export function Settings() {
   const data = useConvexData();
   const { role, setRole } = useRole();
-  const { listEditableSettings, updateEditableSetting, listPartMaster, updatePartMaster, createPartMaster, deletePartMaster } = useServerActions();
+  const { listEditableSettings, updateEditableSetting, listPartMaster, updatePartMaster, createPartMaster } = useServerActions();
   const isAdmin = role === "superuser";
 
   // ── Enterprise operational settings ──
@@ -106,7 +106,6 @@ export function Settings() {
   const [addPartNumber, setAddPartNumber] = useState("");
   const [addDescription, setAddDescription] = useState("");
   const [addType, setAddType] = useState("Required");
-  const [addQtyOnHand, setAddQtyOnHand] = useState(0);
   const [addMinQty, setAddMinQty] = useState(0);
   const [addMaxQty, setAddMaxQty] = useState(0);
   const [addOnPlan, setAddOnPlan] = useState(false);
@@ -126,10 +125,6 @@ export function Settings() {
   const [editModule, setEditModule] = useState("");
   const [editUnitCost, setEditUnitCost] = useState(0);
   const [editPartSaving, setEditPartSaving] = useState(false);
-
-  // ── Confirm delete Part ──
-  const [confirmDeletePartId, setConfirmDeletePartId] = useState<string | null>(null);
-  const [deletePartSaving, setDeletePartSaving] = useState(false);
 
   const partTypes = ["Required", "Optional", "Not on BOM", "Consumable"] as const;
 
@@ -275,7 +270,6 @@ export function Settings() {
         partNumber: addPartNumber.trim().toUpperCase(),
         description: addDescription.trim(),
         type: addType,
-        qtyOnHand: addQtyOnHand,
         minQty: addMinQty,
         maxQty: addMaxQty,
         onPlan: addOnPlan,
@@ -289,7 +283,6 @@ export function Settings() {
       setAddPartNumber("");
       setAddDescription("");
       setAddType("Required");
-      setAddQtyOnHand(0);
       setAddMinQty(0);
       setAddMaxQty(0);
       setAddOnPlan(false);
@@ -320,7 +313,10 @@ export function Settings() {
     setEditPartSaving(true);
     setPartMasterError(null);
     const current = partMasterSettings.find((p) => p.id === editingPartId);
-    if (!current) return;
+    if (!current) {
+      setEditPartSaving(false);
+      return;
+    }
     try {
       await updatePartMaster({
         partId: editingPartId,
@@ -346,25 +342,6 @@ export function Settings() {
     setEditPartSaving(false);
   };
 
-  const handleDeletePart = async () => {
-    if (!confirmDeletePartId) return;
-    setDeletePartSaving(true);
-    setPartMasterError(null);
-    const current = partMasterSettings.find((p) => p.id === confirmDeletePartId);
-    if (!current) return;
-    try {
-      await deletePartMaster({
-        partId: confirmDeletePartId,
-        correlationId: `part:delete:${current.partNumber}:${crypto.randomUUID()}`,
-        reason: "Deleted from VITROS Settings",
-      });
-      setConfirmDeletePartId(null);
-      setPartMasterReloadToken((v) => v + 1);
-    } catch (error) {
-      setPartMasterError(partMasterErrorMessage(error));
-    }
-    setDeletePartSaving(false);
-  };
 
   return (
     <div className="space-y-4">
@@ -690,7 +667,7 @@ export function Settings() {
           </div>
           {isAdmin && (
             <button
-              onClick={() => { setShowAddPartForm(true); setAddPartNumber(""); setAddDescription(""); setAddType("Required"); setAddQtyOnHand(0); setAddMinQty(0); setAddMaxQty(0); setAddOnPlan(false); setAddBinLocation(""); setAddModule(""); setAddUnitCost(0); }}
+              onClick={() => { setShowAddPartForm(true); setAddPartNumber(""); setAddDescription(""); setAddType("Required"); setAddMinQty(0); setAddMaxQty(0); setAddOnPlan(false); setAddBinLocation(""); setAddModule(""); setAddUnitCost(0); }}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white transition-all hover:opacity-90"
               style={{ backgroundColor: "#6366f1" }}
             >
@@ -724,7 +701,7 @@ export function Settings() {
                   maxLength={255}
                 />
               </div>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <select
                   value={addType}
                   onChange={e => setAddType(e.target.value)}
@@ -733,15 +710,6 @@ export function Settings() {
                 >
                   {partTypes.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <input
-                  type="number"
-                  min="0"
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="QOH"
-                  value={addQtyOnHand}
-                  onChange={e => setAddQtyOnHand(Math.max(0, parseInt(e.target.value) || 0))}
-                />
                 <input
                   type="number"
                   min="0"
@@ -981,42 +949,11 @@ export function Settings() {
                         >
                           <Pencil className="w-3.5 h-3.5" style={{ color: "#6366f1" }} />
                         </button>
-                        <button
-                          onClick={() => setConfirmDeletePartId(part.id)}
-                          className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" style={{ color: theme.statusOut }} />
-                        </button>
                       </div>
                     )}
                   </div>
                 )}
 
-                {isAdmin && confirmDeletePartId === part.id && (
-                  <div className="px-4 py-2 border-t flex items-center gap-2"
-                    style={{ borderColor: theme.cardBorder, backgroundColor: "rgba(239,68,68,0.06)" }}>
-                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: theme.statusOut }} />
-                    <span className="text-xs flex-1" style={{ color: theme.statusOut }}>
-                      Delete <strong style={{ color: theme.textPrimary }}>{part.partNumber}</strong> — {part.description}? This cannot be undone.
-                    </span>
-                    <button
-                      onClick={handleDeletePart}
-                      disabled={deletePartSaving}
-                      className="px-3 py-1 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                      style={{ backgroundColor: theme.statusOut }}
-                    >
-                      {deletePartSaving ? "..." : "Delete"}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeletePartId(null)}
-                      className="px-3 py-1 rounded-lg text-xs font-bold"
-                      style={{ backgroundColor: theme.cardBg, color: theme.textMuted }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
               </div>
             ))}
             {partMasterSettings.length === 0 && !partMasterError && (

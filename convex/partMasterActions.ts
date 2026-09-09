@@ -9,8 +9,6 @@ import { publishRealtimePulse } from "./realtimePulsePublisher";
 
 declare const process: { env: Record<string, string | undefined> };
 
-const PART_MASTER_VERSION_RE = /^[0-9]+$/;
-
 function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -80,15 +78,44 @@ function validatePartMasterUpdates(updates: Record<string, unknown>): Record<str
 
 export const listPartMaster = action({
   args: {},
-  returns: v.array(v.any()),
+  returns: v.array(v.object({
+    id: v.string(),
+    partNumber: v.string(),
+    description: v.string(),
+    type: v.string(),
+    qtyOnHand: v.number(),
+    minQty: v.number(),
+    maxQty: v.number(),
+    onPlan: v.boolean(),
+    binLocation: v.string(),
+    module: v.string(),
+    unitCost: v.number(),
+    version: v.number(),
+    updatedAt: v.string(),
+  })),
   handler: async (ctx) => {
     await requireCapability(ctx, "inventory.read");
     const { url, serviceKey } = getSupabaseConfig();
-    return sbFetch<any[]>(
+    const rows = await sbFetch<Array<Record<string, unknown>>>(
       serviceKey,
       url,
       "stock?select=id,part_number,description,type,qty_on_hand,min_qty,max_qty,on_plan,bin_location,module,unit_cost,version,updated_at&order=part_number.asc",
     );
+    return rows.map((row) => ({
+      id: String(row.id ?? ""),
+      partNumber: String(row.part_number ?? ""),
+      description: String(row.description ?? ""),
+      type: String(row.type ?? ""),
+      qtyOnHand: Number(row.qty_on_hand ?? 0),
+      minQty: Number(row.min_qty ?? 0),
+      maxQty: Number(row.max_qty ?? 0),
+      onPlan: row.on_plan === true,
+      binLocation: String(row.bin_location ?? ""),
+      module: String(row.module ?? ""),
+      unitCost: Number(row.unit_cost ?? 0),
+      version: Number(row.version ?? 1),
+      updatedAt: String(row.updated_at ?? ""),
+    }));
   },
 });
 
@@ -173,7 +200,6 @@ export const createPartMaster = action({
     partNumber: v.string(),
     description: v.string(),
     type: v.optional(v.string()),
-    qtyOnHand: v.optional(v.number()),
     minQty: v.optional(v.number()),
     maxQty: v.optional(v.number()),
     onPlan: v.optional(v.boolean()),
@@ -211,10 +237,8 @@ export const createPartMaster = action({
     if (!allowedPartTypes.has(type)) {
       throw new Error("Invalid part type");
     }
-    const qtyOnHand = args.qtyOnHand ?? 0;
     const minQty = args.minQty ?? 0;
     const maxQty = args.maxQty ?? 0;
-    if (!Number.isInteger(qtyOnHand) || qtyOnHand < 0) throw new Error("qtyOnHand must be a non-negative integer");
     if (!Number.isInteger(minQty) || minQty < 0) throw new Error("minQty must be a non-negative integer");
     if (!Number.isInteger(maxQty) || maxQty < 0) throw new Error("maxQty must be a non-negative integer");
     const unitCost = args.unitCost ?? 0;
@@ -227,7 +251,6 @@ export const createPartMaster = action({
         p_part_number: partNumber,
         p_description: description,
         p_type: type,
-        p_qty_on_hand: qtyOnHand,
         p_min_qty: minQty,
         p_max_qty: maxQty,
         p_on_plan: args.onPlan ?? false,
@@ -260,52 +283,5 @@ export const createPartMaster = action({
       createdAt: String(row.created_at ?? ""),
       eventId,
     };
-  },
-});
-
-export const deletePartMaster = action({
-  args: {
-    partId: v.string(),
-    correlationId: v.string(),
-    reason: v.optional(v.string()),
-  },
-  returns: v.object({
-    eventId: v.number(),
-    partNumber: v.string(),
-    deleted: v.boolean(),
-  }),
-  handler: async (ctx, args) => {
-    const actorId = await requireCapability(ctx, "inventory.admin");
-    if (!args.correlationId.trim() || args.correlationId.length > 200) {
-      throw new Error("Invalid correlation id");
-    }
-    if (args.reason && args.reason.length > 500) {
-      throw new Error("Reason is too long");
-    }
-
-    const { url, serviceKey } = getSupabaseConfig();
-    const payload = await sbFetch<any[]>(serviceKey, url, "rpc/delete_part_master", {
-      method: "POST",
-      body: JSON.stringify({
-        p_part_id: args.partId,
-        p_actor: String(actorId),
-        p_correlation_id: args.correlationId,
-        p_reason: args.reason?.trim() || null,
-      }),
-    });
-
-    if (!Array.isArray(payload) || payload.length !== 1) {
-      throw new Error("Part master deletion returned an invalid receipt");
-    }
-    const row = payload[0] as Record<string, unknown>;
-    const eventId = Number(row.event_id);
-    const partNumber = String(row.part_number);
-    const deleted = row.deleted === true;
-    if (!Number.isInteger(eventId)) {
-      throw new Error("Part master deletion returned an invalid receipt");
-    }
-
-    await publishRealtimePulse(ctx);
-    return { eventId, partNumber, deleted };
   },
 });
