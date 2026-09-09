@@ -109,7 +109,7 @@ begin
     if v_key = any(v_allowed_keys) then
       v_safe_updates := jsonb_set(v_safe_updates, array[v_key], v_updates->v_key);
     else
-      raise exception 'field % is not editable via part master administration' using errcode = '22023';
+      raise exception 'field % is not editable via part master administration', v_key using errcode = '22023';
     end if;
   end loop;
 

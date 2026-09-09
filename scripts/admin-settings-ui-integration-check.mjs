@@ -35,6 +35,7 @@ assert(!partMasterMigration.includes("p_qty_on_hand"), "Create RPC must not acce
 assert(partMasterMigration.includes("'qty_on_hand', 0"), "Create RPC must establish new master records at zero stock");
 assert(partMasterMigration.includes("if v_safe_updates = '{}'::jsonb then"), "Empty metadata updates must fail closed deterministically");
 assert(partMasterMigration.includes("for v_key in select * from jsonb_object_keys(v_updates) loop"), "Allowlist iteration must use valid PL/pgSQL query-loop syntax");
+assert(partMasterMigration.includes("raise exception 'field % is not editable via part master administration', v_key using errcode = '22023';"), "Parameterized PL/pgSQL RAISE must supply the rejected field argument");
 assert(!partMasterMigration.includes("foreach v_key in select"), "Migration must not use invalid FOREACH query syntax");
 assert(partMaster.includes("must be a non-negative integer"), "Browser server action must reject fractional min/max quantities");
 assert(!partMasterMigration.includes("delete_part_master"), "Migration must not create a destructive delete RPC without approved recovery");
