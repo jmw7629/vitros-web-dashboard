@@ -105,7 +105,7 @@ begin
   end if;
 
   -- Filter updates to allowed keys only; reject unknown/protected keys
-  foreach v_key in select * from jsonb_object_keys(v_updates) loop
+  for v_key in select * from jsonb_object_keys(v_updates) loop
     if v_key = any(v_allowed_keys) then
       v_safe_updates := jsonb_set(v_safe_updates, array[v_key], v_updates->v_key);
     else
@@ -124,13 +124,17 @@ begin
     end if;
   end if;
   if v_safe_updates ? 'min_qty' then
-    if (v_safe_updates->>'min_qty')::numeric < 0 then
-      raise exception 'min_qty cannot be negative' using errcode = '22023';
+    if jsonb_typeof(v_safe_updates->'min_qty') <> 'number'
+       or (v_safe_updates->>'min_qty')::numeric <> trunc((v_safe_updates->>'min_qty')::numeric)
+       or (v_safe_updates->>'min_qty')::numeric < 0 then
+      raise exception 'min_qty must be a non-negative integer' using errcode = '22023';
     end if;
   end if;
   if v_safe_updates ? 'max_qty' then
-    if (v_safe_updates->>'max_qty')::numeric < 0 then
-      raise exception 'max_qty cannot be negative' using errcode = '22023';
+    if jsonb_typeof(v_safe_updates->'max_qty') <> 'number'
+       or (v_safe_updates->>'max_qty')::numeric <> trunc((v_safe_updates->>'max_qty')::numeric)
+       or (v_safe_updates->>'max_qty')::numeric < 0 then
+      raise exception 'max_qty must be a non-negative integer' using errcode = '22023';
     end if;
   end if;
   if v_safe_updates ? 'unit_cost' then

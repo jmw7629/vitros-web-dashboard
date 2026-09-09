@@ -57,10 +57,18 @@ function validatePartMasterUpdates(updates: Record<string, unknown>): Record<str
     if (key === "type" && typeof value === "string" && !allowedPartTypes.has(value)) {
       throw new Error("Invalid part type");
     }
-    if (["min_qty", "max_qty", "unit_cost"].includes(key)) {
+    if (["min_qty", "max_qty"].includes(key)) {
+      const num = Number(value);
+      if (!Number.isInteger(num) || num < 0) {
+        throw new Error(`${key} must be a non-negative integer`);
+      }
+      safe[key] = num;
+      continue;
+    }
+    if (key === "unit_cost") {
       const num = Number(value);
       if (!Number.isFinite(num) || num < 0) {
-        throw new Error(`${key} cannot be negative`);
+        throw new Error("unit_cost cannot be negative");
       }
       safe[key] = num;
       continue;

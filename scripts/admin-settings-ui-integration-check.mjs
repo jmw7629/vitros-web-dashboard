@@ -34,6 +34,9 @@ assert(partMasterMigration.includes("v_event.request_values <> v_safe_updates"),
 assert(!partMasterMigration.includes("p_qty_on_hand"), "Create RPC must not accept an initial operational quantity");
 assert(partMasterMigration.includes("'qty_on_hand', 0"), "Create RPC must establish new master records at zero stock");
 assert(partMasterMigration.includes("if v_safe_updates = '{}'::jsonb then"), "Empty metadata updates must fail closed deterministically");
+assert(partMasterMigration.includes("for v_key in select * from jsonb_object_keys(v_updates) loop"), "Allowlist iteration must use valid PL/pgSQL query-loop syntax");
+assert(!partMasterMigration.includes("foreach v_key in select"), "Migration must not use invalid FOREACH query syntax");
+assert(partMaster.includes("must be a non-negative integer"), "Browser server action must reject fractional min/max quantities");
 assert(!partMasterMigration.includes("delete_part_master"), "Migration must not create a destructive delete RPC without approved recovery");
 assert(partMasterMigration.includes("to service_role;"), "Privileged part-master RPCs must remain service-role only");
 assert(settings.includes("Part Master Management"), "Settings must expose the part-master administration slice");
