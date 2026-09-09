@@ -4,7 +4,7 @@ import { api } from "../../convex/_generated/api";
 import { browserSafeRead } from "../lib/browserSafeRead";
 import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
 
-// ─── Convex HTTP helpers (for REM data still on Convex production backend) ───
+// ─── Convex action hooks for authoritative REM server-side data access ───
 const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
 const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
 
@@ -311,6 +311,52 @@ function mapUserToEmployee(row: any): Employee {
   };
 }
 
+function mapTrackerPlanningRow(row: any): TrackerWeekly {
+  return {
+    _id: String(row.id ?? ""),
+    weekOf: String(row.product ?? "").slice(0, 80),
+    teardown: 0,
+    cleaning: 0,
+    rebuild: 0,
+    testing: 0,
+    shipping: 0,
+    complete: numberOrZero(row.plan),
+  };
+}
+
+function mapBuildPlanRow(row: any): WeeklyBuildPlan {
+  const data = objectValue(row.data);
+  return {
+    _id: String(row.id ?? ""),
+    weekOf: String(data.weekStart ?? data.quarter ?? "").slice(0, 40),
+    planned: numberOrZero(data.plan),
+    actual: optionalNumber(data.actual),
+    notes: undefined,
+  };
+}
+
+function mapStaffPlanningRow(row: any): StaffMember {
+  return {
+    _id: String(row.id ?? ""),
+    name: String(row.name ?? "").slice(0, 160),
+    initials: (String(row.name ?? "").split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)),
+    email: row.email,
+    active: true,
+    createdAt: new Date().getTime(),
+    role: String(row.role ?? "").slice(0, 120) || "engineer",
+  };
+}
+
+function mapTargetPlanningRow(row: any): AnnualTarget {
+  const data = objectValue(row.data);
+  return {
+    _id: String(row.id ?? ""),
+    year: numberOrZero(row.year),
+    target: numberOrZero(row.targetValue),
+    actual: numberOrZero(data.actualValue),
+  };
+}
+
 function mapKit(row: any): Kit {
   return {
     _id: String(row.id || ""),
@@ -404,6 +450,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexListUsers = useAction(api.supabaseGateway.listUsers);
   const convexListKits = useAction(api.supabaseGateway.listKits);
   const convexListSettings = useAction(api.supabaseGateway.listSettings);
+  const remListCore = useAction(api.remReadActions.listCore);
+  const remListPlanning = useAction(api.remReadActions.listPlanning);
 
   const performLoadAll = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -487,19 +535,19 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       setStockLog([]);
 
       // ─── Convex queries (REM tracker - read only until migrated) ───
-      const [an, lv, at2, sm, wn, wb, tw] = await Promise.all([
-        safeConvexQuery<REMAnalyzer[]>(CONVEX_URL, "remAnalyzers:list", []),
-        safeConvexQuery<LVCCItem[]>(CONVEX_URL, "remLvcc:list", []),
-        safeConvexQuery<AnnualTarget[]>(CONVEX_URL, "remTargets:list", []),
-        safeConvexQuery<StaffMember[]>(CONVEX_URL, "remStaffing:getTrainingMatrix", []),
-        safeConvexQuery<WeeklyNoteEntry[]>(CONVEX_URL, "remWeeklyNotes:list", []),
-        safeConvexQuery<WeeklyBuildPlan[]>(CONVEX_URL, "remBuildPlan:list", []),
-        safeConvexQuery<TrackerWeekly[]>(CONVEX_URL, "remTracker:listWeekly", []),
+      const [coreResult, planningResult] = await Promise.all([
+        remListCore(),
+        remListPlanning(),
       ]);
 
       if (!mountedRef.current) return;
-      setAnalyzers(an); setLvccItems(lv); setAnnualTargets(at2); setStaffMembers(sm);
-      setWeeklyNotes(wn); setWeeklyBuildPlan(wb); setTrackerWeekly(tw);
+      setAnalyzers(coreResult.analyzers);
+      setLvccItems(coreResult.lvccItems);
+      setWeeklyNotes(coreResult.weeklyNotes);
+      setTrackerWeekly(planningResult.trackerWeekly);
+      setWeeklyBuildPlan(planningResult.buildPlan);
+      setStaffMembers(planningResult.staff);
+      setAnnualTargets(planningResult.targets);
 
       const [cs, cr] = await Promise.all([
         safeConvexQuery<CycleSchedule[]>(CYCLE_CONVEX_URL, "cycleCount:listSchedules", []),
@@ -517,7 +565,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       hasLoadedOnce.current = true;
       setIsLoading(false);
     }
-  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListKits, convexListSettings]);
+  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListKits, convexListSettings, remListCore, remListPlanning]);
 
   performLoadAllRef.current = performLoadAll;
   if (refreshRunnerRef.current === null) {
