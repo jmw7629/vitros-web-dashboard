@@ -1,9 +1,47 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useAction } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import { browserSafeRead } from "../lib/browserSafeRead";
-import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
-import type { RemBuildPlanRow, RemStaffPlanningRow, RemTargetPlanningRow, RemTrackerPlanningRow } from "./useRemPlanningData";
+// ─── Data Context ───
+
+interface ConvexData {
+  parts: Part[];
+  transactions: Transaction[];
+  kits: Kit[];
+  sapRecords: SapRecord[];
+  cycleSchedules: CycleSchedule[];
+  cycleResults: CycleResult[];
+  batches: IncomingStockBatch[];
+  stockLog: IncomingStockLog[];
+  employees: Employee[];
+  settings: AppSetting[];
+  analyzers: REMAnalyzer[];
+  lvccItems: LVCCItem[];
+  annualTargets: AnnualTarget[];
+  staffMembers: StaffMember[];
+  weeklyNotes: WeeklyNoteEntry[];
+  weeklyBuildPlan: WeeklyBuildPlan[];
+  trackerWeekly: TrackerWeekly[];
+  isLoading: boolean;
+  error: string | null;
+  totalSKUs: number;
+  totalQOH: number;
+  outCount: number;
+  lowCount: number;
+  okCount: number;
+  overCount: number;
+  onPlanCount: number;
+  refresh: () => Promise<void>;
+  scanPart: (mode: string, partNumber: string, qty: number, user: string, analyzerSerial?: string, batchId?: string) => Promise<unknown>;
+  updatePart: (id: string, updates: Record<string, unknown>) => Promise<void>;
+  deletePart: (id: string) => Promise<void>;
+  createPart: (data: Record<string, unknown>) => Promise<void>;
+  markAsReady: (ids: string[]) => Promise<void>;
+  markExported: (ids: string[]) => Promise<void>;
+  updateSapStatus: (id: string, status: string) => Promise<void>;
+  listEmployees: () => Promise<Employee[]>;
+  getEmployee: (id: string) => Promise<Employee | null>;
+  addEmployee: (name: string, initials: string) => Promise<Employee>;
+  updateEmployee: (id: string, updates: { name?: string; initials?: string; active?: boolean }) => Promise<Employee>;
+  toggleEmployeeActive: (id: string, currentlyActive: boolean) => Promise<Employee>;
+}
+import { employeeActions } from "../../convex/employeeActions";
 
 // ─── Legacy Convex HTTP helper is retained only for Cycle Count until that separate lane is migrated. ───
 const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
@@ -273,15 +311,15 @@ function mapAuditToTransaction(row: any): Transaction {
   };
 }
 
-function mapUserToEmployee(row: any): Employee {
+function mapConvexEmployeeToEmployee(row: any): Employee {
   return {
-    _id: row.id,
-    name: row.display_name || row.username || "",
-    initials: (row.display_name || row.username || "").split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2),
-    email: row.username,
-    active: row.is_active ?? true,
-    createdAt: new Date(row.created_at).getTime(),
-    role: row.role || "engineer",
+    _id: row._id || row.id || "",
+    name: row.name || "",
+    initials: row.initials || "",
+    email: row.email,
+    active: row.active !== false,
+    createdAt: row.createdAt || 0,
+    role: row.role,
   };
 }
 
@@ -337,10 +375,9 @@ interface ConvexData {
   markAsReady: (ids: string[]) => Promise<void>;
   markExported: (ids: string[]) => Promise<void>;
   updateSapStatus: (id: string, status: string) => Promise<void>;
-  addEmployee: (name: string, initials: string) => Promise<void>;
-  updateEmployee: (id: string, updates: { name?: string; initials?: string; email?: string; role?: string }) => Promise<void>;
-  toggleEmployeeActive: (id: string, currentlyActive: boolean) => Promise<void>;
-  deleteEmployee: (id: string) => Promise<void>;
+  addEmployee: (name: string, initials: string) => Promise<Employee>;
+  updateEmployee: (id: string, updates: { name?: string; initials?: string; active?: boolean }) => Promise<Employee>;
+  toggleEmployeeActive: (id: string, currentlyActive: boolean) => Promise<Employee>;
 }
 
 const ConvexDataContext = createContext<ConvexData | null>(null);
@@ -375,11 +412,18 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexListStock = useAction(api.supabaseGateway.listStock);
   const convexListAuditLog = useAction(api.supabaseGateway.listAuditLog);
   const convexListSapStaging = useAction(api.supabaseGateway.listSapStaging);
-  const convexListUsers = useAction(api.supabaseGateway.listUsers);
   const convexListKits = useAction(api.supabaseGateway.listKits);
   const convexListSettings = useAction(api.supabaseGateway.listSettings);
   const remListCore = useAction(api.remReadActions.listCore);
   const remListPlanning = useAction(api.remReadActions.listPlanning);
+
+  // Canonical employee admin boundary — typed server actions with RBAC,
+  // versioned conflict checks, immutable audit, and service-role-only EXECUTE.
+  const listEmployees = useAction(api.employeeActions.listEmployees);
+  const getEmployee = useAction(api.employeeActions.getEmployee);
+  const addEmployee = useAction(api.employeeActions.createEmployee);
+  const updateEmployee = useAction(api.employeeActions.updateEmployee);
+  const toggleEmployeeActive = useAction(api.employeeActions.activateEmployee);
 
   const performLoadAll = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -427,7 +471,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
 
       const mappedParts = stockRows.map(mapStockToPart);
       const mappedTx = auditRows.map(mapAuditToTransaction);
-      const mappedEmployees = userRows.map(mapUserToEmployee);
+      const mappedEmployees = (await listEmployees()).map(mapSupabaseEmployeeToEmployee);
       const mappedKits = kitRows.map(mapKit);
       const mappedSettings: AppSetting[] = (settingsRows || []).map((s: any) => ({
         _id: s.id || s.key,
@@ -553,9 +597,13 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexUpdateSapStatus = useAction(api.inventoryActions.updateSapStatus);
   const convexMarkSapReady = useAction(api.inventoryActions.markSapBatchReady);
   const convexMarkSapExported = useAction(api.inventoryActions.markSapBatchExported);
-  const convexInsertUser = useAction(api.supabaseGateway.insertUser);
-  const convexUpdateUser = useAction(api.supabaseGateway.updateUser);
-  const convexDeleteUser = useAction(api.supabaseGateway.deleteUser);
+  // Legacy supabaseGateway.user mutations retained only for non-employee legacy paths;
+  // employee management now uses the dedicated canonical boundary below.
+  const listEmployees = useAction(api.employeeActions.listEmployees);
+  const getEmployee = useAction(api.employeeActions.getEmployee);
+  const addEmployee = useAction(api.employeeActions.createEmployee);
+  const updateEmployee = useAction(api.employeeActions.updateEmployee);
+  const toggleEmployeeActive = useAction(api.employeeActions.activateEmployee);
 
   const scanPart = async (mode: string, partNumber: string, qty: number, user: string, _analyzerSerial?: string, _batchId?: string) => {
     const correlationId = `scan-${partNumber}-${mode}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -637,34 +685,18 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     debouncedLoadAll();
   };
 
-  const addEmployee = async (name: string, _initials: string) => {
-    await convexInsertUser({
-      data: {
-        username: name.toLowerCase().replace(/\s+/g, "."),
-        display_name: name,
-        role: "engineer",
-        is_active: true,
-      },
-    });
+  const addEmployee = async (name: string, initials: string) => {
+    await addEmployee(name, initials);
     debouncedLoadAll();
   };
 
-  const updateEmployee = async (id: string, updates: { name?: string; initials?: string; email?: string; role?: string }) => {
-    const mapped: Record<string, unknown> = {};
-    if (updates.name !== undefined) mapped.display_name = updates.name;
-    if (updates.email !== undefined) mapped.username = updates.email;
-    if (updates.role !== undefined) mapped.role = updates.role;
-    await convexUpdateUser({ id, data: mapped });
+  const updateEmployee = async (id: string, updates: { name?: string; initials?: string; active?: boolean }) => {
+    await updateEmployee(id, updates);
     debouncedLoadAll();
   };
 
   const toggleEmployeeActive = async (id: string, currentlyActive: boolean) => {
-    await convexUpdateUser({ id, data: { is_active: !currentlyActive } });
-    debouncedLoadAll();
-  };
-
-  const deleteEmployee = async (id: string) => {
-    await convexDeleteUser({ id });
+    await toggleEmployeeActive(id, currentlyActive);
     debouncedLoadAll();
   };
 
@@ -677,7 +709,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       totalSKUs, totalQOH, outCount, lowCount, okCount, overCount, onPlanCount,
       refresh, scanPart, updatePart, deletePart, createPart,
       markAsReady, markExported, updateSapStatus: updateSapStatusFn, addEmployee,
-      updateEmployee, toggleEmployeeActive, deleteEmployee,
+      updateEmployee, toggleEmployeeActive,
     }}>
       {children}
     </ConvexDataContext.Provider>

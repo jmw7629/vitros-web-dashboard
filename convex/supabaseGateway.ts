@@ -6,7 +6,7 @@ import { requireCapability } from "./authGuard";
 
 declare const process: { env: Record<string, string | undefined> };
 
-function getSupabaseConfig() {
+export function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) {

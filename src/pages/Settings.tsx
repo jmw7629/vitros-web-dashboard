@@ -235,7 +235,10 @@ export function Settings() {
     if (!editingId || !editName.trim()) return;
     setEditSaving(true);
     try {
-      await data.updateEmployee(editingId, { name: editName.trim() });
+      await data.updateEmployee(editingId, {
+        name: editName.trim(),
+        initials: editInitials.trim().toUpperCase(),
+      });
       setEditingId(null);
     } catch (e) {
       console.error("Failed to update employee:", e);
