@@ -19,6 +19,8 @@
     "test": "bun run --bun scripts/test.ts",
     "test:auth": "bun run --bun scripts/auth.ts",
     "test:demo": "bun run --bun scripts/demo-test.ts",
+    "test:incoming-stock-acceptance": "node scripts/incoming-stock-acceptance.mjs",
+    "test:migration-structural-gate": "node scripts/migration-structural-gate.mjs",
     "screenshot": "bun run --bun scripts/screenshot.ts",
     "env:get": "bunx convex env get",
     "env:list": "bunx convex env list"

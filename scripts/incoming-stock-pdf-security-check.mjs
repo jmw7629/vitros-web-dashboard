@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const server = fs.readFileSync("convex/incomingStockPdfOcr.ts", "utf8");
 const review = fs.readFileSync("convex/incomingStockActions.ts", "utf8");
+const reviewModule = fs.readFileSync("convex/incomingStockReview.ts", "utf8");
 const ui = fs.readFileSync("src/pages/inventory/IncomingStockDocument.tsx", "utf8");
 const imageUi = fs.readFileSync("src/pages/inventory/IncomingStockSecure.tsx", "utf8");
 const app = fs.readFileSync("src/App.tsx", "utf8");
@@ -46,11 +47,19 @@ requireTokens(review, "Incoming Stock reviewed receive boundary", [
   'requireCapability(ctx, "inventory.write")',
   'canonical_part_number_only',
   'descriptionUsedForIdentity: false',
-  'obj.shippedQuantity',
   'apply_inventory_transition',
   'p_mode: "RECEIVE"',
   'canonicalReceiptLineIdentity',
   'actor: String(actorId)',
+]);
+
+requireTokens(reviewModule, "Incoming Stock packing-list review", [
+  'obj.shippedQuantity',
+  'obj.shipped_quantity',
+  'indexStockByCanonical',
+  'reviewOcrLines',
+  'computeAggregateSummary',
+  'canonicalReceiptLineIdentity',
 ]);
 
 requireTokens(ui, "Incoming Stock PDF UI", [

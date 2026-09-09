@@ -1,6 +1,6 @@
 # VITROS Rebuild Audit
 
-Updated: 2026-09-07
+Updated: 2026-09-09
 
 ## Current stack and deployment
 
@@ -47,3 +47,19 @@ The J32133 reconciliation slice is database-only plus focused regression evidenc
 - Independent exact-head verifier PASS before merge.
 - Only after merge/review: apply the migration once, confirm one canonical J32133 row remains with unchanged physical QOH, immutable history remains queryable, and unconditional canonical uniqueness is active.
 - No production SAP posting.
+
+## Incoming stock material request completion — issue #377 (2026-09-09)
+
+Factual evidence for completing the incoming-stock review/material-request slice. All statements describe repository state at this worktree; nothing below claims live-DB concurrency passes.
+
+- The purely deterministic packing-list review behavior (parse/validate/match/aggregate/provenance) previously embedded in `convex/incomingStockActions.ts` is extracted into the side-effect-free production module `convex/incomingStockReview.ts` (exports `parseOcrArray`, `asString`, `asFiniteNumber`, `indexStockByCanonical`, `reviewOcrLines`, `computeSummary`, `computeAggregateSummary`, `MAX_OCR_JSON_CHARS`, `MAX_LINES`). It imports only `convex/incomingStockDeterministicIdentity.ts`; no auth, DB, network or environment access.
+- `convex/incomingStockActions.ts` now calls that exact module after `requireCapability` + Supabase `stock` lookup; the module owns all match/aggregate/qty behavior and the action owns auth/DB/pulse side effects only. No review behavior is reimplemented in `incomingStockActions.ts`.
+- `scripts/incoming-stock-acceptance.mjs` transpiles and executes the exact exported production functions (identity + review modules) in a sandbox against synthetic stock rows and OCR input. It no longer duplicates aggregate or qty validation; fixtures exercise exact PN + description mismatch, description-only/wrong-PN rejection, whitespace/case, unknown part, repeated same-PN lines kept distinct plus aggregate, 0/negative/non-integer/non-numeric qty rejection, multi-page provenance, same-input/re-review stability, and the SQL conflict ordering.
+- The commit boundary keeps the user/display `documentRef` as entered/trimmed (`const documentRef = args.documentRef.trim()`) but derives the authoritative material request batch reference with the production `normalizeDocumentRef` (`const normalizedBatchRef = normalizeDocumentRef(args.documentRef)`) and sends `batchId: normalizedBatchRef` as `p_batch_id`. This matches the migration's `IS DISTINCT FROM` conflict check so differently-cased/whitespace-equivalent refs are idempotent while genuinely changed refs conflict. Acceptance fixture 16 and `incoming-stock-deterministic-identity-check.mjs` prove this.
+- `scripts/migration-structural-gate.mjs` is a JS static structural checker run in CI without a disposable Postgres. It inspects the forward migration `database/migrations/20260909_extend_inventory_operations_with_material_request.sql` and fails unless the new columns are added and inserted, all five mismatch checks precede the duplicate return, batch/analyzer use `IS DISTINCT FROM`, service-role-only grants with SECURITY DEFINER and `search_path public, pg_temp` hold, the stock -> audit -> pending SAP staging chain remains, and no production SAP post exists. Its disclaimer states it is a static gate, not a live DB concurrency test.
+- The old applied migrations are untouched; the forward migration stays additive. RBAC/service-role-only, RLS, atomic inventory path, audit, pending-SAP-only behavior and current VITROS UI are preserved.
+
+## Remaining blockers after this worktree
+
+- Production Vercel deployment credentials (deployment secrets/tokens) are not present in this environment; `npm run build` is local evidence only and no Vercel preview has been created for this worktree.
+- No real (redacted) packing slips have been run through the browser image/PDF OCR -> review -> confirmed RECEIVE acceptance flow in this environment; browser/PWA acceptance remains unverified here.

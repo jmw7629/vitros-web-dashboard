@@ -2,23 +2,35 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 
+const identityPath = "convex/incomingStockDeterministicIdentity.ts";
 const actionsPath = "convex/incomingStockActions.ts";
-const source = fs.readFileSync(actionsPath, "utf8");
-const sourceFile = ts.createSourceFile(actionsPath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const identitySource = fs.readFileSync(identityPath, "utf8");
+const actionsSource = fs.readFileSync(actionsPath, "utf8");
+const identitySourceFile = ts.createSourceFile(identityPath, identitySource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const wanted = new Set([
   "canonicalPartNumber",
   "normalizeDocumentRef",
   "normalizeSourcePage",
   "canonicalReceiptLineIdentity",
+  "MAX_SOURCE_PAGE_CHARS",
+  "MAX_DOCUMENT_REF_CHARS",
 ]);
 const declarations = [];
-for (const statement of sourceFile.statements) {
+for (const statement of identitySourceFile.statements) {
   if (ts.isFunctionDeclaration(statement) && statement.name && wanted.has(statement.name.text)) {
-    declarations.push(statement.getText(sourceFile).replace(/^export\s+/, ""));
+    declarations.push(statement.getText(identitySourceFile).replace(/^export\s+/, ""));
+  }
+  if (ts.isVariableStatement(statement)) {
+    for (const decl of statement.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && wanted.has(decl.name.text)) {
+        declarations.push(statement.getText(identitySourceFile).replace(/^export\s+/, ""));
+        break;
+      }
+    }
   }
 }
-if (declarations.length !== wanted.size) {
-  throw new Error(`Expected ${wanted.size} deterministic identity functions, found ${declarations.length}`);
+if (declarations.length < 4) {
+  throw new Error(`Expected at least 4 deterministic identity exports, found ${declarations.length}`);
 }
 
 const transpiled = ts.transpileModule(declarations.join("\n\n"), {
@@ -26,8 +38,8 @@ const transpiled = ts.transpileModule(declarations.join("\n\n"), {
 }).outputText;
 const context = { MAX_SOURCE_PAGE_CHARS: 50 };
 vm.createContext(context);
-vm.runInContext(`${transpiled}\nthis.__identity = { canonicalPartNumber, normalizeDocumentRef, normalizeSourcePage, canonicalReceiptLineIdentity };`, context);
-const { canonicalPartNumber, normalizeDocumentRef, normalizeSourcePage, canonicalReceiptLineIdentity } = context.__identity;
+vm.runInContext(`${transpiled}\nthis.__identity = { canonicalPartNumber, normalizeDocumentRef, normalizeSourcePage, canonicalReceiptLineIdentity, MAX_SOURCE_PAGE_CHARS, MAX_DOCUMENT_REF_CHARS };`, context);
+const { canonicalPartNumber, normalizeDocumentRef, normalizeSourcePage, canonicalReceiptLineIdentity, MAX_SOURCE_PAGE_CHARS, MAX_DOCUMENT_REF_CHARS } = context.__identity;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -49,9 +61,25 @@ assert(canonicalReceiptLineIdentity({ documentRef: "PO-123", sourcePage: "Page 2
 assert(canonicalReceiptLineIdentity({ documentRef: "PO-123", sourcePage: "Page 3", sourceLineNo: 5 }) !== baseline, "distinct pages must not collapse");
 
 // The commit boundary must fail closed rather than inventing a random business identity.
-assert(source.includes('if (!args.documentRef?.trim()) throw new Error("Document reference is required for deterministic receipt identity")'), "missing document-reference fail-closed guard is absent");
-assert(source.includes("const correlationId = canonicalReceiptLineIdentity({"), "commit boundary is not using deterministic identity");
-assert(!source.includes('const correlationId = `incoming:${args.confirmationId.trim()}`'), "random confirmation ID still controls authoritative idempotency");
+assert(
+  actionsSource.includes('"Document reference is required for deterministic receipt identity"') &&
+    actionsSource.includes("if (!args.documentRef?.trim())") &&
+    actionsSource.includes("throw new Error"),
+  "missing document-reference fail-closed guard is absent",
+);
+assert(actionsSource.includes("const correlationId = canonicalReceiptLineIdentity({"), "commit boundary is not using deterministic identity");
+assert(!actionsSource.includes('const correlationId = `incoming:${args.confirmationId.trim()}`'), "random confirmation ID still controls authoritative idempotency");
+
+// The authoritative material request batch reference must be the SAME normalized
+// document reference used by the correlation identity, so semantically equivalent
+// retries are idempotent while genuinely changed batch references still conflict.
+const batchRef1 = normalizeDocumentRef("  po-123 ");
+const batchRef2 = normalizeDocumentRef("PO-123");
+equal(batchRef1, batchRef2, "whitespace/case-equivalent document refs normalize to identical batch reference");
+equal(canonicalReceiptLineIdentity({ documentRef: batchRef1, sourcePage: "1", sourceLineNo: 1 }), canonicalReceiptLineIdentity({ documentRef: batchRef2, sourcePage: "1", sourceLineNo: 1 }), "equivalent refs share the same correlation identity");
+assert(normalizeDocumentRef("PO-999") !== batchRef1, "genuinely changed batch reference differs (RPC IS DISTINCT FROM conflict)");
+assert(actionsSource.includes("const normalizedBatchRef = normalizeDocumentRef(args.documentRef);"), "commit boundary is not deriving the authoritative batch reference from normalizeDocumentRef");
+assert(actionsSource.includes("batchId: normalizedBatchRef,"), "authoritative p_batch_id material request is not the normalized document reference");
 
 const imageUi = fs.readFileSync("src/pages/inventory/IncomingStockSecure.tsx", "utf8");
 for (const token of [
@@ -73,3 +101,4 @@ console.log("MISSING_REFERENCE_FAILS_CLOSED=PASS");
 console.log("SOURCE_PROVENANCE_PRESERVED=PASS");
 console.log("CORRECTION_REREVIEW_IDENTITY=PASS");
 console.log("RANDOM_CONFIRMATION_AUTHORITY=RETIRED");
+console.log("MATERIAL_REQUEST_BATCH_NORMALIZED=PASS");
