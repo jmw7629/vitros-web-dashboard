@@ -10,7 +10,8 @@ export type Capability =
   | "ai.ocr"
   | "rem.read"
   | "rem.write"
-  | "admin.system_settings.manage";
+  | "admin.system_settings.manage"
+  | "admin.users.manage";
 
 export const ROLE_CAPABILITIES: Record<string, Capability[]> = {
   superuser: [
@@ -21,6 +22,7 @@ export const ROLE_CAPABILITIES: Record<string, Capability[]> = {
     "rem.read",
     "rem.write",
     "admin.system_settings.manage",
+    "admin.users.manage",
   ],
   engineer: [
     "inventory.read",

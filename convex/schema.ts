@@ -90,6 +90,8 @@ export default defineSchema({
     initials: v.string(),
     active: v.optional(v.boolean()),
     createdAt: v.optional(v.number()),
+    version: v.number(),
+    updatedAt: v.number(),
     role: v.optional(v.string()),
   }).index("by_initials", ["initials"]),
 
