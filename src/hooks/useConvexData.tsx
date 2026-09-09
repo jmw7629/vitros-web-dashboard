@@ -3,9 +3,9 @@ import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { browserSafeRead } from "../lib/browserSafeRead";
 import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
+import type { RemBuildPlanRow, RemStaffPlanningRow, RemTargetPlanningRow, RemTrackerPlanningRow } from "./useRemPlanningData";
 
-// ─── Convex HTTP helpers (for REM data still on Convex production backend) ───
-const CONVEX_URL = "https://accurate-newt-938.convex.cloud";
+// ─── Legacy Convex HTTP helper is retained only for Cycle Count until that separate lane is migrated. ───
 const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
 
 async function convexQuery<T>(url: string, fn: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -176,12 +176,7 @@ export interface LVCCItem {
   sapReleasePct: number;
 }
 
-export interface StaffMember {
-  _id: string;
-  name: string;
-  role: string;
-  skills: Record<string, string>;
-}
+export type StaffMember = RemStaffPlanningRow;
 
 export interface WeeklyNoteEntry {
   _id?: string;
@@ -191,25 +186,9 @@ export interface WeeklyNoteEntry {
   notes: { content: string; product: string }[];
 }
 
-export interface WeeklyBuildPlan {
-  _id: string;
-  weekOf: string;
-  planned: number;
-  actual: number;
-  notes?: string;
-}
+export type WeeklyBuildPlan = RemBuildPlanRow;
 
-export interface TrackerWeekly {
-  _id: string;
-  weekOf: string;
-  teardown: number;
-  cleaning: number;
-  rebuild: number;
-  testing: number;
-  qa: number;
-  shipping: number;
-  complete: number;
-}
+export type TrackerWeekly = RemTrackerPlanningRow;
 
 export interface IncomingStockBatch {
   _id: string;
@@ -253,12 +232,7 @@ export interface IncomingStockLog {
   qtyAfter: number;
 }
 
-export interface AnnualTarget {
-  _id: string;
-  year: number;
-  target: number;
-  actual: number;
-}
+export type AnnualTarget = RemTargetPlanningRow;
 
 // ─── Supabase → App type mappers ───
 
@@ -404,6 +378,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexListUsers = useAction(api.supabaseGateway.listUsers);
   const convexListKits = useAction(api.supabaseGateway.listKits);
   const convexListSettings = useAction(api.supabaseGateway.listSettings);
+  const remListCore = useAction(api.remReadActions.listCore);
+  const remListPlanning = useAction(api.remReadActions.listPlanning);
 
   const performLoadAll = useCallback(async () => {
     if (!mountedRef.current) return;
@@ -487,19 +463,19 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       setStockLog([]);
 
       // ─── Convex queries (REM tracker - read only until migrated) ───
-      const [an, lv, at2, sm, wn, wb, tw] = await Promise.all([
-        safeConvexQuery<REMAnalyzer[]>(CONVEX_URL, "remAnalyzers:list", []),
-        safeConvexQuery<LVCCItem[]>(CONVEX_URL, "remLvcc:list", []),
-        safeConvexQuery<AnnualTarget[]>(CONVEX_URL, "remTargets:list", []),
-        safeConvexQuery<StaffMember[]>(CONVEX_URL, "remStaffing:getTrainingMatrix", []),
-        safeConvexQuery<WeeklyNoteEntry[]>(CONVEX_URL, "remWeeklyNotes:list", []),
-        safeConvexQuery<WeeklyBuildPlan[]>(CONVEX_URL, "remBuildPlan:list", []),
-        safeConvexQuery<TrackerWeekly[]>(CONVEX_URL, "remTracker:listWeekly", []),
+      const [coreResult, planningResult] = await Promise.all([
+        remListCore(),
+        remListPlanning(),
       ]);
 
       if (!mountedRef.current) return;
-      setAnalyzers(an); setLvccItems(lv); setAnnualTargets(at2); setStaffMembers(sm);
-      setWeeklyNotes(wn); setWeeklyBuildPlan(wb); setTrackerWeekly(tw);
+      setAnalyzers(coreResult.analyzers);
+      setLvccItems(coreResult.lvccItems);
+      setWeeklyNotes(coreResult.weeklyNotes);
+      setTrackerWeekly(planningResult.trackerWeekly);
+      setWeeklyBuildPlan(planningResult.buildPlan);
+      setStaffMembers(planningResult.staff);
+      setAnnualTargets(planningResult.targets);
 
       const [cs, cr] = await Promise.all([
         safeConvexQuery<CycleSchedule[]>(CYCLE_CONVEX_URL, "cycleCount:listSchedules", []),
@@ -517,7 +493,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       hasLoadedOnce.current = true;
       setIsLoading(false);
     }
-  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListKits, convexListSettings]);
+  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListUsers, convexListKits, convexListSettings, remListCore, remListPlanning]);
 
   performLoadAllRef.current = performLoadAll;
   if (refreshRunnerRef.current === null) {
