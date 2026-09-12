@@ -1,15 +1,32 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { useConvexData } from "../../hooks/useConvexData";
 import { WebCard, StatusBadge, DashCard, theme, modeColor, formatDate } from "../../components/vitros/SharedComponents";
 import { Search, X, ChevronDown } from "lucide-react";
 
 export function UserDashboard() {
   const data = useConvexData();
+  const currentUser = useQuery(api.auth.currentUser);
   const [selectedEmployee, setSelectedEmployee] = useState<string>("");
   const [empSearch, setEmpSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
 
-  const activeEmployees = data.employees.filter(e => e.active);
+  const activeEmployees = useMemo(() => {
+    if (!currentUser) return [];
+    const self = {
+      _id: currentUser._id as string,
+      actorId: currentUser._id as string,
+      name: currentUser.name || currentUser.email || "Signed-in user",
+      initials: (currentUser.name || "").split(/\s+/).map(part => part[0] || "").join("").slice(0, 4),
+      email: currentUser.email || undefined,
+    };
+    const directory = currentUser.role === "superuser"
+      ? data.employees.filter(employee => employee.active && employee.actorId !== currentUser._id)
+      : [];
+    return [self, ...directory];
+  }, [currentUser, data.employees]);
+  const selectedProfile = activeEmployees.find(employee => employee._id === selectedEmployee) || activeEmployees[0];
 
   // Filter employees by search
   const filteredEmployees = useMemo(() => {
@@ -24,36 +41,29 @@ export function UserDashboard() {
 
   // Data for selected employee
   const empData = useMemo(() => {
-    if (!selectedEmployee) return null;
-    const emp = data.employees.find(e => e.name === selectedEmployee);
+    const emp = selectedProfile;
     if (!emp) return null;
-
-    const nameLC = emp.name.toLowerCase();
-    const initLC = emp.initials.toLowerCase();
-
-    const empTxns = data.transactions.filter(t => {
-      const u = (t.user || "").toLowerCase();
-      return u === nameLC || u === initLC || u === emp.name || u === emp.initials;
-    }).sort((a, b) => b.timestamp - a.timestamp);
-
-    const empLogs = data.stockLog.filter(l => {
-      const batch = data.batches.find((b: any) => b.intakeBatchId === l.intakeBatchId);
-      const createdBy = ((batch as any)?.createdBy || "").toLowerCase();
-      return createdBy === nameLC || createdBy === initLC;
-    });
+    const actorId = emp.actorId;
+    const empTxns = actorId
+      ? data.transactions.filter(transaction => transaction.user === actorId).sort((a, b) => b.timestamp - a.timestamp)
+      : [];
+    const empLogs = actorId ? data.stockLog.filter(log => {
+      const batch = data.batches.find(item => item.intakeBatchId === log.intakeBatchId);
+      return batch?.createdBy === actorId;
+    }) : [];
 
     const totalOut = empTxns.filter(t => t.mode === "OUT").reduce((s, t) => s + t.qty, 0);
     const totalIn = empTxns.filter(t => t.mode === "IN" || t.mode === "RECEIVE").reduce((s, t) => s + t.qty, 0);
     const totalReceived = empLogs.reduce((s, l) => s + l.qtyAdded, 0);
 
-    return { emp, transactions: empTxns, stockLogs: empLogs, totalOut, totalIn, totalReceived };
-  }, [selectedEmployee, data.employees, data.transactions, data.stockLog, data.batches]);
+    return { emp, linked: Boolean(actorId), transactions: empTxns, stockLogs: empLogs, totalOut, totalIn, totalReceived };
+  }, [selectedProfile, data.transactions, data.stockLog, data.batches]);
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-bold" style={{ color: theme.textPrimary }}>👤 User Dashboard</h2>
-        <p className="text-sm mt-0.5" style={{ color: theme.textSecondary }}>Select an employee to view their activity</p>
+        <p className="text-sm mt-0.5" style={{ color: theme.textSecondary }}>Activity linked to verified account IDs. Legacy labels remain in Transaction Search.</p>
       </div>
 
       {/* Employee Selector Dropdown */}
@@ -72,7 +82,8 @@ export function UserDashboard() {
               className="flex-1 bg-transparent text-sm outline-none"
               style={{ color: theme.textPrimary }}
               placeholder="Type initials or name to search..."
-              value={showDropdown ? empSearch : selectedEmployee}
+              aria-label="Search employee activity"
+              value={showDropdown ? empSearch : selectedProfile?.name || ""}
               onChange={e => { setEmpSearch(e.target.value); setShowDropdown(true); }}
               onFocus={() => setShowDropdown(true)}
             />
@@ -98,7 +109,7 @@ export function UserDashboard() {
                   <button
                     key={emp._id}
                     onClick={() => {
-                      setSelectedEmployee(emp.name);
+                      setSelectedEmployee(emp._id);
                       setEmpSearch("");
                       setShowDropdown(false);
                     }}
@@ -115,7 +126,7 @@ export function UserDashboard() {
                         <div className="text-[10px] truncate" style={{ color: theme.textMuted }}>{emp.email}</div>
                       )}
                     </div>
-                    {selectedEmployee === emp.name && (
+                    {selectedProfile?._id === emp._id && (
                       <span className="text-xs font-bold" style={{ color: "#6366f1" }}>✓</span>
                     )}
                   </button>
@@ -127,7 +138,9 @@ export function UserDashboard() {
       </WebCard>
 
       {/* Employee Data */}
-      {empData ? (
+      {empData && !empData.linked ? (
+        <WebCard className="p-4"><p role="status" className="text-sm" style={{ color: theme.textSecondary }}>No verified account is linked to {empData.emp.name} yet. Activity will appear after that employee signs in with their own account.</p></WebCard>
+      ) : empData ? (
         <>
           {/* Employee info card */}
           <WebCard className="p-4">
@@ -206,7 +219,7 @@ export function UserDashboard() {
             <WebCard className="p-8 text-center">
               <div className="text-2xl opacity-30 mb-2">📋</div>
               <div className="text-sm" style={{ color: theme.textSecondary }}>
-                No activity recorded for {selectedEmployee} yet.
+                No activity recorded for {empData.emp.name} yet.
               </div>
             </WebCard>
           )}

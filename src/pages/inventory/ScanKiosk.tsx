@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { useConvexData } from "../../hooks/useConvexData";
 import { WebCard, StatusBadge, DashCard, theme, statusColor, modeColor, formatDate } from "../../components/vitros/SharedComponents";
 import { Camera, X, Search, Plus, Minus, RotateCcw, Package, ChevronRight } from "lucide-react";
@@ -335,7 +337,9 @@ interface BatchItem {
 export function ScanKiosk() {
   const data = useConvexData();
   const [mode, setMode] = useState<Mode | null>(null);
-  const [employeeId, setEmployeeId] = useState("");
+  const currentUser = useQuery(api.auth.currentUser);
+  const employeeId = currentUser?._id ?? "";
+  const operatorName = currentUser?.name || currentUser?.email || "Sign in to continue";
   const [analyzerSerial, setAnalyzerSerial] = useState("");
   const [showScanner, setShowScanner] = useState(false);
   const [partSearch, setPartSearch] = useState("");
@@ -348,7 +352,6 @@ export function ScanKiosk() {
   const [kitPreview, setKitPreview] = useState<any>(null); // kit being previewed before consume
   const [stockoutReport, setStockoutReport] = useState<any>(null); // stockout report after commit
 
-  const activeEmployees = data.employees.filter(e => e.active);
 
   const searchResults = useMemo(() => {
     if (!partSearch || partSearch.length < 2) return [];
@@ -496,7 +499,7 @@ export function ScanKiosk() {
 
   // Email the employee who was consuming
   const emailEmployee = () => {
-    const emp = activeEmployees.find(e => e._id === employeeId);
+    const emp = currentUser;
     const firstName = emp?.name?.split(" ")[0] || "Team";
     const emailAddr = emp?.email || "";
     if (!emailAddr) { alert("No email on file for this employee"); return; }
@@ -591,15 +594,11 @@ export function ScanKiosk() {
         {/* Employee & Analyzer fields — required before consuming */}
         <WebCard className="p-4 space-y-3">
           <div>
-            <label className="text-[10px] font-semibold" style={{ color: theme.textSecondary }}>Employee *</label>
-            <select className="w-full mt-1 px-3 py-2 rounded-xl text-sm border appearance-none"
-              style={{ borderColor: !employeeId ? "#ef4444" : theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-              value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
-              <option value="">Select employee...</option>
-              {activeEmployees.map(e => (
-                <option key={e._id} value={e._id}>{e.name} ({e.initials})</option>
-              ))}
-            </select>
+            <label className="text-[10px] font-semibold" style={{ color: theme.textSecondary }}>Signed-in operator</label>
+            <input aria-label="Signed-in operator" readOnly
+              className="w-full mt-1 px-3 py-2 rounded-xl text-sm border"
+              style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
+              value={operatorName} />
           </div>
           <div>
             <label className="text-[10px] font-semibold" style={{ color: theme.textSecondary }}>Analyzer Serial # *</label>
@@ -611,8 +610,8 @@ export function ScanKiosk() {
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{ backgroundColor: "#ef444415" }}>
               <span style={{ color: "#ef4444" }}>⚠️</span>
               <span className="text-xs" style={{ color: "#ef4444" }}>
-                {!employeeId && !analyzerSerial ? "Employee and Analyzer Serial # required" :
-                 !employeeId ? "Employee required" : "Analyzer Serial # required"}
+                {!employeeId && !analyzerSerial ? "Sign-in and Analyzer Serial # required" :
+                 !employeeId ? "Sign in to continue" : "Analyzer Serial # required"}
               </span>
             </div>
           )}
@@ -741,15 +740,11 @@ export function ScanKiosk() {
       {/* Employee & Analyzer */}
       <WebCard className="p-4 space-y-3">
         <div>
-          <label className="text-[10px] font-semibold" style={{ color: theme.textSecondary }}>Employee *</label>
-          <select className="w-full mt-1 px-3 py-2 rounded-xl text-sm border appearance-none"
-            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-            value={employeeId} onChange={e => setEmployeeId(e.target.value)}>
-            <option value="">Select employee...</option>
-            {activeEmployees.map(e => (
-              <option key={e._id} value={e._id}>{e.name} ({e.initials})</option>
-            ))}
-          </select>
+          <label className="text-[10px] font-semibold" style={{ color: theme.textSecondary }}>Signed-in operator</label>
+          <input aria-label="Signed-in operator" readOnly
+              className="w-full mt-1 px-3 py-2 rounded-xl text-sm border"
+              style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
+              value={operatorName} />
         </div>
         {mode === "OUT" && (
           <div>
@@ -903,7 +898,7 @@ export function ScanKiosk() {
                 style={{ backgroundColor: currentMode.color }}>
                 {committing ? "Processing..." : `Commit Batch (${batch.length} items)`}
               </button>
-              {!employeeId && <div className="text-[10px] text-center mt-1" style={{ color: theme.statusOut }}>Select employee first</div>}
+              {!employeeId && <div className="text-[10px] text-center mt-1" style={{ color: theme.statusOut }}>Sign in to continue</div>}
               {mode === "OUT" && !analyzerSerial && <div className="text-[10px] text-center mt-1" style={{ color: theme.statusOut }}>Enter analyzer serial # to commit</div>}
             </div>
           </>
@@ -980,7 +975,7 @@ export function ScanKiosk() {
                 <button onClick={emailEmployee}
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white"
                   style={{ backgroundColor: "#3b82f6" }}>
-                  ✉️ Email {activeEmployees.find(e => e._id === employeeId)?.name?.split(" ")[0] || "Employee"}
+                  ✉️ Email {currentUser?.name?.split(" ")[0] || "Employee"}
                 </button>
                 <button onClick={emailJoe}
                   className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white"

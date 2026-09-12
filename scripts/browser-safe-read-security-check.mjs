@@ -54,7 +54,7 @@ requireTokens(hook, "browser data hook", [
   'browserSafeRead<any>("sap").catch(() => [] as any[])',
   'browserSafeRead<any>("settings").catch(() => [] as any[])',
   "setError(e instanceof Error ? e.message : \"Failed to load data\")",
-  "userRows = [];",
+  "api.employeeActions.listEmployees",
 ]);
 forbidTokens(hook, "browser data hook", [
   "VITE_SUPABASE_ANON_KEY",
@@ -64,9 +64,11 @@ forbidTokens(hook, "browser data hook", [
   "/rest/v1/sap_staging",
   "/rest/v1/settings",
   "/rest/v1/users",
+  "/rest/v1/convex_employees",
   "/rest/v1/rem_analyzers",
   "/rest/v1/rem_lvcc",
   'browserSafeRead<any>("users")',
+  'browserSafeRead<any>("employees")',
 ]);
 if (/browserSafeRead<any>\("stock"\)\.catch\s*\(/.test(hook)) {
   throw new Error("critical stock read must fail closed rather than downgrade to empty data");

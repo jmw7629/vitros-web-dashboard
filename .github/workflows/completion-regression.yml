@@ -1,0 +1,61 @@
+name: Completion Regression
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  behavioral-and-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_test_only
+          POSTGRES_DB: vitros_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vitros_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Employee action boundary behavior
+        run: node scripts/employee-boundary-check.mjs
+      - name: REM parser behavior
+        run: node scripts/rem-workbook-parser-acceptance.mjs
+      - name: Employee account identity behavior
+        run: node scripts/employee-identity-check.mjs
+      - name: User dashboard identity behavior
+        run: node scripts/user-dashboard-identity-check.mjs
+      - name: Scanner operator identity behavior
+        run: node scripts/scan-kiosk-identity-check.mjs
+      - name: Receipt identity behavior
+        run: node scripts/incoming-stock-identity-unit.mjs
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Disposable employee transaction verification
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: disposable_test_only
+          PGDATABASE: vitros_test
+        run: |
+          psql -v ON_ERROR_STOP=1 -f database/tests/employee_bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260910_canonical_employee_directory.sql
+          psql -v ON_ERROR_STOP=1 -f database/tests/employee_transition.sql

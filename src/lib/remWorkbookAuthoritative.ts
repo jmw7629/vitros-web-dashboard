@@ -89,6 +89,8 @@ export type AuthoritativeRemImportPreview = {
   targets: TargetImportRow[];
   skippedRows: number;
   recognizedSheets: string[];
+  importedSheets: string[];
+  unimportedSheets: string[];
 };
 
 const normalize = (value: unknown) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -99,26 +101,55 @@ function optionalText(value: unknown, max = 500): string | undefined {
   return text.slice(0, max);
 }
 
-function numberValue(value: unknown): number | undefined {
-  if (value === null || value === undefined || String(value).trim() === "") return undefined;
+function isBlank(value: unknown): boolean {
+  return value === null || value === undefined || String(value).trim() === "";
+}
+
+function numberValue(value: unknown, context?: string): number | undefined {
+  if (isBlank(value)) return undefined;
   const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
+  if (!Number.isFinite(n)) {
+    const preview = JSON.stringify(String(value).slice(0, 120));
+    if (context) throw new Error(`${context}: malformed numeric value ${preview} — expected a finite number`);
+    return undefined; // Week discovery skips non-data labels such as totals.
+  }
+  return n;
 }
 
 function nonNegative(value: unknown, field: string, max = 1_000_000): number | undefined {
-  const n = numberValue(value);
+  const n = numberValue(value, field);
   if (n === undefined) return undefined;
   if (n < 0 || n > max) throw new Error(`${field} is outside the supported range`);
   return n;
 }
 
-function percent(value: unknown): number {
-  if (value === null || value === undefined || String(value).trim() === "") return 0;
+function percent(value: unknown, field?: string): number {
+  if (isBlank(value)) return 0;
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) throw new Error(`Invalid progress value: ${String(value)}`);
+  if (!Number.isFinite(n) || n < 0) {
+    const label = field ? `${field}: ` : "";
+    throw new Error(`${label}Invalid progress value: ${String(value).slice(0, 120)}`);
+  }
   const scaled = n <= 1.000001 ? n * 100 : n;
-  if (scaled > 100.0001) throw new Error(`Progress exceeds 100%: ${String(value)}`);
+  if (scaled > 100.0001) throw new Error(`Progress exceeds 100%: ${String(value).slice(0, 120)}`);
   return Math.round(Math.min(100, scaled) * 1000) / 1000;
+}
+
+function ensureFormulaCache(sheet: XLSX.WorkSheet, sheetName: string, r: number, c: number, field: string): void {
+  if (c < 0) return; // Optional columns can be absent from the source sheet.
+  const address = XLSX.utils.encode_cell({ r, c });
+  const cell = (sheet as unknown as Record<string, XLSX.CellObject>)[address] as XLSX.CellObject | undefined;
+  if (!cell || cell.f == null) return;
+  if (cell.t === "e") {
+    const detail = (cell as unknown as { w?: string }).w ?? String(cell.v ?? "#ERR");
+    throw new Error(`${field} at ${sheetName}!${address} has formula error cached value ${JSON.stringify(detail.slice(0, 120))} — recalculate workbook before import`);
+  }
+  if (cell.v === undefined || cell.v === null) {
+    throw new Error(`${field} at ${sheetName}!${address} has formula without cached value — open and recalculate/save workbook before import`);
+  }
+  if (cell.t === "z") {
+    throw new Error(`${field} at ${sheetName}!${address} has formula without cached value (empty) — recalculate workbook before import`);
+  }
 }
 
 function analyzerTypeFromSerial(serial: string) {
@@ -187,7 +218,7 @@ function latestVitrosWip(workbook: XLSX.WorkBook) {
   return { name: fallback, week: undefined };
 }
 
-function parseAnalyzers(sheet: XLSX.WorkSheet) {
+function parseAnalyzers(sheet: XLSX.WorkSheet, sheetName: string) {
   const rows = matrix(sheet);
   const headerIndex = rows.findIndex((row) => {
     const cells = row.map(normalize);
@@ -214,29 +245,44 @@ function parseAnalyzers(sheet: XLSX.WorkSheet) {
   const serials = new Set<string>();
   let skippedRows = 0;
 
-  for (const row of rows.slice(headerIndex + 2)) {
+  for (let r = headerIndex + 2; r < rows.length; r++) {
+    const row = rows[r];
+    const serialAddr = XLSX.utils.encode_cell({ r, c: serialCol });
+    const serialField = `WIP serial at ${sheetName}!${serialAddr}`;
+    ensureFormulaCache(sheet, sheetName, r, serialCol, serialField);
     const serial = String(row[serialCol] ?? "").trim().toUpperCase();
     if (!serial) continue;
     if (!/^\d{8}$/.test(serial)) {
       skippedRows += 1;
       continue;
     }
-    const productionOrder = Number(row[productionOrderCol]);
-    if (!Number.isFinite(productionOrder) || productionOrder < 0) {
+    const poAddr = XLSX.utils.encode_cell({ r, c: productionOrderCol });
+    const poField = `Analyzer ${serial} production order at ${sheetName}!${poAddr}`;
+    ensureFormulaCache(sheet, sheetName, r, productionOrderCol, poField);
+    const rawPO = row[productionOrderCol];
+    const productionOrder = numberValue(rawPO, poField);
+    if (productionOrder !== undefined && productionOrder < 0) {
       skippedRows += 1;
       continue;
     }
+    const poValue = productionOrder ?? 0;
     if (serials.has(serial)) throw new Error(`Duplicate WIP serial found in workbook: ${serial}`);
     serials.add(serial);
+    const pctField = (col: number, label: string) => `${label} for ${serial} at ${sheetName}!${XLSX.utils.encode_cell({ r, c: col })}`;
+    ensureFormulaCache(sheet, sheetName, r, cleanCol, pctField(cleanCol, "CleaningPct"));
+    ensureFormulaCache(sheet, sheetName, r, serviceCol, pctField(serviceCol, "ServicePct"));
+    ensureFormulaCache(sheet, sheetName, r, finalLineCol, pctField(finalLineCol, "FinalLinePct"));
+    ensureFormulaCache(sheet, sheetName, r, releaseCol, pctField(releaseCol, "ReleasePct"));
+    ensureFormulaCache(sheet, sheetName, r, packCol, pctField(packCol, "PackPct"));
     analyzers.push({
       serialNumber: serial,
       analyzerType: analyzerTypeFromSerial(serial),
-      productionOrder,
-      cleaningPct: percent(row[cleanCol]),
-      servicePct: percent(row[serviceCol]),
-      finalLinePct: percent(row[finalLineCol]),
-      releaseTestingPct: percent(row[releaseCol]),
-      packagingPct: percent(row[packCol]),
+      productionOrder: poValue,
+      cleaningPct: percent(row[cleanCol], pctField(cleanCol, "CleaningPct")),
+      servicePct: percent(row[serviceCol], pctField(serviceCol, "ServicePct")),
+      finalLinePct: percent(row[finalLineCol], pctField(finalLineCol, "FinalLinePct")),
+      releaseTestingPct: percent(row[releaseCol], pctField(releaseCol, "ReleasePct")),
+      packagingPct: percent(row[packCol], pctField(packCol, "PackPct")),
     });
   }
 
@@ -245,7 +291,7 @@ function parseAnalyzers(sheet: XLSX.WorkSheet) {
   return { analyzers, skippedRows };
 }
 
-function parseTracker(sheet: XLSX.WorkSheet, year: number) {
+function parseTracker(sheet: XLSX.WorkSheet, sheetName: string, year: number) {
   const rows = matrix(sheet);
   const headerIndex = rows.findIndex((row) => row.filter((value) => normalize(value) === "product").length >= 4);
   if (headerIndex < 0) throw new Error("REM Tracker product groups were not found");
@@ -279,17 +325,46 @@ function parseTracker(sheet: XLSX.WorkSheet, year: number) {
     };
     if (cols.week === undefined || cols.plan === undefined) continue;
 
-    for (const row of rows.slice(headerIndex + 1)) {
+    for (let r = headerIndex + 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (cols.product >= 0) {
+        const prodAddr = XLSX.utils.encode_cell({ r, c: cols.product });
+        const prodField = `Tracker product at ${sheetName}!${prodAddr}`;
+        ensureFormulaCache(sheet, sheetName, r, cols.product, prodField);
+      }
       const product = canonicalProduct(row[cols.product]);
+      if (!product) continue;
+      const weekAddr = XLSX.utils.encode_cell({ r, c: cols.week });
+      const weekField = `${product} week at ${sheetName}!${weekAddr}`;
+      ensureFormulaCache(sheet, sheetName, r, cols.week, weekField);
+      // Lenient discovery: footer/total labels are skipped, not rejected as malformed
       const week = numberValue(row[cols.week]);
-      if (!product || week === undefined || !Number.isInteger(week) || week < 1 || week > 53) continue;
-      const plan = nonNegative(row[cols.plan], `${product} week ${week} plan`, 100_000);
+      if (week === undefined || !Number.isInteger(week) || week < 1 || week > 53) continue;
+      const planAddr = XLSX.utils.encode_cell({ r, c: cols.plan });
+      const planField = `${product} week ${week} plan at ${sheetName}!${planAddr}`;
+      ensureFormulaCache(sheet, sheetName, r, cols.plan, planField);
+      const plan = nonNegative(row[cols.plan], planField, 100_000);
       if (plan === undefined) continue;
       const sourceKey = `${year}:tracker:${product}:${week}`;
       if (seen.has(sourceKey)) throw new Error(`Duplicate REM Tracker row: ${sourceKey}`);
       seen.add(sourceKey);
+      if (cols.quarter !== undefined && cols.quarter >= 0) {
+        const qAddr = XLSX.utils.encode_cell({ r, c: cols.quarter });
+        ensureFormulaCache(sheet, sheetName, r, cols.quarter, `${product} quarter at ${sheetName}!${qAddr}`);
+      }
+      if (cols.date !== undefined && cols.date >= 0) {
+        const dAddr = XLSX.utils.encode_cell({ r, c: cols.date });
+        ensureFormulaCache(sheet, sheetName, r, cols.date, `Tracker date at ${sheetName}!${dAddr}`);
+      }
       const rawQuarter = cols.quarter === undefined ? undefined : optionalText(row[cols.quarter], 8)?.toUpperCase();
       const quarter = rawQuarter && /^Q[1-4]$/.test(rawQuarter) ? rawQuarter : quarterFromWeek(week);
+      const readNonNeg = (col: number | undefined, label: string, max: number) => {
+        if (col === undefined) return undefined;
+        const addr = XLSX.utils.encode_cell({ r, c: col });
+        const field = `${sourceKey} ${label} at ${sheetName}!${addr}`;
+        ensureFormulaCache(sheet, sheetName, r, col, field);
+        return nonNegative(row[col], field, max);
+      };
       trackerWeekly.push({
         sourceKey,
         year,
@@ -298,13 +373,13 @@ function parseTracker(sheet: XLSX.WorkSheet, year: number) {
         weekNumber: week,
         weekStart: cols.date === undefined ? undefined : toIsoDate(row[cols.date]),
         plan,
-        actual: cols.actual === undefined ? undefined : nonNegative(row[cols.actual], `${sourceKey} actual`, 100_000),
-        quarterPlan: cols.quarterPlan === undefined ? undefined : nonNegative(row[cols.quarterPlan], `${sourceKey} quarterPlan`, 1_000_000),
-        quarterActual: cols.quarterActual === undefined ? undefined : nonNegative(row[cols.quarterActual], `${sourceKey} quarterActual`, 1_000_000),
-        totalPlan: cols.totalPlan === undefined ? undefined : nonNegative(row[cols.totalPlan], `${sourceKey} totalPlan`, 1_000_000),
-        totalActual: cols.totalActual === undefined ? undefined : nonNegative(row[cols.totalActual], `${sourceKey} totalActual`, 1_000_000),
-        weeklyForecast: cols.weeklyForecast === undefined ? undefined : nonNegative(row[cols.weeklyForecast], `${sourceKey} weeklyForecast`, 100_000),
-        accumulatedForecast: cols.accumulatedForecast === undefined ? undefined : nonNegative(row[cols.accumulatedForecast], `${sourceKey} accumulatedForecast`, 1_000_000),
+        actual: readNonNeg(cols.actual, "actual", 100_000),
+        quarterPlan: readNonNeg(cols.quarterPlan, "quarterPlan", 1_000_000),
+        quarterActual: readNonNeg(cols.quarterActual, "quarterActual", 1_000_000),
+        totalPlan: readNonNeg(cols.totalPlan, "totalPlan", 1_000_000),
+        totalActual: readNonNeg(cols.totalActual, "totalActual", 1_000_000),
+        weeklyForecast: readNonNeg(cols.weeklyForecast, "weeklyForecast", 100_000),
+        accumulatedForecast: readNonNeg(cols.accumulatedForecast, "accumulatedForecast", 1_000_000),
       });
     }
   }
@@ -332,7 +407,7 @@ function parseTracker(sheet: XLSX.WorkSheet, year: number) {
   return { trackerWeekly, targets };
 }
 
-function parseBuildPlan(sheet: XLSX.WorkSheet, year: number) {
+function parseBuildPlan(sheet: XLSX.WorkSheet, sheetName: string, year: number) {
   const rows = matrix(sheet);
   const headerIndex = rows.findIndex((row) => {
     const cells = row.map(normalize);
@@ -341,19 +416,38 @@ function parseBuildPlan(sheet: XLSX.WorkSheet, year: number) {
   if (headerIndex < 0) throw new Error("REM Build Plan headers were not found");
 
   const col = (letters: string) => XLSX.utils.decode_col(letters);
-  const n = (row: unknown[], letters: string, label: string, max = 1_000_000) => nonNegative(row[col(letters)], label, max);
-  const signed = (row: unknown[], letters: string) => numberValue(row[col(letters)]);
   const buildPlan: BuildPlanImportRow[] = [];
   const seen = new Set<string>();
 
-  for (const row of rows.slice(headerIndex + 1)) {
-    const week = numberValue(row[col("B")]);
-    const quarterRaw = optionalText(row[col("A")], 8)?.toUpperCase();
+  for (let r = headerIndex + 1; r < rows.length; r++) {
+    const row = rows[r];
+    const weekColIdx = col("B");
+    const weekAddr = XLSX.utils.encode_cell({ r, c: weekColIdx });
+    const weekField = `Build Plan week at ${sheetName}!${weekAddr}`;
+    ensureFormulaCache(sheet, sheetName, r, weekColIdx, weekField);
+    const week = numberValue(row[weekColIdx]);
     if (week === undefined || !Number.isInteger(week) || week < 1 || week > 53) continue;
+    ensureFormulaCache(sheet, sheetName, r, col("A"), "Build Plan quarter");
+    ensureFormulaCache(sheet, sheetName, r, col("C"), "Build Plan date");
+    const quarterRaw = optionalText(row[col("A")], 8)?.toUpperCase();
     const quarter = quarterRaw && /^Q[1-4]$/.test(quarterRaw) ? quarterRaw : quarterFromWeek(week);
     const sourceKey = `${year}:build-plan:${week}`;
     if (seen.has(sourceKey)) throw new Error(`Duplicate REM Build Plan week: ${week}`);
     seen.add(sourceKey);
+    const nAt = (letters: string, label: string, max = 1_000_000) => {
+      const c = col(letters);
+      const addr = XLSX.utils.encode_cell({ r, c });
+      const field = `${label} at ${sheetName}!${addr}`;
+      ensureFormulaCache(sheet, sheetName, r, c, field);
+      return nonNegative(row[c], field, max);
+    };
+    const signedAt = (letters: string, label: string) => {
+      const c = col(letters);
+      const addr = XLSX.utils.encode_cell({ r, c });
+      const field = `${label} at ${sheetName}!${addr}`;
+      ensureFormulaCache(sheet, sheetName, r, c, field);
+      return numberValue(row[c], field);
+    };
     const data: Record<string, unknown> = {
       sourceKey,
       year,
@@ -361,64 +455,64 @@ function parseBuildPlan(sheet: XLSX.WorkSheet, year: number) {
       weekNumber: week,
       weekStart: toIsoDate(row[col("C")]),
       delivery: {
-        analyzer3600: n(row, "D", `${sourceKey} delivery 3600`, 10_000),
-        analyzer5600: n(row, "E", `${sourceKey} delivery 5600`, 10_000),
-        analyzer7600: n(row, "F", `${sourceKey} delivery 7600`, 10_000),
-        vision: n(row, "G", `${sourceKey} delivery VISION`, 10_000),
-        electrometer: n(row, "H", `${sourceKey} delivery electrometer`, 10_000),
-        irWash: n(row, "I", `${sourceKey} delivery IR`, 10_000),
-        total: n(row, "J", `${sourceKey} delivery total`, 50_000),
+        analyzer3600: nAt("D", `${sourceKey} delivery 3600`, 10_000),
+        analyzer5600: nAt("E", `${sourceKey} delivery 5600`, 10_000),
+        analyzer7600: nAt("F", `${sourceKey} delivery 7600`, 10_000),
+        vision: nAt("G", `${sourceKey} delivery VISION`, 10_000),
+        electrometer: nAt("H", `${sourceKey} delivery electrometer`, 10_000),
+        irWash: nAt("I", `${sourceKey} delivery IR`, 10_000),
+        total: nAt("J", `${sourceKey} delivery total`, 50_000),
       },
       capacity: {
-        meets: n(row, "K", `${sourceKey} meets`, 100_000),
-        exceeds: n(row, "L", `${sourceKey} exceeds`, 100_000),
-        capacity: n(row, "M", `${sourceKey} capacity`, 100_000),
-        delta: signed(row, "N"),
-        headCount: n(row, "O", `${sourceKey} headcount`, 1_000),
-        onboarding: n(row, "P", `${sourceKey} onboarding`, 1_000),
-        inTraining: n(row, "Q", `${sourceKey} in-training`, 1_000),
-        holidays: n(row, "R", `${sourceKey} holidays`, 1_000),
-        ptoDays: n(row, "S", `${sourceKey} PTO`, 10_000),
+        meets: nAt("K", `${sourceKey} meets`, 100_000),
+        exceeds: nAt("L", `${sourceKey} exceeds`, 100_000),
+        capacity: nAt("M", `${sourceKey} capacity`, 100_000),
+        delta: signedAt("N", `${sourceKey} delta`),
+        headCount: nAt("O", `${sourceKey} headcount`, 1_000),
+        onboarding: nAt("P", `${sourceKey} onboarding`, 1_000),
+        inTraining: nAt("Q", `${sourceKey} in-training`, 1_000),
+        holidays: nAt("R", `${sourceKey} holidays`, 1_000),
+        ptoDays: nAt("S", `${sourceKey} PTO`, 10_000),
       },
       actuals: {
-        analyzer3600: n(row, "U", `${sourceKey} actual 3600`, 10_000),
-        analyzer5600: n(row, "V", `${sourceKey} actual 5600`, 10_000),
-        analyzer7600: n(row, "W", `${sourceKey} actual 7600`, 10_000),
-        vitrosVsPlan: signed(row, "X"),
-        vitrosQuarterDelta: signed(row, "Y"),
-        vitrosWipMonday: n(row, "Z", `${sourceKey} VITROS WIP`, 100_000),
-        clean: n(row, "AA", `${sourceKey} clean`, 100_000),
-        service: n(row, "AB", `${sourceKey} service`, 100_000),
-        finalLine: n(row, "AC", `${sourceKey} final`, 100_000),
-        release: n(row, "AD", `${sourceKey} release`, 100_000),
-        pack: n(row, "AE", `${sourceKey} pack`, 100_000),
-        qc: n(row, "AF", `${sourceKey} QC`, 100_000),
-        finishedGoods: n(row, "AG", `${sourceKey} FG`, 100_000),
-        vision: n(row, "AI", `${sourceKey} VISION`, 10_000),
-        visionVsPlan: signed(row, "AJ"),
-        visionQuarterDelta: signed(row, "AK"),
-        visionService: n(row, "AL", `${sourceKey} VISION service`, 100_000),
-        visionFinalLine: n(row, "AM", `${sourceKey} VISION final`, 100_000),
-        visionPack: n(row, "AN", `${sourceKey} VISION pack`, 100_000),
-        visionFinishedGoods: n(row, "AO", `${sourceKey} VISION FG`, 100_000),
-        electrometer: n(row, "AQ", `${sourceKey} electrometer`, 10_000),
-        electrometerVsPlan: signed(row, "AR"),
-        electrometerQuarterDelta: signed(row, "AS"),
-        electrometerVsForecast: signed(row, "AT"),
-        irWash: n(row, "AU", `${sourceKey} IR`, 10_000),
-        irVsPlan: signed(row, "AV"),
-        irQuarterDelta: signed(row, "AW"),
-        irVsForecast: signed(row, "AX"),
-        electrometerWip: n(row, "AY", `${sourceKey} electrometer WIP`, 100_000),
-        irWip: n(row, "AZ", `${sourceKey} IR WIP`, 100_000),
-        lvccFinishedGoods: n(row, "BA", `${sourceKey} LVCC FG`, 100_000),
+        analyzer3600: nAt("U", `${sourceKey} actual 3600`, 10_000),
+        analyzer5600: nAt("V", `${sourceKey} actual 5600`, 10_000),
+        analyzer7600: nAt("W", `${sourceKey} actual 7600`, 10_000),
+        vitrosVsPlan: signedAt("X", `${sourceKey} vitrosVsPlan`),
+        vitrosQuarterDelta: signedAt("Y", `${sourceKey} vitrosQuarterDelta`),
+        vitrosWipMonday: nAt("Z", `${sourceKey} VITROS WIP`, 100_000),
+        clean: nAt("AA", `${sourceKey} clean`, 100_000),
+        service: nAt("AB", `${sourceKey} service`, 100_000),
+        finalLine: nAt("AC", `${sourceKey} final`, 100_000),
+        release: nAt("AD", `${sourceKey} release`, 100_000),
+        pack: nAt("AE", `${sourceKey} pack`, 100_000),
+        qc: nAt("AF", `${sourceKey} QC`, 100_000),
+        finishedGoods: nAt("AG", `${sourceKey} FG`, 100_000),
+        vision: nAt("AI", `${sourceKey} VISION`, 10_000),
+        visionVsPlan: signedAt("AJ", `${sourceKey} visionVsPlan`),
+        visionQuarterDelta: signedAt("AK", `${sourceKey} visionQuarterDelta`),
+        visionService: nAt("AL", `${sourceKey} VISION service`, 100_000),
+        visionFinalLine: nAt("AM", `${sourceKey} VISION final`, 100_000),
+        visionPack: nAt("AN", `${sourceKey} VISION pack`, 100_000),
+        visionFinishedGoods: nAt("AO", `${sourceKey} VISION FG`, 100_000),
+        electrometer: nAt("AQ", `${sourceKey} electrometer`, 10_000),
+        electrometerVsPlan: signedAt("AR", `${sourceKey} electrometerVsPlan`),
+        electrometerQuarterDelta: signedAt("AS", `${sourceKey} electrometerQuarterDelta`),
+        electrometerVsForecast: signedAt("AT", `${sourceKey} electrometerVsForecast`),
+        irWash: nAt("AU", `${sourceKey} IR`, 10_000),
+        irVsPlan: signedAt("AV", `${sourceKey} irVsPlan`),
+        irQuarterDelta: signedAt("AW", `${sourceKey} irQuarterDelta`),
+        irVsForecast: signedAt("AX", `${sourceKey} irVsForecast`),
+        electrometerWip: nAt("AY", `${sourceKey} electrometer WIP`, 100_000),
+        irWip: nAt("AZ", `${sourceKey} IR WIP`, 100_000),
+        lvccFinishedGoods: nAt("BA", `${sourceKey} LVCC FG`, 100_000),
       },
       planningHours: {
-        analyzer3600: n(row, "BF", `${sourceKey} planning 3600`, 1_000),
-        analyzer5600: n(row, "BG", `${sourceKey} planning 5600`, 1_000),
-        analyzer7600: n(row, "BH", `${sourceKey} planning 7600`, 1_000),
-        vision: n(row, "BI", `${sourceKey} planning VISION`, 1_000),
-        lvcc: n(row, "BJ", `${sourceKey} planning LVCC`, 1_000),
+        analyzer3600: nAt("BF", `${sourceKey} planning 3600`, 1_000),
+        analyzer5600: nAt("BG", `${sourceKey} planning 5600`, 1_000),
+        analyzer7600: nAt("BH", `${sourceKey} planning 7600`, 1_000),
+        vision: nAt("BI", `${sourceKey} planning VISION`, 1_000),
+        lvcc: nAt("BJ", `${sourceKey} planning LVCC`, 1_000),
       },
     };
     buildPlan.push({ sourceKey, year, quarter, weekNumber: week, weekStart: toIsoDate(row[col("C")]), data });
@@ -427,7 +521,7 @@ function parseBuildPlan(sheet: XLSX.WorkSheet, year: number) {
   return buildPlan;
 }
 
-function parseStaff(sheet: XLSX.WorkSheet, year: number) {
+function parseStaff(sheet: XLSX.WorkSheet, sheetName: string, year: number) {
   const rows = matrix(sheet);
   const headerIndex = rows.findIndex((row) => {
     const cells = row.map(normalize);
@@ -440,10 +534,16 @@ function parseStaff(sheet: XLSX.WorkSheet, year: number) {
   const seen = new Set<string>();
   const skillLabels = ["Cleaning", "Service", "Final Line", "Release/Clean", "Pack", "Troubleshoot", "DHR", "SOF/Parts", "VISION", "LVCC"];
 
-  for (const row of rows.slice(headerIndex + 1)) {
+  for (let r = headerIndex + 1; r < rows.length; r++) {
+    const row = rows[r];
+    ensureFormulaCache(sheet, sheetName, r, idx("WWID"), "Staff WWID");
+    ensureFormulaCache(sheet, sheetName, r, idx("Name"), "Staff name");
     const wwid = String(row[idx("WWID")] ?? "").trim();
     const name = optionalText(row[idx("Name")], 160);
     if (!wwid || !/^\d{6,12}$/.test(wwid) || !name) continue;
+    for (const label of [...skillLabels, "Role", "Started", "Complete after", "Training Unitl", "Comment", "Required/Optional", "FE online", "FE Classroom"]) {
+      ensureFormulaCache(sheet, sheetName, r, idx(label), `Staff ${label}`);
+    }
     const sourceKey = `${year}:staff:${wwid}`;
     if (seen.has(sourceKey)) throw new Error(`Duplicate REM staff WWID: ${wwid}`);
     seen.add(sourceKey);
@@ -457,6 +557,11 @@ function parseStaff(sheet: XLSX.WorkSheet, year: number) {
       const value = optionalText(row[idx(label)], 300);
       if (value) certifications[key] = value;
     }
+    const fteCol = idx("FTE");
+    if (fteCol >= 0) {
+      const fteField = `${sourceKey} FTE at ${sheetName}!${XLSX.utils.encode_cell({ r, c: fteCol })}`;
+      ensureFormulaCache(sheet, sheetName, r, fteCol, fteField);
+    }
     staff.push({
       sourceKey,
       year,
@@ -465,7 +570,7 @@ function parseStaff(sheet: XLSX.WorkSheet, year: number) {
       role: optionalText(row[idx("Role")], 120),
       started: optionalText(row[idx("Started")], 80) ?? toIsoDate(row[idx("Started")]),
       completeAfter: toIsoDate(row[idx("Complete after")]) ?? optionalText(row[idx("Complete after")], 80),
-      fte: nonNegative(row[idx("FTE")], `${sourceKey} FTE`, 5),
+      fte: fteCol >= 0 ? nonNegative(row[fteCol], `${sourceKey} FTE at ${sheetName}!${XLSX.utils.encode_cell({ r, c: fteCol })}`, 5) : undefined,
       trainingUntil: optionalText(row[idx("Training Unitl")], 80),
       skills,
       certifications,
@@ -476,7 +581,7 @@ function parseStaff(sheet: XLSX.WorkSheet, year: number) {
   return staff;
 }
 
-function parseWeeklyNotes(sheet: XLSX.WorkSheet, year: number) {
+function parseWeeklyNotes(sheet: XLSX.WorkSheet, sheetName: string, year: number) {
   const rows = matrix(sheet);
   const headerIndex = rows.findIndex((row) => row.some((value) => normalize(value) === "week"));
   if (headerIndex < 0) throw new Error("REM Notes week column was not found");
@@ -485,9 +590,15 @@ function parseWeeklyNotes(sheet: XLSX.WorkSheet, year: number) {
   const weeklyNotes: WeeklyNoteImportRow[] = [];
   const seen = new Set<string>();
 
-  for (const row of rows.slice(headerIndex + 1)) {
+  for (let r = headerIndex + 1; r < rows.length; r++) {
+    const row = rows[r];
+    const weekField = `Notes week at ${sheetName}!${XLSX.utils.encode_cell({ r, c: weekCol })}`;
+    ensureFormulaCache(sheet, sheetName, r, weekCol, weekField);
     const week = numberValue(row[weekCol]);
     if (week === undefined || !Number.isInteger(week) || week < 1 || week > 53) continue;
+    for (const c of [0, 2, 3, 4, 5, 6]) {
+      ensureFormulaCache(sheet, sheetName, r, c, "Weekly note");
+    }
     const quarterRaw = optionalText(row[0], 8)?.toUpperCase();
     const quarter = quarterRaw && /^Q[1-4]$/.test(quarterRaw) ? quarterRaw : quarterFromWeek(week);
     const notes = {
@@ -523,15 +634,15 @@ export function parseAuthoritativeRemWorkbook(
   const buildPlanSheet = normalizedNames.get("build plan")!;
   const staffSheet = normalizedNames.get("staff")!;
   const notesSheet = normalizedNames.get("notes - issues")!;
-  const recognizedSheets = [trackerSheet, buildPlanSheet, staffSheet, notesSheet, wip.name];
-  const fieldStatus = normalizedNames.get("field status vitros");
-  if (fieldStatus) recognizedSheets.push(fieldStatus);
+  const importedSheets = [trackerSheet, buildPlanSheet, staffSheet, notesSheet, wip.name];
+  const recognizedSheets = [...importedSheets];
+  const unimportedSheets = workbook.SheetNames.filter((name) => !importedSheets.includes(name));
 
-  const { analyzers, skippedRows } = parseAnalyzers(workbook.Sheets[wip.name]);
-  const { trackerWeekly, targets } = parseTracker(workbook.Sheets[trackerSheet], planYear);
-  const buildPlan = parseBuildPlan(workbook.Sheets[buildPlanSheet], planYear);
-  const staff = parseStaff(workbook.Sheets[staffSheet], planYear);
-  const weeklyNotes = parseWeeklyNotes(workbook.Sheets[notesSheet], planYear);
+  const { analyzers, skippedRows } = parseAnalyzers(workbook.Sheets[wip.name], wip.name);
+  const { trackerWeekly, targets } = parseTracker(workbook.Sheets[trackerSheet], trackerSheet, planYear);
+  const buildPlan = parseBuildPlan(workbook.Sheets[buildPlanSheet], buildPlanSheet, planYear);
+  const staff = parseStaff(workbook.Sheets[staffSheet], staffSheet, planYear);
+  const weeklyNotes = parseWeeklyNotes(workbook.Sheets[notesSheet], notesSheet, planYear);
 
   return {
     fileName,
@@ -547,5 +658,7 @@ export function parseAuthoritativeRemWorkbook(
     targets,
     skippedRows,
     recognizedSheets,
+    importedSheets,
+    unimportedSheets,
   };
 }

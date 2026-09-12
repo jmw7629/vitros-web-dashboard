@@ -1,6 +1,7 @@
 import { Password } from "@convex-dev/auth/providers/Password";
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { convexAuth, createAccount, getAuthUserId } from "@convex-dev/auth/server";
+import { Scrypt } from "lucia";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalAction, query } from "./_generated/server";
@@ -53,29 +54,55 @@ function supabaseServerConfig() {
   return { url: url.replace(/\/$/, ""), serviceKey };
 }
 
-// Engineer login requires no credentials — returns a generic identity
-// without any Supabase lookup or password verification.
-async function resolveActiveEmployee(_initials: string): Promise<RoleIdentity> {
+async function resolveActiveEmployee(initials: string): Promise<RoleIdentity> {
+  const normalized = initials.trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,4}$/.test(normalized)) {
+    throw new Error("Employee initials are invalid");
+  }
+
+  const { url, serviceKey } = supabaseServerConfig();
+  const endpoint = `${url}/rest/v1/convex_employees?select=id,name,initials,active&initials=eq.${encodeURIComponent(normalized)}&active=is.true&limit=2`;
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      Accept: "application/json",
+    },
+  });
+  if (!response.ok) throw new Error("Employee identity verification is unavailable");
+  const rows = await response.json() as Array<{ id?: string; name?: string; initials?: string; active?: boolean }>;
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error("Employee initials are not active or are ambiguous");
+  }
+  const employee = rows[0];
+  if (!employee.id || !employee.name || employee.active !== true) {
+    throw new Error("Employee initials are not active or are ambiguous");
+  }
   return {
-    accountId: "engineer:generic",
-    name: "Engineer",
+    accountId: `employee:${employee.id}`,
+    name: employee.name,
     role: "engineer",
   };
 }
 
-// Superuser verification compares directly against the configured password.
-// The plaintext comparison is intentional for simplicity and reliability;
-// the password "12345" is a known owner-specified credential for this
-// internal inventory tool.
 async function verifySuperuserSecret(secret: string): Promise<RoleIdentity> {
   if (!secret || secret.length > 256) throw new Error("Superuser verification failed");
-  const configuredPassword = process.env.VITROS_SUPERUSER_PASSWORD ?? "12345";
-  if (secret !== configuredPassword) throw new Error("Superuser verification failed");
+  const hash = process.env.VITROS_SUPERUSER_PASSWORD_HASH;
+  if (!hash) throw new Error("Superuser sign-in is not configured");
+
+  let valid = false;
+  try {
+    valid = await new Scrypt().verify(hash, secret);
+  } catch {
+    valid = false;
+  }
+  if (!valid) throw new Error("Superuser verification failed");
   return { accountId: "superuser", name: "Superuser", role: "superuser" };
 }
 
 // This action is internal-only. The browser never receives the Supabase service
-// credential or the configured superuser password.
+// credential or the configured superuser password hash.
 export const validateRoleSelection = internalAction({
   args: {
     role: v.union(v.literal("engineer"), v.literal("superuser")),

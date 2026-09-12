@@ -148,7 +148,8 @@ export function BulkImport() {
     ["Weekly notes", preview.weeklyNotes.length],
     ["Annual targets", preview.targets.length],
     ["Skipped non-production WIP rows", preview.skippedRows],
-    ["REM signature sheets", preview.recognizedSheets.length],
+    ["Imported sheets", preview.importedSheets.join(", ")],
+    ["Not imported sheets", preview.unimportedSheets.length ? preview.unimportedSheets.join(", ") : "—"],
   ] : [];
 
   const authoritativeError = core.error || planning.error;
@@ -211,12 +212,15 @@ export function BulkImport() {
             {previewRows.map(([label, value]) => (
               <div key={label} className="contents">
                 <span style={{ color: theme.textMuted }}>{label}</span>
-                <span className="truncate" style={{ color: theme.textPrimary }}>{value}</span>
+                <span className="min-w-0 break-words whitespace-normal" style={{ color: theme.textPrimary }}>{value}</span>
               </div>
             ))}
           </div>
-          <p className="text-[11px] mb-3" style={{ color: theme.textSecondary }}>
+          <p className="text-[11px] mb-1" style={{ color: theme.textSecondary }}>
             Apply is authenticated, idempotent and atomic. Canonical keys update workbook-owned values or add missing rows; unrelated REM data is preserved and workbook omissions never delete existing records.
+          </p>
+          <p className="text-[11px] mb-3" style={{ color: theme.textSecondary }}>
+            Sheets listed as not imported (including Field Status VITROS when present) are ignored for this update and do not delete existing data. Only the imported sheets above contribute to the preview counts.
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPreview(null)} disabled={busy} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold border disabled:opacity-50" style={{ borderColor: theme.cardBorder, color: theme.textSecondary }}>
