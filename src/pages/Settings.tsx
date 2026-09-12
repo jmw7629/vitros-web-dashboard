@@ -64,6 +64,15 @@ function partMasterErrorMessage(error: unknown): string {
   return "Part master request failed. Please retry.";
 }
 
+function employeeErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("Version conflict")) return "This employee changed. Cancel and reopen the form to review the latest details before saving.";
+  if (message.includes("Duplicate employee initials")) return "Another active employee uses those initials. Choose unique initials.";
+  if (message.includes("Correlation id")) return "This request conflicts with an earlier change. Refresh and review the employee before retrying.";
+  if (message.includes("Employee initials are invalid")) return "Use 1–4 letters or digits for initials.";
+  return "Employee change failed. Your form is preserved; check your access and retry.";
+}
+
 export function Settings() {
   const data = useConvexData();
   const { role, setRole } = useRole();
@@ -84,15 +93,19 @@ export function Settings() {
   const [addName, setAddName] = useState("");
   const [addInitials, setAddInitials] = useState("");
   const [addSaving, setAddSaving] = useState(false);
+  const [employeeError, setEmployeeError] = useState<string | null>(null);
 
   // ── Edit Employee state ──
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editInitials, setEditInitials] = useState("");
+  const [editVersion, setEditVersion] = useState<number | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
   // ── Confirm toggle active ──
   const [confirmToggleId, setConfirmToggleId] = useState<string | null>(null);
+  const [confirmToggleVersion, setConfirmToggleVersion] = useState<number | null>(null);
+  const [confirmToggleActive, setConfirmToggleActive] = useState<boolean | null>(null);
   const [toggleSaving, setToggleSaving] = useState(false);
 
   // ── Part Master Management state ──
@@ -220,39 +233,46 @@ export function Settings() {
   const handleAddEmployee = async () => {
     if (!addName.trim()) return;
     setAddSaving(true);
+    setEmployeeError(null);
     try {
       await data.addEmployee(addName.trim(), addInitials.trim() || addName.trim().split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2));
       setAddName("");
       setAddInitials("");
       setShowAddForm(false);
     } catch (e) {
-      console.error("Failed to add employee:", e);
+      setEmployeeError(employeeErrorMessage(e));
     }
     setAddSaving(false);
   };
 
   const handleEditEmployee = async () => {
-    if (!editingId || !editName.trim()) return;
+    if (!editingId || !editName.trim() || editVersion === null) return;
     setEditSaving(true);
+    setEmployeeError(null);
     try {
       await data.updateEmployee(editingId, {
         name: editName.trim(),
         initials: editInitials.trim().toUpperCase(),
-      });
+      }, editVersion);
       setEditingId(null);
+      setEditVersion(null);
     } catch (e) {
-      console.error("Failed to update employee:", e);
+      setEmployeeError(employeeErrorMessage(e));
     }
     setEditSaving(false);
   };
 
-  const handleToggleActive = async (id: string, currentlyActive: boolean) => {
+  const handleToggleActive = async () => {
+    if (!confirmToggleId || confirmToggleVersion === null || confirmToggleActive === null) return;
     setToggleSaving(true);
+    setEmployeeError(null);
     try {
-      await data.toggleEmployeeActive(id, currentlyActive);
+      await data.toggleEmployeeActive(confirmToggleId, confirmToggleActive, confirmToggleVersion);
       setConfirmToggleId(null);
+      setConfirmToggleVersion(null);
+      setConfirmToggleActive(null);
     } catch (e) {
-      console.error("Failed to toggle employee:", e);
+      setEmployeeError(employeeErrorMessage(e));
     }
     setToggleSaving(false);
   };
@@ -261,6 +281,15 @@ export function Settings() {
     setEditingId(emp._id);
     setEditName(emp.name);
     setEditInitials(emp.initials);
+    setEditVersion(emp.version);
+    setEmployeeError(null);
+  };
+
+  const startToggleConfirm = (emp: any) => {
+    setConfirmToggleId(emp._id);
+    setConfirmToggleVersion(emp.version);
+    setEmployeeError(null);
+    setConfirmToggleActive(emp.active);
   };
 
   // ── Part Master handlers ──
@@ -486,7 +515,7 @@ export function Settings() {
           </div>
           {isAdmin && (
             <button
-              onClick={() => { setShowAddForm(true); setAddName(""); setAddInitials(""); }}
+              onClick={() => { setShowAddForm(true); setAddName(""); setAddInitials(""); setEmployeeError(null); }}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white transition-all hover:opacity-90"
               style={{ backgroundColor: "#6366f1" }}
             >
@@ -494,6 +523,13 @@ export function Settings() {
             </button>
           )}
         </div>
+
+        {(employeeError || data.employeesError) && (
+          <div role="alert" className="px-4 py-3 text-sm" style={{ color: theme.statusOut }}>
+            {employeeError || data.employeesError}
+            {data.employeesError && <button type="button" className="ml-3 underline" onClick={() => void data.refresh()}>Retry</button>}
+          </div>
+        )}
 
         {isAdmin && showAddForm && (
           <div className="px-4 py-3 border-b" style={{ borderColor: theme.cardBorder, backgroundColor: "rgba(99,102,241,0.06)" }}>
@@ -504,6 +540,7 @@ export function Settings() {
               <input
                 className="flex-1 px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
                 style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
+                aria-label="Employee full name"
                 placeholder="Full name..."
                 value={addName}
                 onChange={e => {
@@ -517,12 +554,14 @@ export function Settings() {
               <input
                 className="w-16 px-2 py-2 rounded-lg text-sm border text-center outline-none focus:ring-2 focus:ring-indigo-500"
                 style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
+                aria-label="Employee initials"
                 placeholder="IN"
                 value={addInitials}
-                onChange={e => setAddInitials(e.target.value.toUpperCase().slice(0, 3))}
-                maxLength={3}
+                onChange={e => setAddInitials(e.target.value.toUpperCase().slice(0, 4))}
+                maxLength={4}
               />
               <button
+                aria-label="Save new employee"
                 onClick={handleAddEmployee}
                 disabled={!addName.trim() || addSaving}
                 className="p-2 rounded-lg text-white disabled:opacity-40 transition-all"
@@ -531,6 +570,7 @@ export function Settings() {
                 <Check className="w-4 h-4" />
               </button>
               <button
+                aria-label="Cancel new employee"
                 onClick={() => setShowAddForm(false)}
                 className="p-2 rounded-lg transition-all"
                 style={{ backgroundColor: theme.cardBg }}
@@ -556,6 +596,7 @@ export function Settings() {
                   <input
                     className="flex-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
                     style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
+                    aria-label="Employee full name"
                     value={editName}
                     onChange={e => {
                       setEditName(e.target.value);
@@ -566,6 +607,7 @@ export function Settings() {
                     autoFocus
                   />
                   <button
+                    aria-label="Save employee changes"
                     onClick={handleEditEmployee}
                     disabled={!editName.trim() || editSaving}
                     className="p-1.5 rounded-lg text-white disabled:opacity-40"
@@ -573,7 +615,7 @@ export function Settings() {
                   >
                     <Check className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={() => setEditingId(null)} className="p-1.5 rounded-lg" style={{ backgroundColor: theme.cardBg }}>
+                  <button aria-label="Cancel employee edit" onClick={() => { setEditingId(null); setEditVersion(null); }} className="p-1.5 rounded-lg" style={{ backgroundColor: theme.cardBg }}>
                     <X className="w-3.5 h-3.5" style={{ color: theme.textMuted }} />
                   </button>
                 </div>
@@ -603,7 +645,7 @@ export function Settings() {
                         <Pencil className="w-3.5 h-3.5" style={{ color: "#6366f1" }} />
                       </button>
                       <button
-                        onClick={() => setConfirmToggleId(emp._id)}
+                        onClick={() => startToggleConfirm(emp)}
                         className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors"
                         title={emp.active ? "Deactivate" : "Activate"}
                       >
@@ -616,22 +658,22 @@ export function Settings() {
 
               {isAdmin && confirmToggleId === emp._id && (
                 <div className="px-4 py-2 border-t flex items-center gap-2"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: emp.active ? "rgba(239,68,68,0.06)" : "rgba(34,197,94,0.06)" }}>
-                  <span className="text-xs flex-1" style={{ color: emp.active ? theme.statusOut : "#22c55e" }}>
-                    {emp.active
+                  style={{ borderColor: theme.cardBorder, backgroundColor: confirmToggleActive ? "rgba(239,68,68,0.06)" : "rgba(34,197,94,0.06)" }}>
+                  <span className="text-xs flex-1" style={{ color: confirmToggleActive ? theme.statusOut : "#22c55e" }}>
+                    {confirmToggleActive
                       ? `Deactivate ${emp.name}? They'll be removed from scan dropdowns.`
                       : `Reactivate ${emp.name}? They'll appear in scan dropdowns again.`}
                   </span>
                   <button
-                    onClick={() => handleToggleActive(emp._id, emp.active)}
+                    onClick={() => handleToggleActive()}
                     disabled={toggleSaving}
                     className="px-3 py-1 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                    style={{ backgroundColor: emp.active ? theme.statusOut : "#22c55e" }}
+                    style={{ backgroundColor: confirmToggleActive ? theme.statusOut : "#22c55e" }}
                   >
-                    {toggleSaving ? "..." : emp.active ? "Deactivate" : "Activate"}
+                    {toggleSaving ? "..." : confirmToggleActive ? "Deactivate" : "Activate"}
                   </button>
                   <button
-                    onClick={() => setConfirmToggleId(null)}
+                    onClick={() => { setConfirmToggleId(null); setConfirmToggleVersion(null); setConfirmToggleActive(null); }}
                     className="px-3 py-1 rounded-lg text-xs font-bold"
                     style={{ backgroundColor: theme.cardBg, color: theme.textMuted }}
                   >
@@ -641,7 +683,7 @@ export function Settings() {
               )}
             </div>
           ))}
-          {data.employees.length === 0 && (
+          {data.employees.length === 0 && !data.employeesError && (
             <div className="py-6 text-center">
               <div className="text-2xl opacity-30 mb-1">👤</div>
               <div className="text-xs" style={{ color: theme.textSecondary }}>No employees yet</div>

@@ -1,11 +1,13 @@
 import { Password } from "@convex-dev/auth/providers/Password";
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { convexAuth, createAccount, getAuthUserId } from "@convex-dev/auth/server";
+import { Scrypt } from "lucia";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { internalAction, query } from "./_generated/server";
 import { v } from "convex/values";
 import { TestCredentials } from "./testAuth";
+import { assertEmployeeAccess } from "./employeeAccess";
 import {
   ViktorSpacesEmail,
   ViktorSpacesPasswordReset,
@@ -53,29 +55,60 @@ function supabaseServerConfig() {
   return { url: url.replace(/\/$/, ""), serviceKey };
 }
 
-// Engineer login requires no credentials — returns a generic identity
-// without any Supabase lookup or password verification.
-async function resolveActiveEmployee(_initials: string): Promise<RoleIdentity> {
+async function resolveActiveEmployee(initials: string): Promise<RoleIdentity> {
+  const normalized = initials.trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,4}$/.test(normalized)) {
+    throw new Error("Employee initials are invalid");
+  }
+
+  const { url, serviceKey } = supabaseServerConfig();
+  const endpoint = `${url}/rest/v1/rpc/resolve_active_employee_login`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    body: JSON.stringify({ p_initials: normalized }),
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+  });
+  if (!response.ok) throw new Error("Employee identity verification is unavailable");
+  const rows = await response.json() as Array<{ id?: string; name?: string; initials?: string; active?: boolean }>;
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error("Employee initials are not active or are ambiguous");
+  }
+  const employee = rows[0];
+  if (typeof employee.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employee.id)
+    || typeof employee.name !== "string" || !employee.name.trim()
+    || typeof employee.initials !== "string" || employee.initials.trim().toUpperCase() !== normalized
+    || employee.active !== true) {
+    throw new Error("Employee initials are not active or are ambiguous");
+  }
   return {
-    accountId: "engineer:generic",
-    name: "Engineer",
+    accountId: `employee:${employee.id}`,
+    name: employee.name,
     role: "engineer",
   };
 }
 
-// Superuser verification compares directly against the configured password.
-// The plaintext comparison is intentional for simplicity and reliability;
-// the password "12345" is a known owner-specified credential for this
-// internal inventory tool.
 async function verifySuperuserSecret(secret: string): Promise<RoleIdentity> {
   if (!secret || secret.length > 256) throw new Error("Superuser verification failed");
-  const configuredPassword = process.env.VITROS_SUPERUSER_PASSWORD ?? "12345";
-  if (secret !== configuredPassword) throw new Error("Superuser verification failed");
+  const hash = process.env.VITROS_SUPERUSER_PASSWORD_HASH;
+  if (!hash) throw new Error("Superuser sign-in is not configured");
+
+  let valid = false;
+  try {
+    valid = await new Scrypt().verify(hash, secret);
+  } catch {
+    valid = false;
+  }
+  if (!valid) throw new Error("Superuser verification failed");
   return { accountId: "superuser", name: "Superuser", role: "superuser" };
 }
 
 // This action is internal-only. The browser never receives the Supabase service
-// credential or the configured superuser password.
+// credential or the configured superuser password hash.
 export const validateRoleSelection = internalAction({
   args: {
     role: v.union(v.literal("engineer"), v.literal("superuser")),
@@ -110,16 +143,28 @@ function VitrosRoleCredentials() {
         secret: typeof params.secret === "string" ? params.secret : undefined,
       });
 
+      // Only the server-resolved active canonical identity may initialize access.
+      // Existing blocked/pending barriers are never cleared by signing in.
+      if (identity.role === "engineer") {
+        await ctx.runMutation(internal.employeeAccess.provisionVerifiedEmployeeAccess, {
+          employeeId: identity.accountId.slice("employee:".length),
+        });
+      }
+
       const { user } = await createAccount(ctx, {
         provider: "vitros-role",
         account: { id: identity.accountId },
         profile: {
           name: identity.name,
           role: identity.role,
+          ...(identity.role === "engineer" ? { employeeId: identity.accountId.slice("employee:".length) } : {}),
         },
         shouldLinkViaEmail: false,
         shouldLinkViaPhone: false,
       });
+      // Existing Convex Auth accounts skip the profile callback; check their
+      // employee barrier too before issuing a new session.
+      await ctx.runQuery(internal.employeeAccess.assertUserAccess, { userId: user._id });
       return { userId: user._id };
     },
   });
@@ -154,8 +199,16 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         throw new Error("Invalid server-issued VITROS role");
       }
       const name = typeof args.profile.name === "string" ? args.profile.name.trim() : "";
+      const employeeId = args.profile.employeeId;
+      if (role === "engineer") {
+        if (typeof employeeId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeId)) {
+          throw new Error("Invalid server-issued employee identity");
+        }
+        await assertEmployeeAccess(ctx, employeeId);
+      }
       await ctx.db.patch(args.userId, {
         role,
+        ...(role === "engineer" ? { employeeId: employeeId as string } : {}),
         ...(name ? { name } : {}),
       });
     },

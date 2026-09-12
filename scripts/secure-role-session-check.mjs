@@ -3,6 +3,7 @@ import fs from "node:fs";
 const roleLogin = fs.readFileSync("src/pages/RoleLogin.tsx", "utf8");
 const useRole = fs.readFileSync("src/hooks/useRole.tsx", "utf8");
 const auth = fs.readFileSync("convex/auth.ts", "utf8");
+const loginResolver = fs.readFileSync("database/migrations/20260912213423_employee_login_canonical_resolver.sql", "utf8");
 const envExample = fs.readFileSync(".env.example", "utf8");
 
 function requireAll(source, label, tokens) {
@@ -34,7 +35,11 @@ requireAll(auth, "auth", [
   'ConvexCredentials<DataModel>',
   'id: "vitros-role"',
   'internal.auth.validateRoleSelection',
-  'active=is.true',
+  '/rest/v1/rpc/resolve_active_employee_login',
+  'method: "POST"',
+  'JSON.stringify({ p_initials: normalized })',
+  'rows.length !== 1',
+  'employee.active !== true',
   'VITROS_SUPERUSER_PASSWORD_HASH',
   'new Scrypt().verify(hash, secret)',
   'maxFailedAttempsPerHour: 6',
@@ -47,6 +52,19 @@ forbidAll(auth, "auth", [
   'VITE_VITROS_SUPERUSER_PASSWORD_HASH',
   'VITE_SUPERUSER_PASSWORD',
 ]);
+
+requireAll(loginResolver, "canonical login resolver", [
+  'SECURITY INVOKER',
+  'SET search_path = public, pg_temp',
+  'upper(btrim(e.initials)) = upper(btrim(p_initials))',
+  'AND e.active IS TRUE',
+  'LIMIT 2',
+  '(SELECT count(*) FROM candidates) = 1',
+  'REVOKE ALL ON FUNCTION public.resolve_active_employee_login(text) FROM PUBLIC, anon, authenticated;',
+  'GRANT EXECUTE ON FUNCTION public.resolve_active_employee_login(text) TO service_role;',
+]);
+forbidAll(auth, "canonical employee login", ['initials=eq.', 'active=is.true']);
+forbidAll(loginResolver, "canonical login resolver", ['SECURITY DEFINER']);
 
 requireAll(useRole, "useRole", [
   'const { signOut } = useAuthActions()',

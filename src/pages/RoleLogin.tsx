@@ -1,15 +1,20 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useRole } from "../hooks/useRole";
 import { Box, Shield, Wrench } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
 
 export function RoleLogin() {
   const { setRole } = useRole();
   const { signIn } = useAuthActions();
   const navigate = useNavigate();
+  const engineerButtonRef = useRef<HTMLButtonElement>(null);
+  const superuserButtonRef = useRef<HTMLButtonElement>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [showEngineer, setShowEngineer] = useState(false);
   const [password, setPassword] = useState("");
+  const [initials, setInitials] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -20,16 +25,26 @@ export function RoleLogin() {
     navigate("/dashboard");
   };
 
-  // Engineer login: no credentials required. Directly signs in with a generic
-  // engineer identity.
+  const handleEngineer = () => {
+    setShowEngineer(true);
+    setInitials("");
+    setError("");
+  };
+
   const handleEngineerSubmit = async () => {
+    const normalized = initials.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,4}$/.test(normalized)) {
+      setError("Enter your active employee initials");
+      return;
+    }
     setIsSubmitting(true);
     setError("");
     try {
-      await signIn("vitros-role", { role: "engineer" });
+      await signIn("vitros-role", { role: "engineer", initials: normalized });
+      setShowEngineer(false);
       completeSignIn("engineer");
     } catch {
-      setError("Unable to sign in as engineer");
+      setError("Unable to verify an active employee with those initials");
     } finally {
       setIsSubmitting(false);
     }
@@ -91,6 +106,7 @@ export function RoleLogin() {
 
             <div className="space-y-4">
               <button
+                ref={superuserButtonRef}
                 onClick={handleSuperuserClick}
                 className="w-full flex items-center gap-5 p-5 rounded-xl bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/25 hover:from-purple-600/30 hover:to-blue-600/30 hover:border-purple-400/40 transition-all duration-200 group"
               >
@@ -111,9 +127,9 @@ export function RoleLogin() {
               </button>
 
               <button
-                onClick={() => void handleEngineerSubmit()}
-                disabled={isSubmitting}
-                className="w-full flex items-center gap-5 p-5 rounded-xl bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/25 hover:from-emerald-600/30 hover:to-teal-600/30 hover:border-emerald-400/40 transition-all duration-200 group disabled:opacity-50"
+                ref={engineerButtonRef}
+                onClick={handleEngineer}
+                className="w-full flex items-center gap-5 p-5 rounded-xl bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/25 hover:from-emerald-600/30 hover:to-teal-600/30 hover:border-emerald-400/40 transition-all duration-200 group"
               >
                 <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-200">
                   <Wrench className="w-7 h-7 text-white" />
@@ -121,31 +137,78 @@ export function RoleLogin() {
                 <div className="text-left flex-1">
                   <p className="font-bold text-white text-lg">Engineer</p>
                   <p className="text-sm text-emerald-200/70">
-                    Standard access · No password required
+                    Standard access · Active employee initials
                   </p>
                 </div>
-                {isSubmitting ? (
-                  <span className="text-emerald-300 text-sm font-medium">Signing in…</span>
-                ) : (
-                  <div className="text-emerald-400/50 group-hover:text-emerald-300 transition-colors">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                )}
+                <div className="text-emerald-400/50 group-hover:text-emerald-300 transition-colors">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
               </button>
             </div>
-
-            {error && (
-              <p className="text-red-400 text-sm text-center mt-4">{error}</p>
-            )}
           </div>
 
-          {showPassword && (
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => !isSubmitting && setShowPassword(false)}>
-              <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-white/10" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-lg font-bold text-white mb-4">Enter Superuser Password</h3>
+          <Dialog open={showEngineer} onOpenChange={(open) => { if (!isSubmitting) setShowEngineer(open); }}>
+              <DialogContent
+                showCloseButton={false}
+                className="block bg-slate-800 rounded-2xl p-6 w-[calc(100%-2rem)] max-w-sm sm:max-w-sm border border-white/10"
+                onCloseAutoFocus={(event) => { event.preventDefault(); engineerButtonRef.current?.focus(); }}
+                onEscapeKeyDown={(event) => { if (isSubmitting) event.preventDefault(); }}
+                onInteractOutside={(event) => { if (isSubmitting) event.preventDefault(); }}
+              >
+                <DialogTitle className="text-lg font-bold text-white mb-1">Engineer Sign In</DialogTitle>
+                <DialogDescription className="text-sm text-slate-400 mb-4">Enter your configured active employee initials.</DialogDescription>
+                <label htmlFor="engineer-initials" className="block text-sm text-slate-300 mb-2">Employee initials</label>
                 <input
+                  id="engineer-initials"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? "engineer-login-error" : undefined}
+                  type="text"
+                  value={initials}
+                  onChange={(e) => setInitials(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
+                  onKeyDown={(e) => e.key === "Enter" && !isSubmitting && void handleEngineerSubmit()}
+                  className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-xl text-white uppercase placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-3"
+                  placeholder="Initials"
+                  autoComplete="off"
+                  autoFocus
+                  disabled={isSubmitting}
+                />
+                {error && <p id="engineer-login-error" role="alert" className="text-red-400 text-sm mb-3">{error}</p>}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowEngineer(false)}
+                    className="flex-1 px-4 py-2.5 bg-slate-600 text-white rounded-xl font-semibold hover:bg-slate-500 transition disabled:opacity-50"
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void handleEngineerSubmit()}
+                    className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-500 transition disabled:opacity-50"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Verifying…" : "Continue"}
+                  </button>
+                </div>
+              </DialogContent>
+          </Dialog>
+
+          <Dialog open={showPassword} onOpenChange={(open) => { if (!isSubmitting) setShowPassword(open); }}>
+              <DialogContent
+                showCloseButton={false}
+                className="block bg-slate-800 rounded-2xl p-6 w-[calc(100%-2rem)] max-w-sm sm:max-w-sm border border-white/10"
+                onCloseAutoFocus={(event) => { event.preventDefault(); superuserButtonRef.current?.focus(); }}
+                onEscapeKeyDown={(event) => { if (isSubmitting) event.preventDefault(); }}
+                onInteractOutside={(event) => { if (isSubmitting) event.preventDefault(); }}
+              >
+                <DialogTitle className="text-lg font-bold text-white mb-4">Enter Superuser Password</DialogTitle>
+                <DialogDescription className="sr-only">Verify your superuser access with your password.</DialogDescription>
+                <label htmlFor="superuser-password" className="block text-sm text-slate-300 mb-2">Password</label>
+                <input
+                  id="superuser-password"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? "superuser-login-error" : undefined}
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value.slice(0, 256))}
@@ -156,7 +219,7 @@ export function RoleLogin() {
                   autoFocus
                   disabled={isSubmitting}
                 />
-                {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+                {error && <p id="superuser-login-error" role="alert" className="text-red-400 text-sm mb-3">{error}</p>}
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowPassword(false)}
@@ -173,9 +236,8 @@ export function RoleLogin() {
                     {isSubmitting ? "Verifying…" : "Login"}
                   </button>
                 </div>
-              </div>
-            </div>
-          )}
+              </DialogContent>
+          </Dialog>
 
           <div className="text-center mt-8">
             <p className="text-slate-500 text-sm font-medium">QuidelOrtho</p>

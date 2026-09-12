@@ -11,7 +11,7 @@
     "format": "biome check --write .",
     "lint": "biome lint .",
     "pretypecheck": "node scripts/admin-settings-security-check.mjs && node scripts/dhr-legacy-mutation-retirement-check.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b && tsc -p convex/tsconfig.json --noEmit",
     "sync": "bunx convex dev --once",
     "sync:build": "bunx convex dev --once && bun run build",
     "logs": "bunx convex logs",

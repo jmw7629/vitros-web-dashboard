@@ -58,3 +58,47 @@ VITE_SUPABASE_ANON_KEY=<anon key>
 1. **Rotate Supabase service-role key** (the old one is compromised).
 2. Set new key in Convex dashboard environment variables.
 3. Verify all Convex actions can still access Supabase.
+
+## Employee lifecycle access recovery (2026-09-12)
+
+Supabase remains the canonical employee directory. Convex stores a restrictive
+access barrier, not another editable copy of employee active status. Every change
+to an existing employee installs a pending barrier before its atomic SQL request.
+Existing sessions and the final engineer sign-in callback check this barrier.
+Missing barriers deny preexisting sessions at rollout; fresh canonical active
+login provisions a missing barrier. Login never overwrites blocked/pending state.
+Confirmed inactive receipts keep access blocked; only a matching committed active
+receipt releases it. Completed correlation replays cannot change newer barriers.
+
+A definitive SQL rejection restores the previous barrier state only after all
+known concurrent invocations have rejected. A version conflict also runs the
+service-role-only reconciliation RPC under the original correlation/employee
+locks: an exact immutable receipt completes the operation; otherwise a current
+version strictly above the expected version proves no outstanding invocation can
+ever commit and safely resolves even a lost rejection response. Equal/future
+versions, missing rows and malformed proofs never release unknown invocations. Network loss, malformed receipts or
+an interrupted action leave the operation pending and access suspended. There is
+no timeout that silently restores access. Retry the original employee action with
+exactly the original arguments and correlation ID. The SQL RPC then returns its
+idempotent receipt or safely attempts the original transaction, and Convex finishes
+the pending barrier. Identical rejected requests can retry after their cause is
+corrected; different requests wait until the pending operation is resolved.
+Unknown equal/future-version outcomes still require exact replay or separately
+reviewed reconciliation; this bounded recovery is not a general cancellation API.
+
+Browser retry correlations are deterministic for actor, employee, action,
+expected version and normalized patch. If a refresh changes the displayed version
+before recovery, an administrator must recover the **original** request rather
+than submit the new version. Inspect the server-only `employeeAccessOperations`
+record named by the pending correlation: `requestKey` contains the original RPC
+parameters. Retry the corresponding authenticated employee action with those
+original parameters/correlation as the original administrative actor. Do not
+manually delete barriers, invent a successful receipt, or change Supabase active
+status outside the reviewed transition path. Escalate an unrecoverable original
+actor/request for a separately reviewed administrative recovery operation.
+
+Local verification: `node scripts/employee-access-check.mjs` executes the actual
+barrier and capability handlers with synthetic state and interleavings;
+`node scripts/employee-boundary-check.mjs` checks RPC ordering, nullable legacy
+receipts, confirmed rejection and uncertain-response containment. These are not
+claims of live deployment or live 30-user concurrency verification.

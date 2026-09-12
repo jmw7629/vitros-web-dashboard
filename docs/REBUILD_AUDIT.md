@@ -63,3 +63,16 @@ Factual evidence for completing the incoming-stock review/material-request slice
 
 - Production Vercel deployment credentials (deployment secrets/tokens) are not present in this environment; `npm run build` is local evidence only and no Vercel preview has been created for this worktree.
 - No real (redacted) packing slips have been run through the browser image/PDF OCR -> review -> confirmed RECEIVE acceptance flow in this environment; browser/PWA acceptance remains unverified here.
+
+## Standalone completion audit — 2026-09-12
+
+- Scope: standalone workspace only; direct GitHub authorization supersedes historical bridge execution rules. Local branch fast-forwarded to PR #391 head `6a7a059d88bfd3723cc2bd84d4d731b80e0f7d9a`; supplied untracked handoffs preserved.
+- React/Vite/Convex/Supabase architecture and existing routes remain. PR #391 CI and exact-head Vercel preview are green; independent review found employee lifecycle/legacy-data defects and merge is blocked.
+- Latest main production deployment `dpl_8j3tGoB8awwUsSGUpw1pd8TodTEB` fails at `CONVEX_RUNTIME_ENV_SYNC=FAIL missing SUPABASE_SERVICE_ROLE_KEY`. It passes the deploy-key presence check; key validity is not proven by this pre-deploy failure. OPENAI runtime availability remains unverified. No deployment gate was bypassed.
+- Live Supabase `oykqiiydpwngasvzdthh` public tables all have RLS enabled. Fresh read reports zero DHR result events and zero SAP post records. DHR production consumption acceptance remains unclaimed.
+- No supplied XLSX, controlled PDF or packing-list images exist in this workspace. Notes cannot establish exact workbook mappings or controlled printable fidelity.
+- REM import still lacks Field Status, LVCC DHR Reviews, Install Parts and Certified Parts payloads; DHR UI lacks full controlled non-part step fields/print representation. Incoming Stock capture/review/atomic RECEIVE exists but real-source browser acceptance is pending.
+- Confirmed PR defects: canonical legacy initials do not match exact login filter; preserved null employee creation timestamps cause successful SQL writes to be reported as receipt failures; employee deactivation does not revoke existing Convex capabilities.
+- Locked dependencies installed locally; npm reports eight dependency advisories (one low, one moderate, six high), not yet triaged. Local production build passed.
+
+Standalone verification follow-up: canonical login/admin/reconciliation SQL and rollback fixtures pass in disposable embedded PostgreSQL; no production rows changed. Public login initial render passes desktop/emulated-iPhone smoke, while the currently served Engineer overlay fails dialog-role/Escape-focus inspection. Production-only dependency audit has zero findings (the eight installation advisories are development dependencies). See `docs/STANDALONE_COMPLETION_STATUS.md` for remaining source, credential and acceptance gates.
