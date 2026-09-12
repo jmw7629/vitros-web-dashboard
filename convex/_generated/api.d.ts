@@ -18,6 +18,7 @@ import type * as constants from "../constants.js";
 import type * as cycleCount from "../cycleCount.js";
 import type * as dhr from "../dhr.js";
 import type * as dhrInventoryActions from "../dhrInventoryActions.js";
+import type * as employeeAccess from "../employeeAccess.js";
 import type * as employeeActions from "../employeeActions.js";
 import type * as employeeIdentity from "../employeeIdentity.js";
 import type * as employees from "../employees.js";
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   cycleCount: typeof cycleCount;
   dhr: typeof dhr;
   dhrInventoryActions: typeof dhrInventoryActions;
+  employeeAccess: typeof employeeAccess;
   employeeActions: typeof employeeActions;
   employeeIdentity: typeof employeeIdentity;
   employees: typeof employees;

@@ -10,7 +10,7 @@
 // Reads use direct Supabase GET on convex_employees. No direct PATCH/POST on the table.
 // Authorization: admin.users.manage (verified in authGuard.ts ROLE_CAPABILITIES).
 // Server-authoritative actor: String(requireCapability(ctx, "admin.users.manage")).
-import { action } from "./_generated/server";
+import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
@@ -36,6 +36,11 @@ function supabaseHeaders(serviceKey: string) {
   };
 }
 
+class EmployeeSqlRejection extends Error {
+  readonly sqlCode?: string;
+  constructor(message: string, sqlCode?: string) { super(message); this.sqlCode = sqlCode; }
+}
+
 async function sbFetch<T>(serviceKey: string, url: string, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${url}/rest/v1/${path}`, {
     ...init,
@@ -55,14 +60,15 @@ async function sbFetch<T>(serviceKey: string, url: string, path: string, init?: 
     }
     // Fixed mappings ordered by spec: 40001 version conflict before 409 duplicate
     if (code === "40001") {
-      throw new Error("Version conflict: expected version does not match current version. Please refresh and retry.");
+      throw new EmployeeSqlRejection("Version conflict: expected version does not match current version. Please refresh and retry.", code);
     }
     if (code === "23505") {
-      throw new Error("Duplicate employee initials: another active employee already uses those initials");
+      throw new EmployeeSqlRejection("Duplicate employee initials: another active employee already uses those initials");
     }
     if (code === "P0001") {
-      throw new Error("Correlation id was already used for a different employee change");
+      throw new EmployeeSqlRejection("Correlation id was already used for a different employee change");
     }
+    if (code === "22023" || code === "P0002") throw new EmployeeSqlRejection("Employee change was rejected. Refresh the directory and correct the request.");
     if (res.status === 409) {
       throw new Error("Duplicate employee initials: another active employee already uses those initials");
     }
@@ -129,8 +135,8 @@ function mapEmployeeRowFromTable(row: Record<string, unknown>, actorId: string |
     initials: String(row.initials ?? ""),
     active: row.active === true,
     version: Number(row.version ?? 1),
-    createdAt: toNumberTs(row.created_at),
-    updatedAt: toNumberTs(row.updated_at ?? row.created_at),
+    createdAt: row.created_at === null ? null : toNumberTs(row.created_at),
+    updatedAt: row.updated_at === null ? null : toNumberTs(row.updated_at),
   };
 }
 
@@ -150,16 +156,16 @@ function validateAndMapEmployeeReceipt(row: Record<string, unknown>) {
     throw new Error("Employee transition returned invalid receipt");
   }
   const initials = initialsRaw.trim().toUpperCase();
-  if (typeof row.active !== "boolean") throw new Error("Employee transition returned invalid receipt");
+  if (row.active !== null && typeof row.active !== "boolean") throw new Error("Employee transition returned invalid receipt");
   const active = row.active === true;
   const versionRaw = row.version;
   if (!Number.isInteger(versionRaw) || (versionRaw as number) < 1) throw new Error("Employee transition returned invalid receipt");
   const version = Number(versionRaw);
   const createdAtRaw = row.created_at;
   const updatedAtRaw = row.updated_at;
-  const createdAt = toNumberTs(createdAtRaw);
+  const createdAt = createdAtRaw === null ? null : toNumberTs(createdAtRaw);
   const updatedAt = toNumberTs(updatedAtRaw);
-  if (!Number.isFinite(createdAt) || createdAt === 0) throw new Error("Employee transition returned invalid receipt");
+  if (createdAt !== null && (!Number.isFinite(createdAt) || createdAt === 0)) throw new Error("Employee transition returned invalid receipt");
   if (!Number.isFinite(updatedAt) || updatedAt === 0) throw new Error("Employee transition returned invalid receipt");
   return {
     id,
@@ -180,8 +186,8 @@ const employeeRow = v.object({
   initials: v.string(),
   active: v.boolean(),
   version: v.number(),
-  createdAt: v.number(),
-  updatedAt: v.number(),
+  createdAt: v.union(v.number(), v.null()),
+  updatedAt: v.union(v.number(), v.null()),
 });
 
 export type EmployeeRow = {
@@ -191,11 +197,12 @@ export type EmployeeRow = {
   initials: string;
   active: boolean;
   version: number;
-  createdAt: number;
-  updatedAt: number;
+  createdAt: number | null;
+  updatedAt: number | null;
 };
 
 async function callApplyEmployeeTransition(
+  ctx: ActionCtx,
   serviceKey: string,
   url: string,
   payload: {
@@ -210,22 +217,52 @@ async function callApplyEmployeeTransition(
     p_reason: string | null;
   },
 ): Promise<Record<string, unknown>> {
-  const raw = await sbFetch<unknown>(serviceKey, url, "rpc/apply_employee_transition", {
-    method: "POST",
-    body: JSON.stringify(payload),
+  const operationId = payload.p_employee_id === null ? null : await ctx.runMutation(internal.employeeAccess.beginTransition, {
+    employeeId: payload.p_employee_id,
+    correlationId: payload.p_correlation_id,
+    requestKey: JSON.stringify(payload),
+    expectedVersion: payload.p_expected_version!,
   });
-  if (Array.isArray(raw)) {
-    if (raw.length !== 1) throw new Error("Employee transition returned invalid receipt");
-    const row = raw[0] as Record<string, unknown>;
-    if (!row || typeof row !== "object") throw new Error("Employee transition returned invalid receipt");
-    return row;
+  let raw: unknown;
+  try {
+    raw = await sbFetch<unknown>(serviceKey, url, "rpc/apply_employee_transition", {
+      method: "POST", body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (operationId && error instanceof EmployeeSqlRejection && error.sqlCode === "40001") {
+      const proof = await sbFetch<Record<string, unknown>>(serviceKey, url, "rpc/reconcile_employee_transition", {
+        method: "POST", body: JSON.stringify({ p_request: payload }),
+      });
+      if (proof?.outcome === "committed") {
+        raw = proof.receipt;
+      } else if (proof?.outcome === "superseded"
+        && proof.employee_id === payload.p_employee_id?.toLowerCase()
+        && proof.correlation_id === payload.p_correlation_id && proof.actor === payload.p_actor
+        && proof.expected_version === payload.p_expected_version
+        && Number.isInteger(proof.current_version) && Number(proof.current_version) > payload.p_expected_version!) {
+        await ctx.runMutation(internal.employeeAccess.rejectTransition, { operationId, supersededVersion: Number(proof.current_version) });
+        throw error;
+      } else {
+        // Equal/future versions and malformed proofs cannot safely resolve a lost invocation.
+        throw error;
+      }
+    } else {
+      if (operationId && error instanceof EmployeeSqlRejection) {
+        await ctx.runMutation(internal.employeeAccess.rejectTransition, { operationId });
+      }
+      throw error;
+    }
   }
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const row = raw as Record<string, unknown>;
-    if ("id" in row || "employee_id" in row) return row;
-    return row;
+  const row = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
+  if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("Employee transition returned invalid receipt");
+  const receipt = validateAndMapEmployeeReceipt(row as Record<string, unknown>);
+  if (payload.p_active !== null && receipt.active !== payload.p_active) throw new Error("Employee transition returned invalid receipt");
+  if (operationId) {
+    await ctx.runMutation(internal.employeeAccess.completeTransition, {
+      operationId, employeeId: receipt.id, version: receipt.version, active: receipt.active,
+    });
   }
-  throw new Error("Employee transition returned invalid receipt");
+  return row as Record<string, unknown>;
 }
 
 export const listEmployees = action({
@@ -287,7 +324,7 @@ export const createEmployee = action({
       validateExpectedVersion(args.expectedVersion);
     }
     const { url, serviceKey } = getSupabaseConfig();
-    const row = await callApplyEmployeeTransition(serviceKey, url, {
+    const row = await callApplyEmployeeTransition(ctx, serviceKey, url, {
       p_action: "CREATE",
       p_employee_id: null,
       p_name: name,
@@ -340,7 +377,7 @@ export const updateEmployee = action({
     }
     if (!hasPatch) throw new Error("No fields to update: provide name, initials, or active");
     const { url, serviceKey } = getSupabaseConfig();
-    const row = await callApplyEmployeeTransition(serviceKey, url, {
+    const row = await callApplyEmployeeTransition(ctx, serviceKey, url, {
       p_action: "UPDATE",
       p_employee_id: id,
       p_name: pName,
@@ -372,7 +409,7 @@ export const activateEmployee = action({
     const correlationId = validateCorrelationId(args.correlationId);
     const reason = validateReason(args.reason);
     const { url, serviceKey } = getSupabaseConfig();
-    const row = await callApplyEmployeeTransition(serviceKey, url, {
+    const row = await callApplyEmployeeTransition(ctx, serviceKey, url, {
       p_action: "ACTIVATE",
       p_employee_id: id,
       p_name: null,
@@ -404,7 +441,7 @@ export const deactivateEmployee = action({
     const correlationId = validateCorrelationId(args.correlationId);
     const reason = validateReason(args.reason);
     const { url, serviceKey } = getSupabaseConfig();
-    const row = await callApplyEmployeeTransition(serviceKey, url, {
+    const row = await callApplyEmployeeTransition(ctx, serviceKey, url, {
       p_action: "DEACTIVATE",
       p_employee_id: id,
       p_name: null,

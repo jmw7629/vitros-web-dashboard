@@ -31,8 +31,8 @@ if (/v\.number\(\)/.test(src)) pass("Valid v.number() validators");
 else fail("Missing v.number() validators");
 if (/\.mutate\(/.test(src)) fail("Invalid .mutate() syntax – use Supabase REST");
 pass("No .mutate() syntax");
-if (/ctx\.runMutation/.test(src)) fail("ctx.runMutation is invalid for actions – use sbFetch to Supabase RPC");
-pass("No ctx.runMutation");
+if (!src.includes("internal.employeeAccess.beginTransition") || !src.includes("internal.employeeAccess.completeTransition")) fail("Missing employee access lifecycle barrier");
+pass("Internal authorization barrier surrounds SQL transition");
 
 // 3. Must route through Supabase convex_employees for reads and atomic RPC for writes
 if (!/convex_employees\?select=/.test(src)) fail("Missing convex_employees Supabase select for reads");
@@ -151,6 +151,7 @@ const v = {
   literal: (a) => ({ _t:"literal", v:a }),
   id: () => ({ _t:"id" }),
 };
+const internal = { employeeAccess: { beginTransition: "begin", completeTransition: "complete", rejectTransition: "reject" } };
 const action = (cfg) => cfg;
 const requireCapability = (...a) => __requireImpl(...a);
 const publishRealtimePulse = async () => { __publishCalls++; };
@@ -217,7 +218,7 @@ function getAction(name) {
 async function invoke(name, ctx, args) {
   const act = getAction(name);
   if (!act.handler) fail("Action has no handler: " + name);
-  return act.handler(ctx, args);
+  return act.handler({ runMutation: async () => "synthetic-operation", ...ctx }, args);
 }
 
 const validUuid = "11111111-1111-4111-8111-111111111111";
@@ -299,7 +300,7 @@ async function runVmTests() {
   let optBody = null;
   setFetchHandler(async (url, init) => {
     optBody = JSON.parse(init.body);
-    return { ok: true, status: 200, json: async () => ({ id: validUuid, name: "Charlie", initials: "CH", active: true, version: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }), text: async () => "{}" };
+    return { ok: true, status: 200, json: async () => ({ id: validUuid, name: "Charlie", initials: "CH", active: optBody.p_active ?? true, version: optBody.p_expected_version + 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }), text: async () => "{}" };
   });
   await invoke("updateEmployee", {}, { id: validUuid, name: "NewName", expectedVersion: 1, correlationId: "corr-opt-1" });
   if (optBody.p_name !== "NewName") fail("VM Test 4a: p_name not passed");
@@ -386,6 +387,55 @@ async function runVmTests() {
     if (!/invalid receipt/i.test(e.message)) fail("VM Test 7b: expected invalid receipt, got: " + e.message);
   }
   pass("VM malformed receipt");
+
+  // Legacy creation time is explicitly nullable in the durable directory.
+  // A valid committed transition must return success and publish its refresh.
+  for (const actionName of ["updateEmployee", "activateEmployee", "deactivateEmployee"]) {
+    reset();
+    const receipt = { id: validUuid, name: "Legacy", initials: "LG", active: actionName !== "deactivateEmployee", version: 2, created_at: null, updated_at: "2026-09-12T00:00:00Z" };
+    setFetchHandler(async () => ({ ok: true, status: 200, json: async () => receipt }));
+    const args = { id: validUuid, expectedVersion: 1, correlationId: "legacy-" + actionName, ...(actionName === "updateEmployee" ? { name: "Legacy" } : {}) };
+    const result = await invoke(actionName, {}, args);
+    if (result.createdAt !== null || result.updatedAt !== Date.parse(receipt.updated_at)) fail("Legacy timestamps were fabricated or rejected");
+    if (getFetchCalls().length !== 1 || getPublishCalls() !== 1) fail("Committed legacy transition must publish once");
+    for (const malformed of [undefined, "not-a-date"]) {
+      receipt.created_at = malformed;
+      try {
+        await invoke(actionName, {}, args);
+        fail("Malformed creation timestamp should still reject");
+      } catch (error) {
+        if (!/invalid receipt/.test(error.message)) throw error;
+      }
+    }
+  }
+  pass("Nullable legacy creation timestamp survives committed transitions and refresh");
+
+  reset();
+  const lifecycle = [];
+  const lifecycleCtx = { async runMutation(ref, args) { lifecycle.push({ ref, args }); return "synthetic-operation"; } };
+  setFetchHandler(async () => {
+    if (lifecycle[0]?.ref !== "begin") fail("Barrier must precede SQL");
+    return { ok: true, status: 200, json: async () => ({ id: validUuid, name: "Nullable", initials: "NU", active: null, version: 2, created_at: null, updated_at: "2026-09-12T00:00:00Z" }) };
+  });
+  const nullable = await invoke("updateEmployee", lifecycleCtx, { id: validUuid, name: "Nullable", expectedVersion: 1, correlationId: "nullable-active" });
+  if (nullable.active !== false || lifecycle[1]?.ref !== "complete" || lifecycle[1]?.args.active !== false || getPublishCalls() !== 1) fail("Nullable inactive receipt must complete blocked and publish");
+  reset(); lifecycle.length = 0;
+  setFetchHandler(async () => { throw new Error("synthetic network loss"); });
+  try {
+    await invoke("deactivateEmployee", lifecycleCtx, { id: validUuid, expectedVersion: 1, correlationId: "uncertain" });
+    fail("Network loss should throw");
+  } catch (error) { if (!/synthetic network loss/.test(error.message)) throw error; }
+  if (lifecycle.length !== 1 || lifecycle[0].ref !== "begin" || getPublishCalls() !== 0) fail("Unknown network outcome must retain barrier");
+  reset(); lifecycle.length = 0;
+  setFetchHandler(async (url) => url.includes("reconcile_employee_transition")
+    ? ({ ok: true, status: 200, json: async () => ({ outcome: "superseded", employee_id: validUuid, correlation_id: "known-rejection", actor: "serverActor123", expected_version: 1, current_version: 2 }) })
+    : ({ ok: false, status: 400, text: async () => JSON.stringify({ code: "40001" }) }));
+  try {
+    await invoke("deactivateEmployee", lifecycleCtx, { id: validUuid, expectedVersion: 1, correlationId: "known-rejection" });
+    fail("SQL rejection should throw");
+  } catch (error) { if (!/Version conflict/.test(error.message)) throw error; }
+  if (lifecycle.length !== 2 || lifecycle[1].ref !== "reject") fail("Confirmed SQL rollback should recover invocation");
+  pass("Access barrier ordering, nullable inactive success and uncertain response containment");
 
   // 8. fixed conflict messages: 40001 before 409, P0001 correlation
   console.log("VM Test 8: fixed conflict messages");

@@ -1,4 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { assertUserEmployeeAccess } from "./employeeAccess";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
@@ -42,6 +43,8 @@ type DbCtx = QueryCtx | MutationCtx;
 export async function requireAuth(ctx: AuthCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Not authenticated");
+  if ("runQuery" in ctx) await ctx.runQuery(internal.employeeAccess.assertUserAccess, { userId });
+  else await assertUserEmployeeAccess(ctx, userId);
   return userId;
 }
 

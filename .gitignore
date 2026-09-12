@@ -7,3 +7,9 @@ dist
 tmp/
 __pycache__/
 *.pyc
+
+# Local browser verification runtime
+.browser-cache/
+
+# Disposable database verification dependencies
+.verification/

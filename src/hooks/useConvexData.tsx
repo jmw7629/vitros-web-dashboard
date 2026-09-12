@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { employeeOperationIdentity } from "../lib/employeeOperationIdentity";
 import { browserSafeRead } from "../lib/browserSafeRead";
 import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
 import type { RemBuildPlanRow, RemStaffPlanningRow, RemTargetPlanningRow, RemTrackerPlanningRow } from "./useRemPlanningData";
@@ -126,8 +127,8 @@ export interface Employee {
   email?: string;
   active: boolean;
   version: number;
-  createdAt: number;
-  updatedAt: number;
+  createdAt: number | null;
+  updatedAt: number | null;
   role?: string;
   actorId?: string | null;
 }
@@ -285,8 +286,8 @@ function mapConvexEmployeeToEmployee(row: any): Employee {
     active: row.active !== false,
     version: Number(row.version),
     actorId: row.actorId ?? null,
-    createdAt: row.createdAt ?? row.created_at ?? 0,
-    updatedAt: row.updatedAt ?? row.updated_at ?? row.createdAt ?? 0,
+    createdAt: row.createdAt ?? row.created_at ?? null,
+    updatedAt: row.updatedAt ?? row.updated_at ?? null,
     role: row.role,
   };
 }
@@ -697,9 +698,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   }, [convexCreateEmployee, debouncedLoadAll]);
 
   const updateEmployee = useCallback(async (id: string, updates: { name?: string; initials?: string; active?: boolean }, expectedVersion: number): Promise<Employee> => {
-    const correlationId = typeof crypto !== "undefined" && (crypto as any).randomUUID
-      ? `employee:update:${id}:${(crypto as any).randomUUID()}`
-      : `employee:update:${id}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const correlationId = await employeeOperationIdentity(directoryUser?._id, id, "UPDATE", expectedVersion, updates);
     // Single atomic RPC — backend now accepts optional name/initials/active with snapshot version, no refetch, no +1.
     const result: any = await convexUpdateEmployee({
       id,
@@ -711,18 +710,16 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
     });
     debouncedLoadAll();
     return mapConvexEmployeeToEmployee(result);
-  }, [convexUpdateEmployee, debouncedLoadAll]);
+  }, [convexUpdateEmployee, debouncedLoadAll, directoryUser?._id]);
 
   const toggleEmployeeActive = useCallback(async (id: string, currentlyActive: boolean, expectedVersion: number): Promise<Employee> => {
-    const correlationId = typeof crypto !== "undefined" && (crypto as any).randomUUID
-      ? `employee:toggle:${id}:${(crypto as any).randomUUID()}`
-      : `employee:toggle:${id}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const correlationId = await employeeOperationIdentity(directoryUser?._id, id, currentlyActive ? "DEACTIVATE" : "ACTIVATE", expectedVersion);
     const result: any = currentlyActive
       ? await convexDeactivateEmployee({ id, expectedVersion, correlationId })
       : await convexActivateEmployee({ id, expectedVersion, correlationId });
     debouncedLoadAll();
     return mapConvexEmployeeToEmployee(result);
-  }, [convexActivateEmployee, convexDeactivateEmployee, debouncedLoadAll]);
+  }, [convexActivateEmployee, convexDeactivateEmployee, debouncedLoadAll, directoryUser?._id]);
 
   return (
     <ConvexDataContext.Provider value={{

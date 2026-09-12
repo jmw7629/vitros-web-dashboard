@@ -3,6 +3,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 const users = defineTable({
+  employeeId: v.optional(v.string()),
   name: v.optional(v.string()),
   image: v.optional(v.string()),
   email: v.optional(v.string()),
@@ -24,6 +25,20 @@ const users = defineTable({
 export default defineSchema({
   ...authTables,
   users,
+
+  // Fail-closed authorization barrier for the cross-store employee lifecycle.
+  // Supabase owns active status; pending/blocked here can only restrict access.
+  employeeAccessBarriers: defineTable({
+    employeeId: v.string(), blocked: v.boolean(),
+    pendingOperation: v.optional(v.id("employeeAccessOperations")),
+  }).index("by_employeeId", ["employeeId"]),
+  employeeAccessOperations: defineTable({
+    employeeId: v.string(), correlationId: v.string(), requestKey: v.string(),
+    previousBlocked: v.boolean(), expectedVersion: v.number(), inFlight: v.number(),
+    status: v.union(v.literal("pending"), v.literal("completed"), v.literal("rejected")),
+    startedAt: v.number(), finishedAt: v.optional(v.number()),
+    confirmedVersion: v.optional(v.number()), confirmedActive: v.optional(v.boolean()),
+  }).index("by_correlationId", ["correlationId"]),
 
   // Payload-free cross-client invalidation for Supabase-backed authoritative data.
   // Business rows and actor details never enter this table.
