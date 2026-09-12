@@ -34,7 +34,7 @@ export default defineSchema({
   }).index("by_employeeId", ["employeeId"]),
   employeeAccessOperations: defineTable({
     employeeId: v.string(), correlationId: v.string(), requestKey: v.string(),
-    previousBlocked: v.boolean(), expectedVersion: v.number(), inFlight: v.number(),
+    previousMissing: v.optional(v.boolean()), previousBlocked: v.boolean(), expectedVersion: v.number(), inFlight: v.number(),
     status: v.union(v.literal("pending"), v.literal("completed"), v.literal("rejected")),
     startedAt: v.number(), finishedAt: v.optional(v.number()),
     confirmedVersion: v.optional(v.number()), confirmedActive: v.optional(v.boolean()),

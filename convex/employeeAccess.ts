@@ -77,11 +77,11 @@ export const beginTransition = internalMutation({
       throw new Error(`Employee change is pending. Retry the original request with correlation ${pending?.correlationId ?? "unavailable"}; access remains suspended until recovery.`);
     }
     const operationId = previous ? previous._id : await ctx.db.insert("employeeAccessOperations", {
-      ...args, employeeId, previousBlocked: barrier?.blocked ?? true,
+      ...args, employeeId, previousMissing: !barrier, previousBlocked: barrier?.blocked ?? true,
       status: "pending", startedAt: Date.now(), inFlight: 1,
     });
     if (previous) await ctx.db.patch(previous._id, {
-      status: "pending", previousBlocked: barrier?.blocked ?? true, inFlight: 1,
+      status: "pending", previousMissing: !barrier, previousBlocked: barrier?.blocked ?? true, inFlight: 1,
       finishedAt: undefined,
     });
     if (barrier) await ctx.db.patch(barrier._id, { pendingOperation: operationId });
@@ -129,7 +129,11 @@ export const rejectTransition = internalMutation({
     const barrier = await ctx.db.query("employeeAccessBarriers")
       .withIndex("by_employeeId", q => q.eq("employeeId", op.employeeId)).unique();
     if (!barrier || barrier.pendingOperation !== op._id) throw new Error("Employee access recovery operation mismatch");
-    await ctx.db.patch(barrier._id, { blocked: op.previousBlocked, pendingOperation: undefined });
+    // Rollback restores absence as absence, allowing a fresh canonical login to
+    // provision access. It must never turn an unverified rollout row into a
+    // confirmed deactivation. Old operations without the snapshot stay blocked.
+    if (op.previousMissing === true) await ctx.db.delete(barrier._id);
+    else await ctx.db.patch(barrier._id, { blocked: op.previousBlocked, pendingOperation: undefined });
     await ctx.db.patch(op._id, { status: "rejected", finishedAt: Date.now() });
     return null;
   },

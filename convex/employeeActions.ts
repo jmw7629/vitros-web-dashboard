@@ -230,9 +230,17 @@ async function callApplyEmployeeTransition(
     });
   } catch (error) {
     if (operationId && error instanceof EmployeeSqlRejection && error.sqlCode === "40001") {
-      const proof = await sbFetch<Record<string, unknown>>(serviceKey, url, "rpc/reconcile_employee_transition", {
-        method: "POST", body: JSON.stringify({ p_request: payload }),
-      });
+      let proof: Record<string, unknown>;
+      try {
+        proof = await sbFetch<Record<string, unknown>>(serviceKey, url, "rpc/reconcile_employee_transition", {
+          method: "POST", body: JSON.stringify({ p_request: payload }),
+        });
+      } catch {
+        // The original SQL call definitively rolled back even if reconciliation
+        // is unavailable. Account for it without clearing other unknown calls.
+        await ctx.runMutation(internal.employeeAccess.rejectTransition, { operationId });
+        throw error;
+      }
       if (proof?.outcome === "committed") {
         raw = proof.receipt;
       } else if (proof?.outcome === "superseded"
@@ -243,7 +251,9 @@ async function callApplyEmployeeTransition(
         await ctx.runMutation(internal.employeeAccess.rejectTransition, { operationId, supersededVersion: Number(proof.current_version) });
         throw error;
       } else {
-        // Equal/future versions and malformed proofs cannot safely resolve a lost invocation.
+        // This invocation rolled back. Equal/future or malformed proofs cannot
+        // resolve OTHER lost invocations, which remain counted and blocked.
+        await ctx.runMutation(internal.employeeAccess.rejectTransition, { operationId });
         throw error;
       }
     } else {

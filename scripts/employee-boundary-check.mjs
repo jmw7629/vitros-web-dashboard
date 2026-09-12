@@ -435,6 +435,23 @@ async function runVmTests() {
     fail("SQL rejection should throw");
   } catch (error) { if (!/Version conflict/.test(error.message)) throw error; }
   if (lifecycle.length !== 2 || lifecycle[1].ref !== "reject") fail("Confirmed SQL rollback should recover invocation");
+  // A pending proof (future expected version) or unavailable reconciliation must
+  // still account for this definitively rolled-back SQL invocation.
+  for (const unavailable of [false, true]) {
+    reset(); lifecycle.length = 0;
+    setFetchHandler(async (url) => {
+      if (url.includes("reconcile_employee_transition")) {
+        if (unavailable) throw new Error("synthetic reconciliation unavailable");
+        return { ok: true, status: 200, json: async () => ({ outcome: "pending" }) };
+      }
+      return { ok: false, status: 400, text: async () => JSON.stringify({ code: "40001" }) };
+    });
+    try {
+      await invoke("deactivateEmployee", lifecycleCtx, { id: validUuid, expectedVersion: 99, correlationId: "future-rejection" });
+      fail("Future-version rejection should throw");
+    } catch (error) { if (!/Version conflict/.test(error.message)) throw error; }
+    if (lifecycle.length !== 2 || lifecycle[1].ref !== "reject" || lifecycle[1].args.supersededVersion !== undefined) fail("Known failed invocation must use normal rejection accounting");
+  }
   pass("Access barrier ordering, nullable inactive success and uncertain response containment");
 
   // 8. fixed conflict messages: 40001 before 409, P0001 correlation

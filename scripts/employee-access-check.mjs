@@ -21,6 +21,7 @@ const rows = new Map();
 let sequence = 0;
 const ctx = { db: {
   async get(id) { return rows.get(id) ?? null; },
+  async delete(id) { rows.delete(id); },
   async insert(table, values) { const id = `${table}:${++sequence}`; rows.set(id, { ...values, _id: id }); return id; },
   async patch(id, values) { rows.set(id, { ...rows.get(id), ...values }); },
   query(table) { return { withIndex(_index, constrain) {
@@ -109,6 +110,39 @@ await access.rejectTransition.handler(ctx, { operationId: lostConflict, supersed
 await blocked(); // old proof cannot clear the newer pending operation
 await complete(afterProof, 8, true);
 await access.assertEmployeeAccess(ctx, employeeId);
+// An admin edit can reach a rollout employee before their first fresh login.
+// Confirmed rollback must restore missing state, not create permanent deactivation.
+const rolloutId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const rolloutArgs = { employeeId: rolloutId, correlationId: "rollout-failure", requestKey: "rollout-failure", expectedVersion: 1 };
+const rolloutOp = await access.beginTransition.handler(ctx, rolloutArgs);
+await assert.rejects(access.provisionVerifiedEmployeeAccess.handler(ctx, { employeeId: rolloutId }), /suspended/);
+await access.rejectTransition.handler(ctx, { operationId: rolloutOp });
+await assert.rejects(access.assertEmployeeAccess(ctx, rolloutId), /suspended/); // absence still denies
+assert.equal([...rows.values()].some(row => row._id.startsWith("employeeAccessBarriers:") && row.employeeId === rolloutId), false);
+await access.provisionVerifiedEmployeeAccess.handler(ctx, { employeeId: rolloutId });
+await access.assertEmployeeAccess(ctx, rolloutId);
+// Rejected restart snapshots the current, now-present allowed barrier.
+await access.beginTransition.handler(ctx, rolloutArgs);
+assert.equal(rows.get(rolloutOp).previousMissing, false);
+await access.rejectTransition.handler(ctx, { operationId: rolloutOp });
+await access.assertEmployeeAccess(ctx, rolloutId);
+// A previously confirmed block survives failed edits and cannot be provisioned away.
+const blockRollout = await access.beginTransition.handler(ctx, { ...rolloutArgs, correlationId: "rollout-deactivate", requestKey: "rollout-deactivate" });
+await access.completeTransition.handler(ctx, { operationId: blockRollout, employeeId: rolloutId, version: 2, active: false });
+const blockedEdit = await access.beginTransition.handler(ctx, { ...rolloutArgs, correlationId: "blocked-edit", requestKey: "blocked-edit", expectedVersion: 2 });
+await access.rejectTransition.handler(ctx, { operationId: blockedEdit });
+await assert.rejects(access.provisionVerifiedEmployeeAccess.handler(ctx, { employeeId: rolloutId }), /suspended/);
+// A single future-version SQL rejection releases its pending barrier, but a
+// prior unknown invocation remains blocked when the known current call rejects.
+const futureOne = await begin("future-one", 99);
+await access.rejectTransition.handler(ctx, { operationId: futureOne });
+await access.assertEmployeeAccess(ctx, employeeId);
+const futureUnknown = await begin("future-unknown", 99);
+await begin("future-unknown", 99);
+await access.rejectTransition.handler(ctx, { operationId: futureUnknown });
+await blocked();
+assert.equal(rows.get(futureUnknown).inFlight, 1);
+console.log("MISSING_BARRIER_ROLLBACK_RESTART_AND_CONFIRMED_BLOCK=PASS");
 console.log("EMPLOYEE_ACCESS_BARRIER=PASS");
 console.log("EXISTING_SESSIONS_PENDING_SIGNIN_GUARDS_CORRELATION_REPLAY_RECOVERY=PASS");
 console.log("CONCURRENT_SAME_REQUEST_REJECTION_CANNOT_RELEASE_PENDING_WRITE=PASS");
