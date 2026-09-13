@@ -18,6 +18,7 @@ on:
       - "src/pages/rem/RemDashboard.tsx"
       - "supabase/migrations/20260907033000_rem_operational_analyzer_updates.sql"
       - "scripts/rem-operational-authoritative-ui-check.mjs"
+      - "scripts/rem-operational-browser-check.mjs"
       - ".github/workflows/rem-operational-authoritative-ui.yml"
   workflow_dispatch:
 
@@ -37,4 +38,17 @@ jobs:
       - run: node scripts/rem-operational-authoritative-ui-check.mjs
       - run: npm run typecheck
       - run: npm run build
+      - name: Install isolated test browser
+        run: npx playwright install --with-deps chromium --only-shell
+      - name: Verify operational tables in desktop and mobile browsers
+        run: node scripts/rem-operational-browser-check.mjs
+        env:
+          REM_BROWSER_ARTIFACT_DIR: .verification/rem-browser
+      - name: Preserve synthetic browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rem-operational-browser-${{ github.sha }}
+          path: .verification/rem-browser
+          if-no-files-found: ignore
       - run: node scripts/check-secrets.mjs

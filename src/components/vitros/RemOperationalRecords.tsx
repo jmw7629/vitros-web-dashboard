@@ -106,7 +106,7 @@ function RecordDetails({ record, fields }: { record: RemOperationalRecord; field
   const reviewIds = Array.isArray(fields.reviewIds) ? fields.reviewIds.map(object) : [];
   const numericSources = object(fields.sourceNumericText);
   return (
-    <div className="space-y-4 p-4" style={{ backgroundColor: theme.inputBg }}>
+    <div className="sticky left-0 space-y-4 p-4" style={{ width: "100cqw", maxWidth: "100%", backgroundColor: theme.inputBg }}>
       <div className="text-xs break-words" style={{ color: theme.textSecondary }}>
         <strong style={{ color: theme.textPrimary }}>Source: </strong>{record.sourceSheet} · Row {record.sourceRow}
         <span className="mt-1 block">Source key: {record.sourceKey}</span>
@@ -290,7 +290,8 @@ function OperationalRecordsBody({ dataset, title, initialQuery = "", planYear }:
             {searching ? "Waiting for search…" : data.isLoading ? "Loading source records…" : !data.isAuthenticated ? "Sign in to view REM source records." : data.loadedAt === null ? "Source records are unavailable." : `${data.total.toLocaleString()} matching records · ${data.records.length ? `${offset + 1}–${offset + data.records.length}` : "0"} shown`}
           </p>
         </div>
-        {data.records.length > 0 && <div className="max-h-[36rem] overflow-auto" role="region" aria-label={`${title} scrollable table`} tabIndex={0} aria-busy={data.isLoading}>
+        {/* Keep expanded provenance within the visible table width, including after horizontal scrolling. */}
+        {data.records.length > 0 && <div className="max-h-[36rem] overflow-auto" style={{ containerType: "inline-size" }} role="region" aria-label={`${title} scrollable table`} tabIndex={0} aria-busy={data.isLoading}>
           <table className="w-full min-w-[850px] border-collapse text-left">
             <caption className="sr-only">{title}. Blank indicates an unrecorded source value. Expand a row for source sheet, row and recorded details.</caption>
             <thead className="sticky top-0 z-10" style={{ backgroundColor: theme.cardBg }}><tr>
