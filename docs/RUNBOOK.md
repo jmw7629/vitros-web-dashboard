@@ -134,3 +134,7 @@ The 100,000-row validation ceiling is an input safety bound, not a tested runtim
 capacity promise. A timeout rolls back finalization, leaves staging available,
 and requires retrying the unchanged preview. Investigate repeated timeouts before
 retrying again; preserve the atomic transaction and audit requirements.
+
+## Digital DHR document field bridge
+
+See [the field bridge contract and rollout](DIGITAL_DHR_FIELD_BRIDGE.md) for the default-off adapter, immutable manifest registration, durable retry/conflict handling, existing scanner transaction reuse, and authenticated acceptance gates. The additive migration does not register a production template or enable consumption.

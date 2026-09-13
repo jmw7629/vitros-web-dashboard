@@ -48,6 +48,23 @@ jobs:
         run: node scripts/rem-operational-validation-check.mjs
       - name: REM operational browser component behavior
         run: node scripts/rem-operational-ui-behavior.mjs
+      - name: Digital DHR contract and authenticated action behavior
+        run: node scripts/dhr-document-action-check.mjs
+      - name: Digital DHR durable queue and conflict recovery behavior
+        run: node scripts/dhr-document-client-check.mjs
+      - name: Install Chromium for native IndexedDB verification
+        run: npx playwright install --with-deps chromium --only-shell
+      - name: Digital DHR native browser reload and lost-response recovery
+        env:
+          DHR_BROWSER_ARTIFACT_DIR: .verification/dhr-browser
+        run: node scripts/dhr-document-browser-check.mjs
+      - name: Upload synthetic DHR browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digital-dhr-browser
+          path: .verification/dhr-browser
+          if-no-files-found: ignore
       - name: Employee canonical login behavior
         run: node scripts/employee-login-check.mjs
       - name: Employee retry identity behavior
@@ -111,3 +128,41 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260905074500_rem_authoritative_workbook_parity.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260913123239_rem_operational_staged_import.sql
           psql -v ON_ERROR_STOP=1 -f database/tests/rem_operational_import.sql
+
+  dhr-document-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_test_only
+          POSTGRES_DB: dhr_document_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dhr_document_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Disposable DHR field events through existing atomic inventory and scanner
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: disposable_test_only
+          PGDATABASE: dhr_document_test
+        run: |
+          psql -v ON_ERROR_STOP=1 -f database/tests/dhr_document_bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260830_vitros_atomic_inventory_transition.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260909_extend_inventory_operations_with_material_request.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260903_dhr_atomic_scan_transition.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260906131500_dhr_controlled_inventory_alias.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260905191500_dhr_legacy_baseline_guard.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260913133922_dhr_document_field_bridge.sql
+          psql -v ON_ERROR_STOP=1 -f database/tests/dhr_document_bridge.sql
