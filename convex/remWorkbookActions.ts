@@ -123,11 +123,15 @@ export const applyAuthoritativeWorkbookImport = action({
     staff: v.array(staffRow),
     weeklyNotes: v.array(weeklyNoteRow),
     targets: v.array(targetRow),
+    operationalImportId: v.optional(v.string()),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
     const userId = await requireCapability(ctx, "rem.write");
     assertYear(args.planYear);
+    if (args.operationalImportId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.operationalImportId)) {
+      throw new Error("Invalid REM operational import identifier");
+    }
     if (args.fileName.trim().length < 1 || args.fileName.length > 255) throw new Error("Invalid workbook file name");
     if (!/^[a-f0-9]{64}$/.test(args.fileHash)) throw new Error("Invalid workbook fingerprint");
     if (args.sourceSheet.trim().length < 1 || args.sourceSheet.length > 160) throw new Error("Invalid REM source sheet");
@@ -220,7 +224,10 @@ export const applyAuthoritativeWorkbookImport = action({
     }
 
     const { url, serviceKey } = getSupabaseConfig();
-    const response = await fetch(`${url}/rest/v1/rpc/apply_rem_authoritative_workbook_import`, {
+    const rpcPath = args.operationalImportId
+      ? "/rest/v1/rpc/apply_rem_full_workbook_import"
+      : "/rest/v1/rpc/apply_rem_authoritative_workbook_import";
+    const response = await fetch(`${url}${rpcPath}`, {
       method: "POST",
       headers: {
         apikey: serviceKey,
@@ -240,15 +247,16 @@ export const applyAuthoritativeWorkbookImport = action({
         p_staff: args.staff,
         p_weekly_notes: args.weeklyNotes,
         p_targets: args.targets,
+        ...(args.operationalImportId ? { p_operational_import_id: args.operationalImportId } : {}),
       }),
     });
 
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      const message = (body as { message?: string; error?: string }).message
-        || (body as { message?: string; error?: string }).error
-        || `REM authoritative import failed (${response.status})`;
-      throw new Error(message);
+      const failure: unknown = await response.json().catch(() => null);
+      if (failure && typeof failure === "object" && "message" in failure && failure.message === "partial_lvcc_reviews_changed_source_requires_review") {
+        throw new Error("This sheet moved existing reviews. Restore or review the current review IDs before applying this workbook.");
+      }
+      throw new Error(`REM authoritative import could not be confirmed (${response.status}). Keep the same workbook preview and retry to recover its import receipt.`);
     }
     const result = await response.json();
     await publishRealtimePulse(ctx);

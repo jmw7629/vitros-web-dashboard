@@ -24,7 +24,6 @@ const pages = [
   "src/pages/rem/EngineerKiosk.tsx",
   "src/pages/rem/KanbanBoard.tsx",
   "src/pages/rem/GanttTimeline.tsx",
-  "src/pages/rem/FieldStatus.tsx",
   "src/pages/rem/MorningSnapshot.tsx",
   "src/pages/rem/Reports.tsx",
   "src/pages/rem/RemDashboard.tsx",
@@ -35,6 +34,20 @@ for (const path of pages) {
   requireText(source, /useRemCoreData/, `${path} authoritative REM hook`);
   rejectText(source, /useConvexData/, `${path} legacy Convex aggregate`);
 }
+
+// Field Status now reads imported source records through its dedicated server
+// action. Requiring the WIP hook here would restore the old substitution bug.
+const fieldStatus = read("src/pages/rem/FieldStatus.tsx");
+const sourceRecords = read("src/components/vitros/RemOperationalRecords.tsx");
+const sourceHook = read("src/hooks/useRemOperationalData.ts");
+const sourceAction = read("convex/remOperationalImportActions.ts");
+requireText(fieldStatus, /RemOperationalRecords/, "Field Status source record view");
+requireText(fieldStatus, /field_status/, "Field Status imported dataset");
+rejectText(fieldStatus, /useRemCoreData|useConvexData|isComplete/, "completed WIP substitution for field records");
+requireText(sourceRecords, /useRemOperationalData/, "source records authoritative hook");
+requireText(sourceHook, /api\.remOperationalImportActions\.listOperationalRecords/, "server-owned source record read");
+requireText(sourceAction, /requireCapability\(ctx,\s*"rem\.read"\)/, "source record rem.read guard");
+rejectText(sourceRecords + sourceHook, /SUPABASE_SERVICE_ROLE_KEY|localStorage/, "browser source authority or persistent private record cache");
 
 requireText(bulkImport, /useRemPlanningData/, "authoritative planning/staff import status");
 requireText(bulkImport, /Promise\.all\(\[refreshSummary\(\), core\.refresh\(\), planning\.refresh\(\)\]\)/, "post-import authoritative refresh");

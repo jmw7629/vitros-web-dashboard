@@ -1,5 +1,17 @@
 # VITROS Rebuild Audit
 
+## REM source recovery and operational import implementation — 2026-09-13
+
+This local continuation starts from reviewed main `97dc7158505bd36a6d46536a1161238288719bfb`. GitHub build and behavioral/database checks pass and no implementation PR remains open. The existing standalone VPS worker retains its workspace; its latest result reports a bubblewrap loopback permission failure before commands execute. This continuation uses disjoint local work to complete the missing REM operational import. It does not restart workers or change VPS ownership.
+
+Both supplied recurring workbook copies were recovered privately from original conversation attachments, outside Git. They produce 25,388 operational records: 80 field-status batches, 79 installation-part lines, 25,155 certified-part lines, 58 LVCC review weeks, and 16 quarterly Summary targets. The Certified Parts Total footer is explicitly excluded and its control totals reconcile. Eighty-four certified lines have no source month; VISION has a TBD posting date. Existing production parser/actions have no persistence or reader for these sources; Field Status currently substitutes completed WIP analyzers. Certified equipment/part join keys repeat and cannot identify individual service lines. Source Summary LVCC targets differ from Tracker operating plans; recorded review counts can differ from listed identifiers. These distinct measures must be retained with provenance.
+
+The reviewed main production attempt `dpl_DaZbokZDMu6zPTbM7kk9uFtEkacN` still fails at missing server-only `SUPABASE_SERVICE_ROLE_KEY`. OPENAI_API_KEY readiness remains unverified. No deployment gate is bypassed. No production business data or SAP transport is changed by this implementation. Production acceptance remains pending until reviewed deployment and real authenticated browser flows succeed.
+
+The original Rev J DHR DOCX was recovered; the exact fillable PDF and field manifest were not. Historical page-count claims conflict (90 versus 102). This REM slice does not invent controlled field IDs or reconstruct the DHR template.
+
+Full core-then-operational parsing of both original workbooks is blocked at `Tracker!AD24`, whose formula contains a literal broken Build Plan reference. There are 38 cached Tracker errors and adjacent week references are also misaligned. The parser now handles exact SCRAP exclusions explicitly; it still rejects corrupt formula values. A corrected source workbook is required. See [source integrity evidence](REM_WORKBOOK_SOURCE_INTEGRITY.md) and [implementation status](REM_OPERATIONAL_IMPLEMENTATION_20260913.md) for the distinction between passing component/transaction checks and pending production acceptance.
+
 Updated: 2026-09-09
 
 ## Current stack and deployment

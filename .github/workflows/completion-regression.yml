@@ -40,6 +40,14 @@ jobs:
         run: node scripts/employee-boundary-check.mjs
       - name: REM parser behavior
         run: node scripts/rem-workbook-parser-acceptance.mjs
+      - name: REM operational parser behavior
+        run: node scripts/rem-operational-parser-acceptance.mjs
+      - name: REM resumable upload behavior
+        run: node scripts/rem-operational-upload-acceptance.mjs
+      - name: REM operational server validation and authorization
+        run: node scripts/rem-operational-validation-check.mjs
+      - name: REM operational browser component behavior
+        run: node scripts/rem-operational-ui-behavior.mjs
       - name: Employee canonical login behavior
         run: node scripts/employee-login-check.mjs
       - name: Employee retry identity behavior
@@ -69,3 +77,37 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f database/tests/employee_transition.sql
           psql -v ON_ERROR_STOP=1 -f database/migrations/20260912214448_employee_transition_reconciliation.sql
           psql -v ON_ERROR_STOP=1 -f database/tests/employee_reconciliation.sql
+
+  rem-operational-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_test_only
+          POSTGRES_DB: rem_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rem_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Disposable REM staging, atomic import, and replay verification
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: disposable_test_only
+          PGDATABASE: rem_test
+        run: |
+          psql -v ON_ERROR_STOP=1 -f database/tests/rem_operational_bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260905074500_rem_authoritative_workbook_parity.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260913123239_rem_operational_staged_import.sql
+          psql -v ON_ERROR_STOP=1 -f database/tests/rem_operational_import.sql

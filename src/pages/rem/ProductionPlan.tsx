@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { DashCard, WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemPlanningData } from "../../hooks/useRemPlanningData";
+import { RemOperationalRecords } from "../../components/vitros/RemOperationalRecords";
 
 const PRODUCT_LABELS: Record<string, string> = {
   VITROS: "VITROS",
@@ -115,6 +116,11 @@ export function ProductionPlan() {
           ))}
         </div>
       )}
+
+      <div className="space-y-2">
+        <p className="text-sm" style={{ color: theme.textSecondary }}>Summary targets are retained separately from the Tracker operating plan. Variance compares those source measures for the same product and quarter.</p>
+        <RemOperationalRecords dataset="summary_targets" title="Summary Targets and Tracker Plan" planYear={year} />
+      </div>
 
       {currentBuild && (
         <WebCard className="p-4">

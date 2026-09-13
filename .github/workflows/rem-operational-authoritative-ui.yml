@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "convex/remOperationalActions.ts"
+      - "convex/remOperationalImportActions.ts"
+      - "src/components/vitros/RemOperationalRecords.tsx"
+      - "src/hooks/useRemOperationalData.ts"
       - "convex/_generated/api.d.ts"
       - "src/pages/rem/BulkImport.tsx"
       - "src/pages/rem/EngineerKiosk.tsx"
