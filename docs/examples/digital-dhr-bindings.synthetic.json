@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "templateId": "synthetic:document",
+  "documentRevision": "TEST-1",
+  "analyzerModel": "5600",
+  "artifactSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "bindings": [
+    {
+      "fieldId": "synthetic.quantity.a",
+      "sectionId": "SYNTHETIC",
+      "partNumber": "ABC123",
+      "kind": "consumable_part",
+      "quantityMode": "integer"
+    },
+    {
+      "fieldId": "synthetic.quantity.b",
+      "sectionId": "SYNTHETIC",
+      "partNumber": "ABC123",
+      "kind": "consumable_part",
+      "quantityMode": "integer"
+    },
+    {
+      "fieldId": "synthetic.tool",
+      "sectionId": "SYNTHETIC",
+      "partNumber": "TOOL1",
+      "kind": "tool",
+      "quantityMode": "integer"
+    },
+    {
+      "fieldId": "synthetic.missing",
+      "sectionId": "SYNTHETIC",
+      "partNumber": "MISSING",
+      "kind": "consumable_part",
+      "quantityMode": "integer"
+    },
+    {
+      "fieldId": "synthetic.alias",
+      "sectionId": "SYNTHETIC",
+      "partNumber": "ALIAS",
+      "kind": "consumable_part",
+      "quantityMode": "integer"
+    }
+  ]
+}
