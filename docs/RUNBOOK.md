@@ -102,3 +102,35 @@ barrier and capability handlers with synthetic state and interleavings;
 `node scripts/employee-boundary-check.mjs` checks RPC ordering, nullable legacy
 receipts, confirmed rejection and uncertain-response containment. These are not
 claims of live deployment or live 30-user concurrency verification.
+
+## Full REM workbook import deployment checks (2026-09-13)
+
+Apply the reviewed operational staging migration before deploying the matching
+Convex actions and browser importer. Staged batches remain invisible until the
+full finalize RPC commits the existing core import, operational records, and
+immutable audit events in one transaction. Keep the original workbook preview
+when a finalize response is lost; retry recovers the same receipt.
+
+Before enabling full workbook imports, verify the target project runs PostgREST
+12.2 or later and its `db-hoisted-tx-settings` includes `statement_timeout`.
+`apply_rem_full_workbook_import` alone sets `statement_timeout = '55s'`; verify
+that entry in `pg_proc.proconfig` after migration. Do not increase global or role
+timeouts to enable this import. Supabase documents an inherited default of 8s for
+`service_role` and a 60s maximum Client API request timeout. See the official
+[timeout guide](https://supabase.com/docs/guides/database/postgres/timeouts) and
+[PostgREST 12.2 function setting support](https://supabase.com/blog/postgrest-12-2).
+
+Read-only inspection of the target on 2026-09-13 reports PostgreSQL 17.6 and
+PostgREST 14.5. `service_role` has no role override and `authenticator` sets an
+8s statement timeout. The inspection connection does not expose
+`pgrst.db_hoisted_tx_settings`; this is not proof of the REST request's effective
+setting. Confirm it through the authorized staging request and server logs.
+
+Use an authorized staging import to confirm the effective RPC timeout and native
+database duration in server logs before production use. The local disposable
+PGlite check handled 25,388 operational rows in 102 batches and finalized in about
+22 seconds; this is a local measurement, not a production latency guarantee.
+The 100,000-row validation ceiling is an input safety bound, not a tested runtime
+capacity promise. A timeout rolls back finalization, leaves staging available,
+and requires retrying the unchanged preview. Investigate repeated timeouts before
+retrying again; preserve the atomic transaction and audit requirements.

@@ -1,4 +1,5 @@
 import { useRemCoreData } from "../../hooks/useRemCoreData";
+import { RemOperationalRecords } from "../../components/vitros/RemOperationalRecords";
 import { WebCard, DashCard, StatusBadge, ProgressBar, theme } from "../../components/vitros/SharedComponents";
 
 export function LvccTracker() {
@@ -20,6 +21,9 @@ export function LvccTracker() {
         </WebCard>
       )}
 
+      <RemOperationalRecords dataset="lvcc_reviews" title="LVCC DHR Reviews" />
+
+      <h3 className="text-base font-bold" style={{ color: theme.textPrimary }}>LVCC production progress</h3>
       <div className="grid grid-cols-2 gap-3">
         <DashCard label="TOTAL" value={data.lvccItems.length} icon="📋" color="#6366f1" />
         <DashCard label="ACTIVE" value={active.length} icon="⚡" color="#f59e0b" />

@@ -1,10 +1,20 @@
 import { saveAs } from "file-saver";
+import { useState } from "react";
 import * as XLSX from "xlsx";
 import { WebCard, DashCard, ProgressBar, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
+import { RemOperationalRecords } from "../../components/vitros/RemOperationalRecords";
+import type { RemOperationalDataset } from "../../hooks/useRemOperationalData";
+
+const DATASETS: Array<[RemOperationalDataset, string]> = [
+  ["field_status", "Field Status"], ["lvcc_reviews", "LVCC DHR Reviews"],
+  ["install_parts", "Install Parts"], ["certified_parts", "Certified Parts"],
+  ["summary_targets", "Summary Targets"],
+];
 
 export function Reports() {
   const data = useRemCoreData();
+  const [dataset, setDataset] = useState<RemOperationalDataset>("field_status");
   const total = data.analyzers.length;
   const completed = data.analyzers.filter((analyzer) => analyzer.isComplete).length;
   const active = total - completed;
@@ -92,8 +102,19 @@ export function Reports() {
         className="w-full py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
         style={{ backgroundColor: "#6366f1" }}
       >
-        {data.isLoading ? "Loading authoritative REM data…" : "Export REM Report"}
+        {data.isLoading ? "Loading authoritative REM data…" : "Export WIP and LVCC Progress"}
       </button>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label htmlFor="rem-report-dataset" className="text-sm font-bold" style={{ color: theme.textPrimary }}>Workbook records</label>
+        <select id="rem-report-dataset" value={dataset} onChange={(event) => {
+          const match = DATASETS.find(([value]) => value === event.target.value);
+          if (match) setDataset(match[0]);
+        }} className="rounded-lg border px-3 py-2 text-sm" style={{ backgroundColor: theme.cardBg, color: theme.textPrimary, borderColor: theme.cardBorder }}>
+          {DATASETS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </div>
+      <RemOperationalRecords key={dataset} dataset={dataset} title={DATASETS.find(([value]) => value === dataset)?.[1] ?? "Workbook Records"} />
     </div>
   );
 }

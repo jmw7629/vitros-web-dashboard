@@ -88,6 +88,7 @@ export type AuthoritativeRemImportPreview = {
   weeklyNotes: WeeklyNoteImportRow[];
   targets: TargetImportRow[];
   skippedRows: number;
+  warnings: string[];
   recognizedSheets: string[];
   importedSheets: string[];
   unimportedSheets: string[];
@@ -139,11 +140,18 @@ function ensureFormulaCache(sheet: XLSX.WorkSheet, sheetName: string, r: number,
   if (c < 0) return; // Optional columns can be absent from the source sheet.
   const address = XLSX.utils.encode_cell({ r, c });
   const cell = (sheet as unknown as Record<string, XLSX.CellObject>)[address] as XLSX.CellObject | undefined;
-  if (!cell || cell.f == null) return;
+  if (!cell) return;
   if (cell.t === "e") {
     const detail = (cell as unknown as { w?: string }).w ?? String(cell.v ?? "#ERR");
-    throw new Error(`${field} at ${sheetName}!${address} has formula error cached value ${JSON.stringify(detail.slice(0, 120))} — recalculate workbook before import`);
+    const errorKind = cell.f == null ? "Excel error value" : "formula error cached value";
+    const recovery = cell.f == null
+      ? "correct the Excel error value, then recalculate/save workbook before import"
+      : String(cell.f).includes("#REF!")
+      ? "correct broken formula references, then recalculate/save workbook before import"
+      : "recalculate/save workbook before import";
+    throw new Error(`${field} at ${sheetName}!${address} has ${errorKind} ${JSON.stringify(detail.slice(0, 120))} — ${recovery}`);
   }
+  if (cell.f == null) return;
   if (cell.v === undefined || cell.v === null) {
     throw new Error(`${field} at ${sheetName}!${address} has formula without cached value — open and recalculate/save workbook before import`);
   }
@@ -191,7 +199,10 @@ function canonicalProduct(value: unknown): string | undefined {
 }
 
 function matrix(sheet: XLSX.WorkSheet) {
-  return XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: null });
+  const end = XLSX.utils.decode_range(sheet["!ref"] ?? "A1").e;
+  return XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1, raw: true, defval: null, range: { s: { r: 0, c: 0 }, e: end },
+  });
 }
 
 function inferPlanYear(workbook: XLSX.WorkBook) {
@@ -244,6 +255,7 @@ function parseAnalyzers(sheet: XLSX.WorkSheet, sheetName: string) {
   const analyzers: AnalyzerImportRow[] = [];
   const serials = new Set<string>();
   let skippedRows = 0;
+  const warnings: string[] = [];
 
   for (let r = headerIndex + 2; r < rows.length; r++) {
     const row = rows[r];
@@ -260,6 +272,11 @@ function parseAnalyzers(sheet: XLSX.WorkSheet, sheetName: string) {
     const poField = `Analyzer ${serial} production order at ${sheetName}!${poAddr}`;
     ensureFormulaCache(sheet, sheetName, r, productionOrderCol, poField);
     const rawPO = row[productionOrderCol];
+    if (rawPO === "SCRAP") {
+      skippedRows += 1;
+      warnings.push(`${sheetName}!${poAddr}: excluded analyzer explicitly marked SCRAP in Production Order.`);
+      continue;
+    }
     const productionOrder = numberValue(rawPO, poField);
     if (productionOrder !== undefined && productionOrder < 0) {
       skippedRows += 1;
@@ -288,7 +305,7 @@ function parseAnalyzers(sheet: XLSX.WorkSheet, sheetName: string) {
 
   if (analyzers.length < 5) throw new Error(`Only ${analyzers.length} valid analyzer rows were found; import stopped safely.`);
   if (analyzers.length > 250) throw new Error("REM workbook exceeds the 250-analyzer import safety limit");
-  return { analyzers, skippedRows };
+  return { analyzers, skippedRows, warnings };
 }
 
 function parseTracker(sheet: XLSX.WorkSheet, sheetName: string, year: number) {
@@ -638,7 +655,7 @@ export function parseAuthoritativeRemWorkbook(
   const recognizedSheets = [...importedSheets];
   const unimportedSheets = workbook.SheetNames.filter((name) => !importedSheets.includes(name));
 
-  const { analyzers, skippedRows } = parseAnalyzers(workbook.Sheets[wip.name], wip.name);
+  const { analyzers, skippedRows, warnings } = parseAnalyzers(workbook.Sheets[wip.name], wip.name);
   const { trackerWeekly, targets } = parseTracker(workbook.Sheets[trackerSheet], trackerSheet, planYear);
   const buildPlan = parseBuildPlan(workbook.Sheets[buildPlanSheet], buildPlanSheet, planYear);
   const staff = parseStaff(workbook.Sheets[staffSheet], staffSheet, planYear);
@@ -657,6 +674,7 @@ export function parseAuthoritativeRemWorkbook(
     weeklyNotes,
     targets,
     skippedRows,
+    warnings,
     recognizedSheets,
     importedSheets,
     unimportedSheets,

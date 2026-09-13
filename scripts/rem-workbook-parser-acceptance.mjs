@@ -3,6 +3,7 @@
 // Run with: node scripts/rem-workbook-parser-acceptance.mjs
 import fs from "node:fs";
 import vm from "node:vm";
+import crypto from "node:crypto";
 import ts from "typescript";
 import * as XLSX from "xlsx";
 
@@ -15,12 +16,27 @@ const transpiled = ts.transpileModule(source, {
 }).outputText;
 const context = { XLSX, Map, Set, Number, String, Boolean, JSON, Array, Object, Math, isFinite, isNaN, parseInt, parseFloat, Infinity, NaN, undefined, RangeError, TypeError, Error, RegExp, Date, console };
 vm.createContext(context);
-vm.runInContext(`${transpiled}\nthis.__api={parseAuthoritativeRemWorkbook};`, context);
+vm.runInContext(`${transpiled}\nthis.__api={parseAuthoritativeRemWorkbook,parseAnalyzers,latestVitrosWip,parseBuildPlan,parseStaff,parseWeeklyNotes};`, context);
 const { parseAuthoritativeRemWorkbook } = context.__api;
 if (typeof parseAuthoritativeRemWorkbook !== "function") throw new Error("parseAuthoritativeRemWorkbook not extracted");
 
 function assert(c,m){ if(!c) throw new Error(m); }
 function equal(a,b,m){ if(a!==b) throw new Error(`${m}: expected ${JSON.stringify(b)} got ${JSON.stringify(a)}`); }
+
+function offsetSheet(sheet, rowOffset, colOffset) {
+  const shifted = {};
+  for (const [address, cell] of Object.entries(sheet)) {
+    if (!/^[A-Z]+[1-9]\d*$/.test(address)) continue;
+    const position = XLSX.utils.decode_cell(address);
+    shifted[XLSX.utils.encode_cell({ r: position.r + rowOffset, c: position.c + colOffset })] = { ...cell };
+  }
+  const range = XLSX.utils.decode_range(sheet["!ref"]);
+  shifted["!ref"] = XLSX.utils.encode_range({
+    s: { r: range.s.r + rowOffset, c: range.s.c + colOffset },
+    e: { r: range.e.r + rowOffset, c: range.e.c + colOffset },
+  });
+  return shifted;
+}
 
 function makeBaseWorkbook(){
   const wb = XLSX.utils.book_new();
@@ -93,6 +109,54 @@ run("renamed filename same parsed data", ()=>{
   equal(a.staff.length,b.staff.length,"staff");
   equal(JSON.stringify(a.targets), JSON.stringify(b.targets),"targets");
   assert(a.fileName!==b.fileName,"filename differs but data same");
+});
+
+run("exact SCRAP production marker is excluded with an explicit warning", () => {
+  const wb = makeBaseWorkbook();
+  wb.Sheets["WIP Productivity VITROS WK 5"].A3 = { t: "s", v: "SCRAP" };
+  const preview = parseAuthoritativeRemWorkbook("synthetic.xlsx", "hash", wb);
+  equal(preview.analyzers.length, 5, "only usable analyzers imported");
+  equal(preview.skippedRows, 1, "SCRAP is included in skipped count");
+  equal(preview.warnings.length, 1, "SCRAP exclusion disclosed");
+  assert(preview.warnings[0].includes("WIP Productivity VITROS WK 5!A3") && preview.warnings[0].includes("SCRAP"), "warning identifies source marker");
+});
+run("SCRAP handling does not relax other production-order validation", () => {
+  for (const value of ["scrap", "SCRAP pending", "SCRAP ", "3oops"]) {
+    const wb = makeBaseWorkbook();
+    wb.Sheets["WIP Productivity VITROS WK 5"].A3 = { t: "s", v: value };
+    let message = "";
+    try { parseAuthoritativeRemWorkbook("synthetic.xlsx", "hash", wb); } catch (error) { message = error.message; }
+    assert(message.includes("malformed numeric value"), "only the exact SCRAP marker may be excluded");
+  }
+  const wb = makeBaseWorkbook();
+  wb.Sheets["WIP Productivity VITROS WK 5"].A3 = { t: "e", f: "1/0", v: 23, w: "#REF!" };
+  let message = "";
+  try { parseAuthoritativeRemWorkbook("synthetic.xlsx", "hash", wb); } catch (error) { message = error.message; }
+  assert(message.includes("formula error cached value"), "production-order cache errors still reject");
+});
+run("non-A1 Tracker ranges preserve absolute rows, columns, and formula-error coordinates", () => {
+  const wb = makeBaseWorkbook();
+  wb.Sheets.Tracker = offsetSheet(wb.Sheets.Tracker, 2, 1);
+  wb.Sheets.Tracker.F4 = { t: "n", v: 321, f: "SUM(320,1)" };
+  const preview = parseAuthoritativeRemWorkbook("synthetic.xlsx", "hash", wb);
+  const row = preview.trackerWeekly.find((item) => item.product === "VITROS" && item.weekNumber === 1);
+  equal(row.plan, 321, "shifted source plan is retained"); equal(preview.trackerWeekly.length, 40, "no shifted Tracker rows lost");
+  wb.Sheets.Tracker.F4 = { t: "e", v: 23, f: "SUM(#REF!)", w: "#REF!" };
+  let message = "";
+  try { parseAuthoritativeRemWorkbook("synthetic.xlsx", "hash", wb); } catch (error) { message = error.message; }
+  assert(message.includes("Tracker!F4") && message.includes("week 1") && message.includes("formula error cached value"), "cache validation uses the exact source coordinate and week");
+});
+run("non-A1 WIP and later headers preserve counts and SCRAP source coordinates", () => {
+  const wb = makeBaseWorkbook(); const name = "WIP Productivity VITROS WK 5";
+  wb.Sheets[name] = offsetSheet(wb.Sheets[name], 2, 2);
+  wb.Sheets[name].C5 = { t: "s", v: "SCRAP" };
+  wb.Sheets["Build Plan"] = offsetSheet(wb.Sheets["Build Plan"], 2, 0);
+  wb.Sheets.Staff = offsetSheet(wb.Sheets.Staff, 1, 1);
+  wb.Sheets["Notes - Issues"] = offsetSheet(wb.Sheets["Notes - Issues"], 2, 0);
+  const preview = parseAuthoritativeRemWorkbook("synthetic.xlsx", "hash", wb);
+  equal(preview.analyzers.length, 5, "shifted WIP valid rows");
+  equal(preview.buildPlan.length, 20, "later Build Plan header"); equal(preview.staff.length, 5, "shifted Staff identity columns"); equal(preview.weeklyNotes.length, 2, "later Notes header");
+  assert(preview.warnings[0].includes(`${name}!C5`), "SCRAP warning identifies its absolute cell");
 });
 
 run("normal cached formula accepted", ()=>{
@@ -217,6 +281,16 @@ for (const kind of ["missing", "error"]) {
     }
   });
 }
+run("consumed Excel errors without formula metadata never become zero or blank", () => {
+  for (const [sheetName, address] of consumedFormulaCells) {
+    const wb = makeBaseWorkbook();
+    wb.Sheets[sheetName][address] = { t: "e", v: 7, w: "#DIV/0!" };
+    let message = "";
+    try { parseAuthoritativeRemWorkbook("synthetic.xlsx", "hash", wb); }
+    catch (error) { message = error.message; }
+    assert(message.includes(`${sheetName}!${address}`) && message.includes("Excel error value"), `Expected nonformula error rejection at ${sheetName}!${address}, got ${message}`);
+  }
+});
 run("footer labels remain ignored without parsing their payloads", () => {
   const wb = makeBaseWorkbook();
   XLSX.utils.sheet_add_aoa(wb.Sheets["Build Plan"], [["", "Total", "", "not an imported number"]], { origin: -1 });
@@ -228,6 +302,8 @@ run("footer labels remain ignored without parsing their payloads", () => {
 run("unconsumed cells in imported sheets do not block", () => {
   const wb = makeBaseWorkbook();
   wb.Sheets["Build Plan"].T2 = { t: "n", f: "1+1" }; // spacer, not a mapped field
+  parseAuthoritativeRemWorkbook("file.xlsx", "hash", wb);
+  wb.Sheets["Build Plan"].T2 = { t: "e", v: 7, w: "#DIV/0!" };
   parseAuthoritativeRemWorkbook("file.xlsx", "hash", wb);
 });
 run("Tracker actual retains established upper bound", () => {
@@ -250,6 +326,43 @@ run("synthetic XLSX roundtrip preserves accepted cached data and rejected missin
   catch (error) { message = error.message; }
   assert(message.includes("WIP Productivity VITROS WK 5!C3"), "serialized missing cache must fail with location: " + message);
 });
+
+if (process.argv.length > 2) {
+  const operationalSource = fs.readFileSync("src/lib/remOperationalWorkbook.ts", "utf8")
+    .replace(/^import \* as XLSX from "xlsx";$/m, "").replace(/^export /gm, "");
+  const operationalContext = vm.createContext({ XLSX, Date, console });
+  vm.runInContext(`${ts.transpileModule(operationalSource, { compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022 } }).outputText}\nthis.parse=parseRemOperationalWorkbook;`, operationalContext);
+  for (const path of process.argv.slice(2)) {
+    run("private full production parse rejects known source corruption without guessing actuals", () => {
+      const bytes = fs.readFileSync(path);
+      const sourceHash = crypto.createHash("sha256").update(bytes).digest("hex");
+      // Match BulkImport's production read option, including actual Date cells.
+      const workbook = XLSX.read(bytes, { type: "buffer", cellDates: true });
+      const wip = context.__api.latestVitrosWip(workbook);
+      const analyzerPreview = context.__api.parseAnalyzers(workbook.Sheets[wip.name], wip.name);
+      equal(analyzerPreview.analyzers.length, 56, "valid real WIP analyzers");
+      equal(analyzerPreview.skippedRows, 20, "18 labels and 2 explicit SCRAP rows excluded");
+      equal(analyzerPreview.warnings.length, 2, "both real SCRAP exclusions disclosed");
+      const buildPlan = context.__api.parseBuildPlan(workbook.Sheets["Build Plan"], "Build Plan", 2026);
+      const staff = context.__api.parseStaff(workbook.Sheets.Staff, "Staff", 2026);
+      const weeklyNotes = context.__api.parseWeeklyNotes(workbook.Sheets["Notes - Issues"], "Notes - Issues", 2026);
+      let message = ""; let operationalCalled = false;
+      try {
+        const core = parseAuthoritativeRemWorkbook("private-source.xlsx", sourceHash, workbook);
+        operationalCalled = true;
+        operationalContext.parse(workbook, core.planYear);
+      } catch (error) { message = error.message; }
+      assert(message.includes("Tracker!AD24") && message.includes("LVCC_ELECTROMETER:22") && message.includes("formula error cached value") && message.includes("#REF!"), `combined production path must expose the actual source error and its correct week: ${message}`);
+      assert(!operationalCalled, "UI does not proceed past corrupt core source");
+      equal(workbook.Sheets.Tracker.AD24.f, "SUM('Build Plan'!#REF!)", "source formula remains untouched");
+      // Independent operational parsing is useful diagnostic evidence, not a
+      // claim that the combined import can run against the corrupt source.
+      const operational = operationalContext.parse(workbook, 2026);
+      equal(operational.records.length, 25388, "operational rows remain available with cellDates true");
+      console.log(JSON.stringify({ sourceHash, combinedSourceStatus: "BLOCKED", blockingCell: "Tracker!AD24", reason: "cached #REF! from a broken Build Plan reference", coreSectionCounts: { analyzers: analyzerPreview.analyzers.length, skippedWipRows: analyzerPreview.skippedRows, scrapRows: analyzerPreview.warnings.length, buildPlan: buildPlan.length, staff: staff.length, weeklyNotes: weeklyNotes.length }, operationalCounts: operational.counts }));
+    });
+  }
+}
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
 if(failed>0) process.exit(1);

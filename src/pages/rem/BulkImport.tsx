@@ -7,6 +7,8 @@ import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
 import { useRemPlanningData } from "../../hooks/useRemPlanningData";
 import { browserSafeRead } from "../../lib/browserSafeRead";
+import { parseRemOperationalWorkbook } from "../../lib/remOperationalWorkbook";
+import { uploadRemOperationalRecords } from "../../lib/remOperationalUpload";
 import {
   parseAuthoritativeRemWorkbook,
   type AuthoritativeRemImportPreview,
@@ -31,6 +33,11 @@ type ImportResult = {
   staff?: SectionResult;
   weekly_notes?: SectionResult;
   targets?: SectionResult;
+  operational?: SectionResult;
+};
+
+type CompleteRemPreview = AuthoritativeRemImportPreview & {
+  operational: ReturnType<typeof parseRemOperationalWorkbook>;
 };
 
 async function sha256Hex(buffer: ArrayBuffer) {
@@ -46,6 +53,7 @@ function sectionSummary(result: ImportResult) {
     ["staff", result.staff],
     ["notes", result.weekly_notes],
     ["targets", result.targets],
+    ["operational records", result.operational],
   ];
   return sections
     .map(([label, section]) => `${section?.rows ?? 0} ${label}`)
@@ -57,9 +65,12 @@ export function BulkImport() {
   const planning = useRemPlanningData();
   const inputRef = useRef<HTMLInputElement>(null);
   const applyWorkbookImport = useAction(api.remWorkbookActions.applyAuthoritativeWorkbookImport);
-  const [preview, setPreview] = useState<AuthoritativeRemImportPreview | null>(null);
+  const beginOperationalImport = useAction(api.remOperationalImportActions.beginOperationalImport);
+  const stageOperationalImport = useAction(api.remOperationalImportActions.stageOperationalImport);
+  const [preview, setPreview] = useState<CompleteRemPreview | null>(null);
   const [summary, setSummary] = useState<RemSummary | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const refreshSummary = async () => {
@@ -79,6 +90,7 @@ export function BulkImport() {
     setBusy(true);
     setMessage(null);
     setPreview(null);
+    setProgress("Reading and validating workbook…");
     try {
       const lower = file.name.toLowerCase();
       if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
@@ -90,7 +102,15 @@ export function BulkImport() {
       const fileHash = await sha256Hex(buffer);
       const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
       const parsed = parseAuthoritativeRemWorkbook(file.name, fileHash, workbook);
-      setPreview(parsed);
+      const operational = parseRemOperationalWorkbook(workbook, parsed.planYear);
+      const importedSheets = [...new Set([...parsed.importedSheets, ...operational.importedSheets])];
+      setPreview({
+        ...parsed,
+        operational,
+        importedSheets,
+        recognizedSheets: importedSheets,
+        unimportedSheets: workbook.SheetNames.filter((name) => !importedSheets.includes(name)),
+      });
       setMessage({
         type: "ok",
         text: `Recognized ${parsed.planYear} REM workbook from its internal schema. Review all authoritative sections before applying.`,
@@ -99,6 +119,7 @@ export function BulkImport() {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Could not parse REM workbook" });
     } finally {
       setBusy(false);
+      setProgress(null);
       if (inputRef.current) inputRef.current.value = "";
     }
   };
@@ -108,6 +129,15 @@ export function BulkImport() {
     setBusy(true);
     setMessage(null);
     try {
+      const operationalImportId = preview.operational.records.length > 0
+        ? await uploadRemOperationalRecords(
+          { fileHash: preview.fileHash, planYear: preview.planYear, records: preview.operational.records },
+          beginOperationalImport,
+          stageOperationalImport,
+          (received, total) => setProgress(`Preparing workbook: ${received.toLocaleString()} of ${total.toLocaleString()} operational records uploaded`),
+        )
+        : undefined;
+      setProgress("Applying the complete workbook and confirming its receipt…");
       const result = await applyWorkbookImport({
         fileName: preview.fileName,
         fileHash: preview.fileHash,
@@ -120,7 +150,12 @@ export function BulkImport() {
         staff: preview.staff,
         weeklyNotes: preview.weeklyNotes,
         targets: preview.targets,
+        operationalImportId,
       }) as ImportResult;
+
+      if (operationalImportId && result.operational?.rows !== preview.operational.records.length) {
+        throw new Error("The complete import receipt could not be verified. Keep this preview and retry to recover the same workbook transaction.");
+      }
 
       await Promise.all([refreshSummary(), core.refresh(), planning.refresh()]);
       setMessage({
@@ -134,6 +169,7 @@ export function BulkImport() {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "REM update failed safely" });
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -147,6 +183,11 @@ export function BulkImport() {
     ["Staff rows", preview.staff.length],
     ["Weekly notes", preview.weeklyNotes.length],
     ["Annual targets", preview.targets.length],
+    ["Field-status records", preview.operational.records.filter((row) => row.dataset === "field_status").length],
+    ["LVCC review weeks", preview.operational.records.filter((row) => row.dataset === "lvcc_reviews").length],
+    ["Install-part lines", preview.operational.records.filter((row) => row.dataset === "install_parts").length],
+    ["Certified-part lines", preview.operational.records.filter((row) => row.dataset === "certified_parts").length],
+    ["Summary quarter targets", preview.operational.records.filter((row) => row.dataset === "summary_targets").length],
     ["Skipped non-production WIP rows", preview.skippedRows],
     ["Imported sheets", preview.importedSheets.join(", ")],
     ["Not imported sheets", preview.unimportedSheets.length ? preview.unimportedSheets.join(", ") : "—"],
@@ -180,7 +221,7 @@ export function BulkImport() {
         </div>
         <h3 className="text-base font-bold mb-1" style={{ color: theme.textPrimary }}>Upload REM Data</h3>
         <p className="text-sm mb-4" style={{ color: theme.textSecondary }}>
-          Analyzer WIP, Tracker, Build Plan, Staff, Notes and annual plan totals are parsed together and applied as one server transaction.
+          Preview planning, field status, staff, LVCC reviews and parts history together. Your full workbook is applied as one transaction after upload finishes.
         </p>
         <button
           type="button"
@@ -193,9 +234,11 @@ export function BulkImport() {
         </button>
       </WebCard>
 
+      {progress && <p role="status" aria-live="polite" className="text-sm" style={{ color: theme.textSecondary }}>{progress}</p>}
+
       {message && (
         <WebCard className="p-4">
-          <div className="flex items-start gap-3">
+          <div role={message.type === "error" ? "alert" : "status"} className="flex items-start gap-3">
             {message.type === "ok" ? <CheckCircle2 className="w-5 h-5 shrink-0" style={{ color: theme.statusOk }} /> : <XCircle className="w-5 h-5 shrink-0" style={{ color: "#ef4444" }} />}
             <p className="text-sm" style={{ color: message.type === "ok" ? theme.textPrimary : "#fca5a5" }}>{message.text}</p>
           </div>
@@ -216,11 +259,19 @@ export function BulkImport() {
               </div>
             ))}
           </div>
+          {preview.warnings.length + preview.operational.warnings.length > 0 && (
+            <div className="mb-4 rounded-lg border p-3 text-xs" style={{ borderColor: theme.cardBorder, color: theme.textSecondary }}>
+              <h4 className="mb-2 font-bold" style={{ color: theme.textPrimary }}>Workbook checks</h4>
+              <ul className="list-disc space-y-1 pl-4">
+                {[...preview.warnings, ...preview.operational.warnings].map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}
+              </ul>
+            </div>
+          )}
           <p className="text-[11px] mb-1" style={{ color: theme.textSecondary }}>
             Apply is authenticated, idempotent and atomic. Canonical keys update workbook-owned values or add missing rows; unrelated REM data is preserved and workbook omissions never delete existing records.
           </p>
           <p className="text-[11px] mb-3" style={{ color: theme.textSecondary }}>
-            Sheets listed as not imported (including Field Status VITROS when present) are ignored for this update and do not delete existing data. Only the imported sheets above contribute to the preview counts.
+            Sheets listed as not imported do not contribute records. Missing rows and blank workbook fields preserve existing operational values. Summary targets and Tracker plans remain separate measures.
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPreview(null)} disabled={busy} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold border disabled:opacity-50" style={{ borderColor: theme.cardBorder, color: theme.textSecondary }}>
