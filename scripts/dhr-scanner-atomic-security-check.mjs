@@ -4,6 +4,7 @@ const ui = fs.readFileSync("src/pages/inventory/DhrScanner.tsx", "utf8");
 const hook = fs.readFileSync("src/hooks/useServerActions.ts", "utf8");
 const server = fs.readFileSync("convex/dhrInventoryActions.ts", "utf8");
 const users = fs.readFileSync("convex/users.ts", "utf8");
+const identity = fs.readFileSync("convex/roleIdentity.ts", "utf8");
 const migration = fs.readFileSync("database/migrations/20260903_dhr_atomic_scan_transition.sql", "utf8");
 
 function requireTokens(source, label, tokens) {
@@ -50,9 +51,14 @@ requireTokens(hook, "DHR scanner hook", [
 ]);
 
 requireTokens(users, "DHR audit identity", [
+  'resolveServerIdentity(ctx, userId)',
+  'employeeId: identity?.employeeId ?? null',
+]);
+requireTokens(identity, "DHR provider identity", [
   '.withIndex("userIdAndProvider"',
   '.eq("provider", "vitros-role")',
-  'providerAccountId.startsWith("employee:")',
+  'accountId.startsWith("employee:")',
+  'employeeId: !shared',
 ]);
 requireTokens(server, "DHR server boundary", [
   'requireCapability(ctx, "inventory.write")',

@@ -67,6 +67,11 @@ jobs:
           if-no-files-found: ignore
       - name: Employee canonical login behavior
         run: node scripts/employee-login-check.mjs
+      - name: Role login UI and server access behavior
+        run: |
+          node scripts/role-login-behavior-check.mjs
+          node scripts/role-access-behavior-check.mjs
+          node scripts/runtime-env-sync-behavior.mjs
       - name: Employee retry identity behavior
         run: node scripts/employee-operation-identity-check.mjs
       - name: Employee account identity behavior

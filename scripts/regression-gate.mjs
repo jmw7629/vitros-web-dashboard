@@ -26,8 +26,8 @@ for (const required of [
   requireInvariant(sync.includes(`\"${required}\"`), `sync allowlist missing ${required}`);
 }
 requireInvariant(
-  sync.includes('"VITROS_SUPERUSER_PASSWORD_HASH"'),
-  "optional superuser hash allowlist missing",
+  !sync.includes('"VITROS_SUPERUSER_PASSWORD_HASH"'),
+  "Vercel builds must not overwrite Convex-managed auth secrets",
 );
 
 requireInvariant(sync.includes("spawnSync"), "sync must use a no-shell child process");

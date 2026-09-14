@@ -19,9 +19,9 @@ function forbidAll(source, label, tokens) {
 
 requireAll(roleLogin, "RoleLogin", [
   'useAuthActions',
-  'signIn("vitros-role", { role: "engineer", initials: normalized })',
+  'signIn("vitros-role", { role: "engineer" })',
   'signIn("vitros-role", { role: "superuser", secret: password })',
-  'Active employee initials',
+  'No password required',
 ]);
 forbidAll(roleLogin, "RoleLogin", [
   'password === "12345"',
@@ -43,6 +43,10 @@ requireAll(auth, "auth", [
   'VITROS_SUPERUSER_PASSWORD_HASH',
   'new Scrypt().verify(hash, secret)',
   'maxFailedAttempsPerHour: 6',
+  'internal.roleSignInLimiter.reserveSuperuserAttempt',
+  'internal.roleSignInLimiter.releaseSuccessfulSuperuserAttempt',
+  'SHARED_ENGINEER_ACCOUNT_ID',
+  'resolveServerIdentity(ctx, userId)',
   'args.provider.id !== "vitros-role"',
   'await ctx.db.patch(args.userId',
 ]);

@@ -13,7 +13,8 @@ const requiredNames = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "OPENAI_API_KEY",
 ];
-const optionalNames = ["VITROS_SUPERUSER_PASSWORD_HASH"];
+// Authentication secrets are managed directly in Convex. A stale build-time
+// copy must never overwrite a password/PIN rotation in the auth runtime.
 
 if (!env.CONVEX_DEPLOY_KEY) {
   console.error("CONVEX_RUNTIME_ENV_SYNC=FAIL missing CONVEX_DEPLOY_KEY");
@@ -29,11 +30,6 @@ for (const name of requiredNames) {
   }
   values.set(name, value);
 }
-for (const name of optionalNames) {
-  const value = env[name];
-  if (value) values.set(name, value);
-}
-
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 for (const [name, value] of values) {
   const result = spawnSync(npx, ["convex", "env", "set", "--prod", name], {

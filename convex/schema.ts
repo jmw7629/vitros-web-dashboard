@@ -26,6 +26,13 @@ export default defineSchema({
   ...authTables,
   users,
 
+  roleSignInLimits: defineTable({
+    key: v.literal("superuser"),
+    windowStartedAt: v.number(),
+    sequence: v.number(),
+    reservations: v.array(v.string()),
+  }).index("by_key", ["key"]),
+
   // Fail-closed authorization barrier for the cross-store employee lifecycle.
   // Supabase owns active status; pending/blocked here can only restrict access.
   employeeAccessBarriers: defineTable({

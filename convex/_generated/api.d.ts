@@ -47,6 +47,8 @@ import type * as remTargets from "../remTargets.js";
 import type * as remTracker from "../remTracker.js";
 import type * as remWeeklyNotes from "../remWeeklyNotes.js";
 import type * as remWorkbookActions from "../remWorkbookActions.js";
+import type * as roleIdentity from "../roleIdentity.js";
+import type * as roleSignInLimiter from "../roleSignInLimiter.js";
 import type * as sapStagingWorkflow from "../sapStagingWorkflow.js";
 import type * as seed from "../seed.js";
 import type * as seedTestUser from "../seedTestUser.js";
@@ -102,6 +104,8 @@ declare const fullApi: ApiFromModules<{
   remTracker: typeof remTracker;
   remWeeklyNotes: typeof remWeeklyNotes;
   remWorkbookActions: typeof remWorkbookActions;
+  roleIdentity: typeof roleIdentity;
+  roleSignInLimiter: typeof roleSignInLimiter;
   sapStagingWorkflow: typeof sapStagingWorkflow;
   seed: typeof seed;
   seedTestUser: typeof seedTestUser;
