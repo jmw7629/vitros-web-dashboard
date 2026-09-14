@@ -71,6 +71,7 @@ jobs:
         run: |
           node scripts/role-login-behavior-check.mjs
           node scripts/role-access-behavior-check.mjs
+          node scripts/runtime-env-sync-behavior.mjs
       - name: Employee retry identity behavior
         run: node scripts/employee-operation-identity-check.mjs
       - name: Employee account identity behavior
