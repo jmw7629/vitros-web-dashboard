@@ -4,10 +4,11 @@ import { convexAuth, createAccount, getAuthUserId } from "@convex-dev/auth/serve
 import { Scrypt } from "lucia";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
-import { internalAction, query } from "./_generated/server";
+import { internalAction, query, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { TestCredentials } from "./testAuth";
 import { assertEmployeeAccess } from "./employeeAccess";
+import { resolveServerIdentity, SHARED_ENGINEER_ACCOUNT_ID, SHARED_ENGINEER_NAME } from "./roleIdentity";
 import {
   ViktorSpacesEmail,
   ViktorSpacesPasswordReset,
@@ -92,10 +93,13 @@ async function resolveActiveEmployee(initials: string): Promise<RoleIdentity> {
   };
 }
 
-async function verifySuperuserSecret(secret: string): Promise<RoleIdentity> {
+async function verifySuperuserSecret(ctx: ActionCtx, secret: string): Promise<RoleIdentity> {
   if (!secret || secret.length > 256) throw new Error("Superuser verification failed");
   const hash = process.env.VITROS_SUPERUSER_PASSWORD_HASH;
   if (!hash) throw new Error("Superuser sign-in is not configured");
+
+  const reservation = await ctx.runMutation(internal.roleSignInLimiter.reserveSuperuserAttempt, {});
+  if (!reservation) throw new Error("Superuser verification failed");
 
   let valid = false;
   try {
@@ -104,6 +108,7 @@ async function verifySuperuserSecret(secret: string): Promise<RoleIdentity> {
     valid = false;
   }
   if (!valid) throw new Error("Superuser verification failed");
+  await ctx.runMutation(internal.roleSignInLimiter.releaseSuccessfulSuperuserAttempt, reservation);
   return { accountId: "superuser", name: "Superuser", role: "superuser" };
 }
 
@@ -120,11 +125,14 @@ export const validateRoleSelection = internalAction({
     name: v.string(),
     role: v.union(v.literal("engineer"), v.literal("superuser")),
   }),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     if (args.role === "engineer") {
+      if (args.initials === undefined) {
+        return { accountId: SHARED_ENGINEER_ACCOUNT_ID, name: SHARED_ENGINEER_NAME, role: "engineer" as const };
+      }
       return await resolveActiveEmployee(args.initials ?? "");
     }
-    return await verifySuperuserSecret(args.secret ?? "");
+    return await verifySuperuserSecret(ctx, args.secret ?? "");
   },
 });
 
@@ -136,6 +144,9 @@ function VitrosRoleCredentials() {
       if (requestedRole !== "engineer" && requestedRole !== "superuser") {
         throw new Error("Invalid VITROS role selection");
       }
+      if (params.initials !== undefined && typeof params.initials !== "string") {
+        throw new Error("Employee initials are invalid");
+      }
 
       const identity = await ctx.runAction(internal.auth.validateRoleSelection, {
         role: requestedRole,
@@ -145,7 +156,8 @@ function VitrosRoleCredentials() {
 
       // Only the server-resolved active canonical identity may initialize access.
       // Existing blocked/pending barriers are never cleared by signing in.
-      if (identity.role === "engineer") {
+      const sharedEngineer = identity.role === "engineer" && identity.accountId === SHARED_ENGINEER_ACCOUNT_ID;
+      if (identity.role === "engineer" && !sharedEngineer) {
         await ctx.runMutation(internal.employeeAccess.provisionVerifiedEmployeeAccess, {
           employeeId: identity.accountId.slice("employee:".length),
         });
@@ -157,7 +169,7 @@ function VitrosRoleCredentials() {
         profile: {
           name: identity.name,
           role: identity.role,
-          ...(identity.role === "engineer" ? { employeeId: identity.accountId.slice("employee:".length) } : {}),
+          ...(sharedEngineer ? { isAnonymous: true } : identity.role === "engineer" ? { employeeId: identity.accountId.slice("employee:".length) } : {}),
         },
         shouldLinkViaEmail: false,
         shouldLinkViaPhone: false,
@@ -186,8 +198,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
     }),
     ...(testAuthEnabled ? [TestCredentials] : []),
   ],
-  // Convex Auth applies this server-side to credential failures. It prevents
-  // brute-force attempts without relying on browser timers/localStorage.
+  // Built-in Password provider failures use this limiter. The custom role PIN
+  // verifier reserves its own atomic server-side attempt before Scrypt above.
   signIn: {
     maxFailedAttempsPerHour: 6,
   },
@@ -200,7 +212,11 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       }
       const name = typeof args.profile.name === "string" ? args.profile.name.trim() : "";
       const employeeId = args.profile.employeeId;
-      if (role === "engineer") {
+      const sharedEngineer = role === "engineer" && args.profile.isAnonymous === true;
+      if (sharedEngineer && (name !== SHARED_ENGINEER_NAME || employeeId !== undefined)) {
+        throw new Error("Invalid server-issued shared Engineer identity");
+      }
+      if (role === "engineer" && !sharedEngineer) {
         if (typeof employeeId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeId)) {
           throw new Error("Invalid server-issued employee identity");
         }
@@ -208,7 +224,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       }
       await ctx.db.patch(args.userId, {
         role,
-        ...(role === "engineer" ? { employeeId: employeeId as string } : {}),
+        ...(sharedEngineer ? { employeeId: undefined } : role === "engineer" ? { employeeId: employeeId as string } : {}),
         ...(name ? { name } : {}),
       });
     },
@@ -217,16 +233,17 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 
 export const currentUser = query({
   args: {},
+  returns: v.union(v.null(), v.object({ _id: v.id("users"), name: v.union(v.string(), v.null()), email: v.union(v.string(), v.null()), role: v.string() })),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) return null;
-    const user = await ctx.db.get(userId);
-    if (!user) return null;
+    const identity = await resolveServerIdentity(ctx, userId);
+    if (!identity) return null;
     return {
-      _id: user._id,
-      name: user.name ?? null,
-      email: user.email ?? null,
-      role: user.role ?? "viewer",
+      _id: identity.user._id,
+      name: identity.name,
+      email: identity.user.email ?? null,
+      role: identity.role,
     };
   },
 });

@@ -28,6 +28,7 @@ vm.runInNewContext(source, {
     if (path === "@convex-dev/auth/providers/ConvexCredentials") return { ConvexCredentials: x => x };
     if (path === "lucia") return { Scrypt: class {} };
     if (path === "./testAuth" || path === "./ViktorSpacesEmail") return {};
+    if (path === "./roleIdentity") return { SHARED_ENGINEER_ACCOUNT_ID: "engineer:open-v1", SHARED_ENGINEER_NAME: "Engineer (shared access)" };
     if (path === "./employeeAccess") return { assertEmployeeAccess: async (_ctx, id) => { accessChecks.push(id); if (accessDenied) throw new Error("Employee access blocked"); } };
     throw new Error(`Unexpected dependency ${path}`);
   },

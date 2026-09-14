@@ -1,12 +1,13 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { resolveServerIdentity } from "./roleIdentity";
 
 export const getUserRole = internalQuery({
   args: { userId: v.id("users") },
+  returns: v.string(),
   handler: async (ctx, { userId }) => {
-    const user = await ctx.db.get(userId);
-    return user?.role ?? "viewer";
+    return (await resolveServerIdentity(ctx, userId))?.role ?? "viewer";
   },
 });
 
@@ -22,20 +23,10 @@ export const getUserAuditIdentity = internalQuery({
     employeeId: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, { userId }) => {
-    const user = await ctx.db.get(userId);
+    const identity = await resolveServerIdentity(ctx, userId);
     let role: "superuser" | "engineer" | "viewer" = "viewer";
-    if (user?.role === "superuser" || user?.role === "engineer") role = user.role;
-
-    const account = await ctx.db
-      .query("authAccounts")
-      .withIndex("userIdAndProvider", (q) => q.eq("userId", userId).eq("provider", "vitros-role"))
-      .unique();
-    const providerAccountId = account?.providerAccountId ?? "";
-    const employeeId = providerAccountId.startsWith("employee:")
-      ? providerAccountId.slice("employee:".length)
-      : null;
-
-    return { name: user?.name?.trim() || null, role, employeeId };
+    if (identity?.role === "superuser" || identity?.role === "engineer") role = identity.role;
+    return { name: identity?.name ?? null, role, employeeId: identity?.employeeId ?? null };
   },
 });
 

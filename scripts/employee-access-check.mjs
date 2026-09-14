@@ -42,6 +42,7 @@ const internal = { employeeAccess: { assertUserAccess: "access" }, users: { getU
 const guard = load("convex/authGuard.ts", {
   "@convex-dev/auth/server": { getAuthUserId: async () => actor },
   "./employeeAccess": access, "./_generated/api": { internal },
+  "./roleIdentity": load("convex/roleIdentity.ts", {}),
 });
 const actionCtx = { async runQuery(ref, args) {
   if (ref === "access") return access.assertUserAccess.handler(ctx, args);

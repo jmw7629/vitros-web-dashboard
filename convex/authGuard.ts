@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { assertUserEmployeeAccess } from "./employeeAccess";
 import { internal } from "./_generated/api";
+import { resolveServerIdentity } from "./roleIdentity";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -49,8 +50,7 @@ export async function requireAuth(ctx: AuthCtx): Promise<Id<"users">> {
 }
 
 async function getUserRole(ctx: DbCtx, userId: Id<"users">): Promise<string> {
-  const user = await ctx.db.get(userId);
-  return user?.role ?? "viewer";
+  return (await resolveServerIdentity(ctx, userId))?.role ?? "viewer";
 }
 
 export async function requireCapability(

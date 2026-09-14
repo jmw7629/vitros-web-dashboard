@@ -6,7 +6,7 @@ const required = [
   "const caps = ROLE_CAPABILITIES[role];",
   "if (!caps || !caps.includes(capability))",
   "await requireAuth(ctx)",
-  'return user?.role ?? "viewer";',
+  'return (await resolveServerIdentity(ctx, userId))?.role ?? "viewer";',
 ];
 
 for (const fragment of required) {
