@@ -58,6 +58,17 @@ jobs:
         env:
           DHR_BROWSER_ARTIFACT_DIR: .verification/dhr-browser
         run: node scripts/dhr-document-browser-check.mjs
+      - name: Native dashboard desktop and mobile component verification
+        env:
+          DASHBOARD_BROWSER_ARTIFACT_DIR: .verification/dashboard-browser
+        run: node scripts/dashboard-browser-acceptance.mjs
+      - name: Upload synthetic dashboard browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-browser
+          path: .verification/dashboard-browser
+          if-no-files-found: ignore
       - name: Upload synthetic DHR browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,6 +83,18 @@ jobs:
           node scripts/role-login-behavior-check.mjs
           node scripts/role-access-behavior-check.mjs
           node scripts/runtime-env-sync-behavior.mjs
+      - name: Config editor actual component behavior
+        run: node scripts/config-editor-behavior-check.mjs
+      - name: Customization server handlers and dashboard reporting
+        env:
+          TZ: America/New_York
+        run: |
+          node scripts/customization-handler-test.mjs
+          node scripts/period-helper-test.mjs
+          node scripts/inventory-period-action-test.mjs
+          node scripts/dashboard-role-routing-test.mjs
+          node scripts/rem-period-report-test.mjs
+          node scripts/dashboard-component-acceptance.mjs
       - name: Employee retry identity behavior
         run: node scripts/employee-operation-identity-check.mjs
       - name: Employee account identity behavior

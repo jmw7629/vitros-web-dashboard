@@ -11,10 +11,12 @@ if (env.VERCEL_ENV !== "production") {
 const requiredNames = [
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "OPENAI_API_KEY",
 ];
 // Authentication secrets are managed directly in Convex. A stale build-time
 // copy must never overwrite a password/PIN rotation in the auth runtime.
+// AI credentials are also managed in the runtime with their provider endpoint.
+// A build-time key may belong to a different provider and must not silently
+// replace the OpenAI credential. Dashboard deployments synchronize only storage.
 
 if (!env.CONVEX_DEPLOY_KEY) {
   console.error("CONVEX_RUNTIME_ENV_SYNC=FAIL missing CONVEX_DEPLOY_KEY");

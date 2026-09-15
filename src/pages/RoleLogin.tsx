@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useRole } from "../hooks/useRole";
+import { useConfig } from "../hooks/useConfig";
+import { getRoleDefaultRoute, type RoleName } from "../lib/dashboardRoutes";
 import { Box, Shield, Wrench } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
 
@@ -9,6 +11,7 @@ export function RoleLogin() {
   const { setRole } = useRole();
   const { signIn } = useAuthActions();
   const navigate = useNavigate();
+  const { publishedValues } = useConfig();
   const engineerButtonRef = useRef<HTMLButtonElement>(null);
   const superuserButtonRef = useRef<HTMLButtonElement>(null);
   const submissionPending = useRef(false);
@@ -22,7 +25,8 @@ export function RoleLogin() {
     // This is only a presentation hint. useRole authorizes exclusively from the
     // authenticated server user returned by Convex Auth.
     setRole(role);
-    navigate("/dashboard");
+    const target = getRoleDefaultRoute(role as RoleName, publishedValues);
+    navigate(target);
   };
 
   const handleEngineer = async () => {

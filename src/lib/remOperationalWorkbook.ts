@@ -258,7 +258,7 @@ export function parseRemOperationalWorkbook(workbook: XLSX.WorkBook, planYear: n
         const raw = read.value(label);
         if (!blank(raw)) {
           data[rawField] = sourceValue(raw);
-          if (norm(raw) === "tbd") result.warnings.push(`${read.context(label)}: source date is TBD; normalized date remains unavailable.`);
+          if (norm(raw) === "tbd" || raw === 0) result.warnings.push(`${read.context(label)}: source date is ${String(raw)}; normalized date remains unavailable.`);
           else data[field] = dateParts(raw, read.context(label)).day;
         }
       }

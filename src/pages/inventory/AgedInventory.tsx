@@ -1,19 +1,26 @@
 import { useMemo, useState } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
+import { useConfig } from "../../hooks/useConfig";
 import { WebCard, DashCard, StatusBadge, theme } from "../../components/vitros/SharedComponents";
 
-const BUCKETS = [
+const FIXED_BUCKETS = [
   { label: "0-30d", min: 0, max: 30, color: "#22c55e" },
   { label: "30-60d", min: 30, max: 60, color: "#3b82f6" },
   { label: "60-90d", min: 60, max: 90, color: "#f59e0b" },
   { label: "90-180d", min: 90, max: 180, color: "#ef4444" },
   { label: "180-365d", min: 180, max: 365, color: "#dc2626" },
-  { label: "365+d", min: 365, max: 99999, color: "#7f1d1d" },
-];
+] as const;
 
 export function AgedInventory() {
   const data = useConvexData();
+  const { get } = useConfig();
+  const agedThreshold = get<number>("thresholds.agedInventoryDays");
   const [selectedBucket, setSelectedBucket] = useState<number | null>(null);
+
+  const BUCKETS = useMemo(() => [
+    ...FIXED_BUCKETS,
+    { label: `${agedThreshold}+d`, min: agedThreshold, max: 99999, color: "#7f1d1d" },
+  ], [agedThreshold]);
 
   const aged = useMemo(() => {
     const now = Date.now();
@@ -23,12 +30,12 @@ export function AgedInventory() {
       const bucket = BUCKETS.findIndex(b => daysSince >= b.min && daysSince < b.max);
       return { ...p, daysSince, bucket: bucket >= 0 ? bucket : BUCKETS.length - 1 };
     });
-  }, [data.parts, data.transactions]);
+  }, [data.parts, data.transactions, BUCKETS]);
 
-  const bucketCounts = BUCKETS.map((b, i) => ({
+  const bucketCounts = useMemo(() => BUCKETS.map((b, i) => ({
     ...b,
     count: aged.filter(p => p.bucket === i).length,
-  }));
+  })), [BUCKETS, aged]);
 
   const filtered = selectedBucket !== null ? aged.filter(p => p.bucket === selectedBucket) : aged;
 

@@ -1,6 +1,9 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { useTheme } from "../contexts/ThemeContext";
+import { useConfig } from "../hooks/useConfig";
+import { useRole } from "../hooks/useRole";
+import { getRoleDefaultRoute, type RoleName } from "../lib/dashboardRoutes";
 
 interface TopNavBarProps {
   onMenuToggle: () => void;
@@ -10,7 +13,20 @@ export function TopNavBar({ onMenuToggle }: TopNavBarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { palette } = useTheme();
+  const { get, publishedValues } = useConfig();
+  const { role } = useRole();
+  const appTitle = get<string>("brand.appTitle");
   const isRem = location.pathname.startsWith("/rem");
+  const remDefaultView = get<string>("rem.defaultView");
+
+  const remViewPaths: Record<string, string> = {
+    dashboard: "/rem/dashboard",
+    kanban: "/rem/kanban",
+    gantt: "/rem/gantt",
+    morning: "/rem/morning-snapshot",
+  };
+
+  const inventoryDefaultRoute = getRoleDefaultRoute(role as RoleName, publishedValues);
 
   return (
     <header className="fixed top-0 left-0 right-0 z-40 flex items-center h-[48px] px-3 border-b"
@@ -21,7 +37,7 @@ export function TopNavBar({ onMenuToggle }: TopNavBarProps) {
           style={{ background: `linear-gradient(135deg, ${palette.accentBlue}, ${palette.iconPurple})` }}>
           V
         </div>
-        <span className="font-bold text-sm tracking-wide" style={{ color: palette.textPrimary }}>VITROS</span>
+        <span className="font-bold text-sm tracking-wide" style={{ color: palette.textPrimary }}>{appTitle}</span>
       </button>
 
       {/* Tabs */}
@@ -29,13 +45,13 @@ export function TopNavBar({ onMenuToggle }: TopNavBarProps) {
         <TabButton
           label="Inventory"
           active={!isRem}
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(inventoryDefaultRoute)}
           palette={palette}
         />
         <TabButton
           label="REM Tracker"
           active={isRem}
-          onClick={() => navigate("/rem/dashboard")}
+          onClick={() => navigate(remViewPaths[remDefaultView] || "/rem/dashboard")}
           palette={palette}
         />
       </nav>

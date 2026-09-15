@@ -1,13 +1,31 @@
 import { useMemo, useState } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
-import { WebCard, StatusBadge, theme, modeColor, formatDate, downloadCSV } from "../../components/vitros/SharedComponents";
+import { useConfig } from "../../hooks/useConfig";
+import { useFormatDate } from "../../hooks/useFormatters";
+import { WebCard, StatusBadge, theme, modeColor, downloadCSV } from "../../components/vitros/SharedComponents";
 import { Search, Download, Filter, X } from "lucide-react";
+
+import type { TransactionSearchFieldConfig } from "../../lib/configRegistry";
+
+const FIELD_LABELS: Record<string, string> = {
+  mode: "Mode",
+  partNumber: "Part #",
+  user: "User",
+  analyzerSerial: "Analyzer S/N",
+  qty: "Qty",
+  qtyChange: "Qty Change",
+  timestamp: "Date",
+};
 
 export function TransactionSearch() {
   const data = useConvexData();
+  const { getTransactionSearchFields } = useConfig();
+  const formatDate = useFormatDate();
   const [search, setSearch] = useState("");
   const [modeFilter, setModeFilter] = useState<string | null>(null);
   const [userFilter, setUserFilter] = useState<string | null>(null);
+
+  const fields = useMemo(() => getTransactionSearchFields(), [getTransactionSearchFields]);
 
   const modes = ["OUT", "IN", "ADJUST", "RECEIVE"];
 
@@ -26,6 +44,21 @@ export function TransactionSearch() {
     if (userFilter) result = result.filter(t => t.user === userFilter);
     return result;
   }, [data.transactions, search, modeFilter, userFilter]);
+
+  const FIELD_RENDERERS: Record<string, (tx: any) => React.ReactNode> = useMemo(() => ({
+    mode: (tx) => <StatusBadge text={tx.mode} color={modeColor(tx.mode)} />,
+    partNumber: (tx) => <div className="text-sm font-medium" style={{ color: theme.textPrimary }}>{tx.partNumber}</div>,
+    user: (tx) => <span className="text-[10px]" style={{ color: theme.textMuted }}>{tx.user}</span>,
+    analyzerSerial: (tx) => <span className="text-[10px]" style={{ color: theme.textMuted }}>{tx.analyzerSerial || "—"}</span>,
+    qty: (tx) => <span className="text-sm font-bold" style={{ color: tx.qty > 0 ? theme.statusOk : theme.statusOut }}>{tx.qty > 0 ? "+" + tx.qty : tx.qty}</span>,
+    qtyChange: (tx) => <span className="text-sm" style={{ color: theme.textSecondary }}>{tx.qtyBefore}→{tx.qtyAfter}</span>,
+    timestamp: (tx) => <div className="text-[9px]" style={{ color: theme.textMuted }}>{formatDate(tx.timestamp)}</div>,
+  }), [formatDate]);
+
+  const renderField = (tx: any, field: TransactionSearchFieldConfig) => {
+    const renderer = FIELD_RENDERERS[field.key];
+    return renderer ? renderer(tx) : null;
+  };
 
   return (
     <div className="space-y-4">
@@ -73,19 +106,11 @@ export function TransactionSearch() {
         <div className="divide-y max-h-[60vh] overflow-y-auto" style={{ borderColor: theme.cardBorder }}>
           {filtered.slice(0, 100).map((tx, i) => (
             <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-              <StatusBadge text={tx.mode} color={modeColor(tx.mode)} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium" style={{ color: theme.textPrimary }}>{tx.partNumber}</div>
-                <div className="text-[10px]" style={{ color: theme.textMuted }}>
-                  {tx.user} {tx.analyzerSerial ? "· S/N: " + tx.analyzerSerial : ""} · {tx.qtyBefore}→{tx.qtyAfter}
+              {fields.map((field) => (
+                <div key={field.key} className={field.key === "mode" || field.key === "partNumber" ? "flex-shrink-0" : "flex-1 min-w-0"}>
+                  {renderField(tx, field)}
                 </div>
-              </div>
-              <div className="text-right">
-                <span className="text-sm font-bold" style={{ color: tx.qty > 0 ? theme.statusOk : theme.statusOut }}>
-                  {tx.qty > 0 ? "+" + tx.qty : tx.qty}
-                </span>
-                <div className="text-[9px]" style={{ color: theme.textMuted }}>{formatDate(tx.timestamp)}</div>
-              </div>
+              ))}
             </div>
           ))}
         </div>

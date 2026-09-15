@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
+import { requireFeatureEnabled } from "./configMutations";
 
 // Server-authoritative Cycle Count boundary; browser and iOS callers retain their existing wire shapes.
 const MAX_SCHEDULE_NAME = 160;
@@ -130,6 +131,7 @@ export const createSchedule = mutation({
   },
   handler: async (ctx, args) => {
     await requireCapability(ctx, "inventory.write");
+    await requireFeatureEnabled(ctx, "features.cycleCountEnabled", "Cycle count");
 
     const due = args.nextDue ?? args.startDate ?? Date.now();
     if (!Number.isFinite(due) || due < 0) throw new Error("Invalid cycle count due date");
@@ -162,6 +164,7 @@ export const updateSchedule = mutation({
   },
   handler: async (ctx, args) => {
     await requireCapability(ctx, "inventory.write");
+    await requireFeatureEnabled(ctx, "features.cycleCountEnabled", "Cycle count");
 
     const existing = await ctx.db.get(args.id);
     if (!existing) throw new Error("Cycle count schedule not found");
@@ -188,6 +191,7 @@ export const deleteSchedule = mutation({
   args: { id: v.id("cycleSchedules") },
   handler: async (ctx, { id }) => {
     await requireCapability(ctx, "inventory.admin");
+    await requireFeatureEnabled(ctx, "features.cycleCountEnabled", "Cycle count");
     const existing = await ctx.db.get(id);
     if (!existing) throw new Error("Cycle count schedule not found");
     await ctx.db.delete(id);
@@ -336,6 +340,7 @@ export const submitCount = mutation({
   args: resultArgs,
   handler: async (ctx, args) => {
     const userId = await requireCapability(ctx, "inventory.write");
+    await requireFeatureEnabled(ctx, "features.cycleCountEnabled", "Cycle count");
     const actorName = await resolveServerActor(ctx, userId);
     return await submitCountHandler(ctx, args, actorName);
   },
@@ -345,6 +350,7 @@ export const createResult = mutation({
   args: resultArgs,
   handler: async (ctx, args) => {
     const userId = await requireCapability(ctx, "inventory.write");
+    await requireFeatureEnabled(ctx, "features.cycleCountEnabled", "Cycle count");
     const actorName = await resolveServerActor(ctx, userId);
     return await submitCountHandler(ctx, args, actorName);
   },
@@ -354,6 +360,7 @@ export const deleteResult = mutation({
   args: { id: v.id("cycleResults") },
   handler: async (ctx, { id }) => {
     await requireCapability(ctx, "inventory.admin");
+    await requireFeatureEnabled(ctx, "features.cycleCountEnabled", "Cycle count");
     const existing = await ctx.db.get(id);
     if (!existing) throw new Error("Cycle count result not found");
     await ctx.db.delete(id);

@@ -1,8 +1,12 @@
 import { useState, useMemo, useCallback } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
 import { useRole } from "../../hooks/useRole";
-import { WebCard, StatusBadge, theme, statusColor, formatDate, modeColor } from "../../components/vitros/SharedComponents";
+import { useConfig } from "../../hooks/useConfig";
+import { useFormatDate } from "../../hooks/useFormatters";
+import { WebCard, StatusBadge, theme, statusColor, modeColor } from "../../components/vitros/SharedComponents";
 import { Search, X, ChevronUp, ChevronDown, ArrowLeft, Plus, Pencil, Trash2, Download, Check, Globe, Bookmark, AlertTriangle, Loader2 } from "lucide-react";
+
+import type { StockSummaryColumnConfig, PartMasterFieldConfig } from "../../lib/configRegistry";
 
 type SortCol = "partNumber" | "description" | "type" | "qoh" | "minQty" | "maxQty" | "status";
 type ViewMode = "all" | "plan";
@@ -66,6 +70,8 @@ function exportToXLSX(parts: any[]) {
 export function StockSummary() {
   const data = useConvexData();
   const { role } = useRole();
+  const { getStockSummaryColumns, get } = useConfig();
+  const formatDate = useFormatDate();
   const isAdmin = role === "superuser";
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -75,12 +81,16 @@ export function StockSummary() {
   const [selectedPart, setSelectedPart] = useState<any>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("all");
 
+  const columns = useMemo(() => getStockSummaryColumns(), [getStockSummaryColumns]);
+  const partMasterFields = useMemo(() => get<PartMasterFieldConfig[]>("forms.partMasterFields") ?? [], [get]);
+  const defaultPartType = useMemo(() => get<string>("defaults.partType") ?? "Required", [get]);
+
   /* ── Edit / Delete / Add states ──────────────────────────── */
   const [editPart, setEditPart] = useState<any>(null);
   const [editForm, setEditForm] = useState({ partNumber: "", description: "", type: "", qoh: "", minQty: "", maxQty: "", onPlan: false, binLocation: "", module: "" });
   const [confirmDeletePart, setConfirmDeletePart] = useState<any>(null);
   const [addPartOpen, setAddPartOpen] = useState(false);
-  const [addForm, setAddForm] = useState({ partNumber: "", description: "", type: "Required", qoh: "", minQty: "", maxQty: "", onPlan: false });
+  const [addForm, setAddForm] = useState({ partNumber: "", description: "", type: defaultPartType, qoh: "", minQty: "", maxQty: "", onPlan: false });
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -150,7 +160,7 @@ export function StockSummary() {
         onPlan: addForm.onPlan,
       });
       setAddPartOpen(false);
-      setAddForm({ partNumber: "", description: "", type: "Required", qoh: "", minQty: "", maxQty: "", onPlan: false });
+      setAddForm({ partNumber: "", description: "", type: defaultPartType, qoh: "", minQty: "", maxQty: "", onPlan: false });
     } catch (e: any) {
       setActionError(e?.message || "Failed to add part");
     }
@@ -482,7 +492,19 @@ export function StockSummary() {
               {/* Table Header — sticky at top */}
               <div className="grid items-center px-4 py-3 text-xs font-semibold border-b"
                 style={{
-                  gridTemplateColumns: "80px 1fr 100px 55px 45px 45px 80px 45px 65px",
+                  gridTemplateColumns: columns.map(c => {
+                    if (c.key === "partNumber") return "80px";
+                    if (c.key === "description") return "1fr";
+                    if (c.key === "type") return "100px";
+                    if (c.key === "qoh") return "55px";
+                    if (c.key === "minQty") return "45px";
+                    if (c.key === "maxQty") return "45px";
+                    if (c.key === "status") return "80px";
+                    if (c.key === "onPlan") return "45px";
+                    if (c.key === "binLocation") return "80px";
+                    if (c.key === "module") return "80px";
+                    return "80px";
+                  }).join(" ") + " 65px",
                   backgroundColor: "#0f172a",
                   borderColor: theme.cardBorder,
                   color: theme.textSecondary,
@@ -490,14 +512,22 @@ export function StockSummary() {
                   top: 0,
                   zIndex: 10,
                 }}>
-                <TableHeader label="Part #" col="partNumber" sortCol={sortCol} sortAsc={sortAsc} onSort={handleSort} />
-                <TableHeader label="Description" col="description" sortCol={sortCol} sortAsc={sortAsc} onSort={handleSort} />
-                <TableHeader label="Type" col="type" sortCol={sortCol} sortAsc={sortAsc} onSort={handleSort} />
-                <TableHeader label="QOH" col="qoh" sortCol={sortCol} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <TableHeader label="Min" col="minQty" sortCol={sortCol} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <TableHeader label="Max" col="maxQty" sortCol={sortCol} sortAsc={sortAsc} onSort={handleSort} align="right" />
-                <span className="text-center">Status</span>
-                <span className="text-center">Plan</span>
+                {columns.map((col) => (
+                  <div key={col.key} className={col.key === "qoh" || col.key === "minQty" || col.key === "maxQty" ? "text-right" : ""}>
+                    {["partNumber", "description", "type", "qoh", "minQty", "maxQty"].includes(col.key) ? (
+                      <TableHeader
+                        label={col.label}
+                        col={col.key as SortCol}
+                        sortCol={sortCol}
+                        sortAsc={sortAsc}
+                        onSort={handleSort}
+                        align={["qoh", "minQty", "maxQty"].includes(col.key) ? "right" : "left"}
+                      />
+                    ) : (
+                      <span className="text-center">{col.label}</span>
+                    )}
+                  </div>
+                ))}
                 <span className="text-center">Actions</span>
               </div>
 
@@ -512,49 +542,106 @@ export function StockSummary() {
                       key={p._id}
                       className="grid items-center px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer"
                       style={{
-                        gridTemplateColumns: "80px 1fr 100px 55px 45px 45px 80px 45px 65px",
+                        gridTemplateColumns: columns.map(c => {
+                          if (c.key === "partNumber") return "80px";
+                          if (c.key === "description") return "1fr";
+                          if (c.key === "type") return "100px";
+                          if (c.key === "qoh") return "55px";
+                          if (c.key === "minQty") return "45px";
+                          if (c.key === "maxQty") return "45px";
+                          if (c.key === "status") return "80px";
+                          if (c.key === "onPlan") return "45px";
+                          if (c.key === "binLocation") return "80px";
+                          if (c.key === "module") return "80px";
+                          return "80px";
+                        }).join(" ") + " 65px",
                       }}
                       onClick={() => setSelectedPart(p)}
                     >
-                      {/* Part # */}
-                      <span className="text-sm font-medium" style={{ color: "#3b82f6" }}>{p.partNumber}</span>
-                      {/* Description */}
-                      <span className="text-sm truncate pr-2" style={{ color: theme.textPrimary }}>{p.description}</span>
-                      {/* Type — always with colored box */}
-                      <span>
-                        <span
-                          className="inline-block px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap"
-                          style={{ backgroundColor: tStyle.bg, color: tStyle.text }}
-                        >
-                          {nType}
-                        </span>
-                      </span>
-                      {/* QOH */}
-                      <span className="text-sm font-medium text-right" style={{ color: theme.textPrimary }}>{p.qoh}</span>
-                      {/* Min */}
-                      <span className="text-sm text-right" style={{ color: theme.textSecondary }}>{p.minQty}</span>
-                      {/* Max */}
-                      <span className="text-sm text-right" style={{ color: theme.textSecondary }}>{p.maxQty}</span>
-                      {/* Status */}
-                      <span className="text-center">
-                        <span
-                          className="px-2 py-0.5 rounded text-[11px] font-bold inline-block"
-                          style={{
-                            backgroundColor: refStatusColor(cs) + "22",
-                            color: refStatusColor(cs),
-                          }}
-                        >
-                          {cs}
-                        </span>
-                      </span>
-                      {/* Plan */}
-                      <span className="text-center">
-                        {p.onPlan ? (
-                          <Check className="w-4 h-4 inline-block" style={{ color: "#22c55e" }} />
-                        ) : (
-                          <span style={{ color: theme.textMuted }}>—</span>
-                        )}
-                      </span>
+                      {columns.map((col) => {
+                        const alignRight = ["qoh", "minQty", "maxQty"].includes(col.key);
+                        switch (col.key) {
+                          case "partNumber":
+                            return (
+                              <span key={col.key} className="text-sm font-medium" style={{ color: "#3b82f6", textAlign: alignRight ? "right" : "left" }}>
+                                {p.partNumber}
+                              </span>
+                            );
+                          case "description":
+                            return (
+                              <span key={col.key} className="text-sm truncate pr-2" style={{ color: theme.textPrimary }}>
+                                {p.description}
+                              </span>
+                            );
+                          case "type":
+                            return (
+                              <span key={col.key}>
+                                <span
+                                  className="inline-block px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap"
+                                  style={{ backgroundColor: tStyle.bg, color: tStyle.text }}
+                                >
+                                  {nType}
+                                </span>
+                              </span>
+                            );
+                          case "qoh":
+                            return (
+                              <span key={col.key} className="text-sm font-medium text-right" style={{ color: theme.textPrimary }}>
+                                {p.qoh}
+                              </span>
+                            );
+                          case "minQty":
+                            return (
+                              <span key={col.key} className="text-sm text-right" style={{ color: theme.textSecondary }}>
+                                {p.minQty}
+                              </span>
+                            );
+                          case "maxQty":
+                            return (
+                              <span key={col.key} className="text-sm text-right" style={{ color: theme.textSecondary }}>
+                                {p.maxQty}
+                              </span>
+                            );
+                          case "status":
+                            return (
+                              <span key={col.key} className="text-center">
+                                <span
+                                  className="px-2 py-0.5 rounded text-[11px] font-bold inline-block"
+                                  style={{
+                                    backgroundColor: refStatusColor(cs) + "22",
+                                    color: refStatusColor(cs),
+                                  }}
+                                >
+                                  {cs}
+                                </span>
+                              </span>
+                            );
+                          case "onPlan":
+                            return (
+                              <span key={col.key} className="text-center">
+                                {p.onPlan ? (
+                                  <Check className="w-4 h-4 inline-block" style={{ color: "#22c55e" }} />
+                                ) : (
+                                  <span style={{ color: theme.textMuted }}>—</span>
+                                )}
+                              </span>
+                            );
+                          case "binLocation":
+                            return (
+                              <span key={col.key} className="text-sm text-center" style={{ color: theme.textSecondary }}>
+                                {p.binLocation || "—"}
+                              </span>
+                            );
+                          case "module":
+                            return (
+                              <span key={col.key} className="text-sm text-center" style={{ color: theme.textSecondary }}>
+                                {p.module || "—"}
+                              </span>
+                            );
+                          default:
+                            return <span key={col.key} className="text-center">—</span>;
+                        }
+                      })}
                       {/* Actions */}
                       <span className="flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
                         {isAdmin ? (
@@ -579,9 +666,9 @@ export function StockSummary() {
         </WebCard>
       )}
 
-      {/* ═══════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════════════
           EDIT PART MODAL
-          ═══════════════════════════════════════════════════════ */}
+          ═════════════════════════════════════════════════════════════ */}
       {editPart && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setEditPart(null)}>
           <div className="w-full max-w-md mx-4 rounded-2xl border shadow-2xl" style={{ backgroundColor: "#111827", borderColor: theme.cardBorder }}
@@ -596,34 +683,54 @@ export function StockSummary() {
                   <AlertTriangle className="w-3 h-3 flex-shrink-0" /> {actionError}
                 </div>
               )}
-              <EditField label="Part Number" value={editForm.partNumber} disabled />
-              <EditField label="Description" value={editForm.description} onChange={v => setEditForm(f => ({ ...f, description: v }))} />
-              <div>
-                <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Type</label>
-                <select value={editForm.type} onChange={e => setEditForm(f => ({ ...f, type: e.target.value }))}
-                  className="w-full mt-1 px-3 py-2 rounded-xl text-sm outline-none border appearance-none"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#0f172a", color: theme.textPrimary }}>
-                  <option value="Required">Required</option>
-                  <option value="Optional">Optional</option>
-                  <option value="Not on BOM">Not on BOM</option>
-                  <option value="Consumable">Consumable</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <EditField label="QOH" value={editForm.qoh} type="number" onChange={v => setEditForm(f => ({ ...f, qoh: v }))} />
-                <EditField label="Min" value={editForm.minQty} type="number" onChange={v => setEditForm(f => ({ ...f, minQty: v }))} />
-                <EditField label="Max" value={editForm.maxQty} type="number" onChange={v => setEditForm(f => ({ ...f, maxQty: v }))} />
-              </div>
-              <EditField label="Bin Location" value={editForm.binLocation} onChange={v => setEditForm(f => ({ ...f, binLocation: v }))} />
-              <EditField label="Module" value={editForm.module} onChange={v => setEditForm(f => ({ ...f, module: v }))} />
-              <div className="flex items-center gap-2">
-                <button onClick={() => setEditForm(f => ({ ...f, onPlan: !f.onPlan }))}
-                  className="w-5 h-5 rounded border flex items-center justify-center"
-                  style={{ borderColor: editForm.onPlan ? "#6366f1" : theme.cardBorder, backgroundColor: editForm.onPlan ? "#6366f1" : "transparent" }}>
-                  {editForm.onPlan && <Check className="w-3 h-3 text-white" />}
-                </button>
-                <span className="text-xs" style={{ color: theme.textSecondary }}>On Stocking Plan</span>
-              </div>
+              {partMasterFields
+                .slice()
+                .sort((a: PartMasterFieldConfig, b: PartMasterFieldConfig) => a.order - b.order)
+                .map((field: PartMasterFieldConfig) => {
+                  switch (field.key) {
+                    case "partNumber":
+                      return <EditField key={field.key} label={field.label} value={editForm.partNumber} disabled />;
+                    case "description":
+                      return <EditField key={field.key} label={field.label} value={editForm.description} onChange={v => setEditForm(f => ({ ...f, description: v }))} />;
+                    case "type":
+                      return (
+                        <div key={field.key}>
+                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>{field.label}</label>
+                          <select value={editForm.type} onChange={e => setEditForm(f => ({ ...f, type: e.target.value }))}
+                            className="w-full mt-1 px-3 py-2 rounded-xl text-sm outline-none border appearance-none"
+                            style={{ borderColor: theme.cardBorder, backgroundColor: "#0f172a", color: theme.textPrimary }}>
+                            <option value="Required">Required</option>
+                            <option value="Optional">Optional</option>
+                            <option value="Not on BOM">Not on BOM</option>
+                            <option value="Consumable">Consumable</option>
+                          </select>
+                        </div>
+                      );
+                    case "qoh":
+                      return <EditField key={field.key} label={field.label} value={editForm.qoh} type="number" onChange={v => setEditForm(f => ({ ...f, qoh: v }))} />;
+                    case "minQty":
+                      return <EditField key={field.key} label={field.label} value={editForm.minQty} type="number" onChange={v => setEditForm(f => ({ ...f, minQty: v }))} />;
+                    case "maxQty":
+                      return <EditField key={field.key} label={field.label} value={editForm.maxQty} type="number" onChange={v => setEditForm(f => ({ ...f, maxQty: v }))} />;
+                    case "binLocation":
+                      return <EditField key={field.key} label={field.label} value={editForm.binLocation} onChange={v => setEditForm(f => ({ ...f, binLocation: v }))} />;
+                    case "module":
+                      return <EditField key={field.key} label={field.label} value={editForm.module} onChange={v => setEditForm(f => ({ ...f, module: v }))} />;
+                    case "onPlan":
+                      return (
+                        <div key={field.key} className="flex items-center gap-2">
+                          <button onClick={() => setEditForm(f => ({ ...f, onPlan: !f.onPlan }))}
+                            className="w-5 h-5 rounded border flex items-center justify-center"
+                            style={{ borderColor: editForm.onPlan ? "#6366f1" : theme.cardBorder, backgroundColor: editForm.onPlan ? "#6366f1" : "transparent" }}>
+                            {editForm.onPlan && <Check className="w-3 h-3 text-white" />}
+                          </button>
+                          <span className="text-xs" style={{ color: theme.textSecondary }}>{field.label}</span>
+                        </div>
+                      );
+                    default:
+                      return null;
+                  }
+                })}
             </div>
             <div className="flex gap-2 p-4 border-t" style={{ borderColor: theme.cardBorder }}>
               <button onClick={() => setEditPart(null)} className="flex-1 py-2.5 rounded-xl text-sm font-bold border"
@@ -670,9 +777,9 @@ export function StockSummary() {
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════════════
           ADD PART MODAL
-          ═══════════════════════════════════════════════════════ */}
+          ═════════════════════════════════════════════════════════════ */}
       {addPartOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setAddPartOpen(false)}>
           <div className="w-full max-w-md mx-4 rounded-2xl border shadow-2xl" style={{ backgroundColor: "#111827", borderColor: theme.cardBorder }}
@@ -687,32 +794,50 @@ export function StockSummary() {
                   <AlertTriangle className="w-3 h-3 flex-shrink-0" /> {actionError}
                 </div>
               )}
-              <EditField label="Part Number *" value={addForm.partNumber} onChange={v => setAddForm(f => ({ ...f, partNumber: v }))} />
-              <EditField label="Description *" value={addForm.description} onChange={v => setAddForm(f => ({ ...f, description: v }))} />
-              <div>
-                <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Type</label>
-                <select value={addForm.type} onChange={e => setAddForm(f => ({ ...f, type: e.target.value }))}
-                  className="w-full mt-1 px-3 py-2 rounded-xl text-sm outline-none border appearance-none"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#0f172a", color: theme.textPrimary }}>
-                  <option value="Required">Required</option>
-                  <option value="Optional">Optional</option>
-                  <option value="Not on BOM">Not on BOM</option>
-                  <option value="Consumable">Consumable</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <EditField label="QOH" value={addForm.qoh} type="number" onChange={v => setAddForm(f => ({ ...f, qoh: v }))} />
-                <EditField label="Min" value={addForm.minQty} type="number" onChange={v => setAddForm(f => ({ ...f, minQty: v }))} />
-                <EditField label="Max" value={addForm.maxQty} type="number" onChange={v => setAddForm(f => ({ ...f, maxQty: v }))} />
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setAddForm(f => ({ ...f, onPlan: !f.onPlan }))}
-                  className="w-5 h-5 rounded border flex items-center justify-center"
-                  style={{ borderColor: addForm.onPlan ? "#6366f1" : theme.cardBorder, backgroundColor: addForm.onPlan ? "#6366f1" : "transparent" }}>
-                  {addForm.onPlan && <Check className="w-3 h-3 text-white" />}
-                </button>
-                <span className="text-xs" style={{ color: theme.textSecondary }}>On Stocking Plan</span>
-              </div>
+              {partMasterFields
+                .slice()
+                .sort((a: PartMasterFieldConfig, b: PartMasterFieldConfig) => a.order - b.order)
+                .map((field: PartMasterFieldConfig) => {
+                  switch (field.key) {
+                    case "partNumber":
+                      return <EditField key={field.key} label={field.label + " *"} value={addForm.partNumber} onChange={v => setAddForm(f => ({ ...f, partNumber: v }))} />;
+                    case "description":
+                      return <EditField key={field.key} label={field.label + " *"} value={addForm.description} onChange={v => setAddForm(f => ({ ...f, description: v }))} />;
+                    case "type":
+                      return (
+                        <div key={field.key}>
+                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>{field.label}</label>
+                          <select value={addForm.type} onChange={e => setAddForm(f => ({ ...f, type: e.target.value }))}
+                            className="w-full mt-1 px-3 py-2 rounded-xl text-sm outline-none border appearance-none"
+                            style={{ borderColor: theme.cardBorder, backgroundColor: "#0f172a", color: theme.textPrimary }}>
+                            <option value="Required">Required</option>
+                            <option value="Optional">Optional</option>
+                            <option value="Not on BOM">Not on BOM</option>
+                            <option value="Consumable">Consumable</option>
+                          </select>
+                        </div>
+                      );
+                    case "qoh":
+                      return <EditField key={field.key} label={field.label} value={addForm.qoh} type="number" onChange={v => setAddForm(f => ({ ...f, qoh: v }))} />;
+                    case "minQty":
+                      return <EditField key={field.key} label={field.label} value={addForm.minQty} type="number" onChange={v => setAddForm(f => ({ ...f, minQty: v }))} />;
+                    case "maxQty":
+                      return <EditField key={field.key} label={field.label} value={addForm.maxQty} type="number" onChange={v => setAddForm(f => ({ ...f, maxQty: v }))} />;
+                    case "onPlan":
+                      return (
+                        <div key={field.key} className="flex items-center gap-2">
+                          <button onClick={() => setAddForm(f => ({ ...f, onPlan: !f.onPlan }))}
+                            className="w-5 h-5 rounded border flex items-center justify-center"
+                            style={{ borderColor: addForm.onPlan ? "#6366f1" : theme.cardBorder, backgroundColor: addForm.onPlan ? "#6366f1" : "transparent" }}>
+                            {addForm.onPlan && <Check className="w-3 h-3 text-white" />}
+                          </button>
+                          <span className="text-xs" style={{ color: theme.textSecondary }}>{field.label}</span>
+                        </div>
+                      );
+                    default:
+                      return null;
+                  }
+                })}
             </div>
             <div className="flex gap-2 p-4 border-t" style={{ borderColor: theme.cardBorder }}>
               <button onClick={() => setAddPartOpen(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold border"

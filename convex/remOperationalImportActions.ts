@@ -1,8 +1,15 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireCapability } from "./authGuard";
 import { assertOperationalId, assertOperationalYear, operationalDatasetValidator,
   operationalRecordValidator, validateOperationalRecord } from "./remOperationalImportValidation";
+
+async function requireRemImportEnabled(ctx: ActionCtx): Promise<void> {
+  const value = await ctx.runQuery(internal.configActions.getConfigValueInternal, { key: "features.remImportEnabled" });
+  if (value === false) throw new Error("REM import is currently disabled by configuration");
+}
 
 declare const process: { env: Record<string, string | undefined> };
 const progressValidator = v.object({
@@ -38,6 +45,7 @@ export const beginOperationalImport = action({
   args: { fileHash: v.string(), planYear: v.number(), expectedRows: v.number() }, returns: progressValidator,
   handler: async (ctx, args) => {
     const actor = await requireCapability(ctx, "rem.write");
+    await requireRemImportEnabled(ctx);
     assertOperationalYear(args.planYear);
     if (!/^[a-f0-9]{64}$/.test(args.fileHash) || !Number.isInteger(args.expectedRows) || args.expectedRows < 0 || args.expectedRows > 100_000) throw new Error("Invalid REM operational import size or fingerprint");
     return progress(await rpc("begin_rem_operational_import", { p_file_hash: args.fileHash, p_plan_year: args.planYear, p_expected_rows: args.expectedRows, p_actor: String(actor) }));
@@ -54,7 +62,9 @@ export const stageOperationalImport = action({
   args: { importId: v.string(), batchIndex: v.number(), records: v.array(operationalRecordValidator) },
   returns: v.object({ importId: v.string(), planYear: v.number(), expectedRows: v.number(), receivedRows: v.number(), status: v.union(v.literal("staging"), v.literal("applied")), nextBatchIndex: v.number(), duplicate: v.boolean() }),
   handler: async (ctx, args) => {
-    const actor = await requireCapability(ctx, "rem.write"); assertOperationalId(args.importId);
+    const actor = await requireCapability(ctx, "rem.write");
+    await requireRemImportEnabled(ctx);
+    assertOperationalId(args.importId);
     if (!Number.isInteger(args.batchIndex) || args.batchIndex < 0 || args.batchIndex >= 400 || args.records.length < 1 || args.records.length > 250 || JSON.stringify(args.records).length > 1_000_000) throw new Error("Invalid REM upload batch");
     const p = progress(await rpc("get_rem_operational_import_progress", { p_import_id: args.importId, p_actor: String(actor) }));
     const keys = new Set<string>();

@@ -1,9 +1,11 @@
-import { useRef, useMemo, useState } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
+import { useConfig } from "../../hooks/useConfig";
 import { ScopeToggle } from "../../components/vitros/ScopeToggle";
 import {
   FileText, Printer, XCircle, Layers, ChevronUp, ChevronDown, ArrowRight, AlertTriangle
 } from "lucide-react";
+import type { ReportDefinitionConfig } from "../../lib/configRegistry";
 
 /* ─── helpers ─── */
 const fmt = (n: number) => n.toLocaleString();
@@ -43,11 +45,29 @@ function Accordion({ title, icon, count, open, onToggle, children }: AccordionPr
   );
 }
 
+const SECTION_ICONS: Record<string, React.ReactNode> = {
+  actions: <XCircle className="h-4 w-4 text-red-500" />,
+  inventory: <Layers className="h-4 w-4 text-blue-500" />,
+  kits: <Layers className="h-4 w-4 text-purple-500" />,
+};
+
 export function ReportPreview() {
   const data = useConvexData();
+  const { getReportDefinitions } = useConfig();
   const printRef = useRef<HTMLDivElement>(null);
   const [scope, setScope] = useState<"ALL" | "SP_ONLY">("ALL");
-  const [sections, setSections] = useState<Record<string, boolean>>({ actions: true, inventory: false, kits: false });
+  const [sections, setSections] = useState<Record<string, boolean>>({});
+
+  const reportDefinitions = useMemo(() => getReportDefinitions(), [getReportDefinitions]);
+
+  // Initialize sections state from config defaultOpen (only once)
+  useEffect(() => {
+    const initial: Record<string, boolean> = {};
+    for (const def of reportDefinitions) {
+      initial[def.id] = def.defaultOpen;
+    }
+    setSections(initial);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parts = scope === "SP_ONLY" ? data.parts.filter(p => p.onPlan) : data.parts;
   const total = parts.length || 1;
@@ -166,112 +186,105 @@ export function ReportPreview() {
           ))}
         </div>
 
-        {/* Accordion sections */}
+        {/* Accordion sections - rendered in config order, only visible ones */}
         <div className="p-5 space-y-4">
-          {/* ACTION ITEMS */}
-          <div>
-            <Accordion
-              id="actions"
-              title="ACTION ITEMS"
-              icon={<XCircle className="h-4 w-4 text-red-500" />}
-              count={actionItems.filter(a => a.severity === "critical" || a.severity === "warning").length}
-              open={sections.actions}
-              onToggle={() => toggle("actions")}
-            >
-              <div className="mt-2 space-y-2">
-                {actionItems.length === 0 && (
-                  <div className="text-center py-8 text-slate-400 text-sm">
-                    ✅ No action items — all systems healthy
-                  </div>
-                )}
-                {actionItems.map((item, i) => {
-                  const style = severityStyles[item.severity];
-                  return (
-                    <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border ${style.bg} ${style.border}`}>
-                      <div className={`mt-0.5 ${style.iconColor}`}>
-                        {item.severity === "critical" ? <XCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                          <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{item.title}</span>
-                          {item.metric && (
-                            <span className="text-[10px] font-mono font-bold bg-white/70 dark:bg-slate-800/70 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
-                              {item.metric}
-                            </span>
-                          )}
+          {reportDefinitions.map((def: ReportDefinitionConfig) => {
+            if (!def.visible) return null;
+            const Icon = SECTION_ICONS[def.id] || <Layers className="h-4 w-4 text-slate-500" />;
+            const count = def.id === "actions"
+              ? actionItems.filter(a => a.severity === "critical" || a.severity === "warning").length
+              : def.id === "kits"
+                ? data.kits.length
+                : undefined;
+            return (
+              <div key={def.id}>
+                <Accordion
+                  id={def.id}
+                  title={def.name}
+                  icon={Icon}
+                  count={count}
+                  open={sections[def.id] ?? false}
+                  onToggle={() => toggle(def.id)}
+                >
+                  <div className="mt-2 space-y-2">
+                    {def.id === "actions" && (
+                      <>
+                        {actionItems.length === 0 && (
+                          <div className="text-center py-8 text-slate-400 text-sm">
+                            ✅ No action items — all systems healthy
+                          </div>
+                        )}
+                        {actionItems.map((item, i) => {
+                          const style = severityStyles[item.severity];
+                          return (
+                            <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border ${style.bg} ${style.border}`}>
+                              <div className={`mt-0.5 ${style.iconColor}`}>
+                                {item.severity === "critical" ? <XCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                                  <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{item.title}</span>
+                                  {item.metric && (
+                                    <span className="text-[10px] font-mono font-bold bg-white/70 dark:bg-slate-800/70 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                                      {item.metric}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{item.detail}</p>
+                              </div>
+                              {item.link && (
+                                <ArrowRight className="h-4 w-4 text-blue-600 shrink-0" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                    {def.id === "inventory" && (
+                      <div className="mt-3 space-y-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {[
+                            { label: "Healthy", value: healthy.length, total, color: "bg-green-500", textColor: "text-green-700 dark:text-green-400" },
+                            { label: "Low Stock", value: lowStock.length, total, color: "bg-amber-500", textColor: "text-amber-700 dark:text-amber-400" },
+                            { label: "Stock-Out", value: stockouts.length, total, color: "bg-red-500", textColor: "text-red-700 dark:text-red-400" },
+                            { label: "Overstocked", value: overstocked.length, total, color: "bg-blue-500", textColor: "text-blue-700 dark:text-blue-400" },
+                          ].map((s, i) => (
+                            <div key={i} className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-bold uppercase text-slate-500">{s.label}</span>
+                                <span className={`text-lg font-black ${s.textColor}`}>{s.value}</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${s.color}`} style={{ width: `${(s.value / s.total) * 100}%` }} />
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-1">{Math.round((s.value / s.total) * 100)}% of {s.total}</p>
+                            </div>
+                          ))}
                         </div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{item.detail}</p>
                       </div>
-                      {item.link && (
-                        <ArrowRight className="h-4 w-4 text-blue-600 shrink-0" />
-                      )}
-                    </div>
-                  );
-                })}
+                    )}
+                    {def.id === "kits" && (
+                      <div className="mt-2 space-y-2">
+                        {data.kits.length === 0 ? (
+                          <p className="text-sm text-slate-400 text-center py-4">No kits configured</p>
+                        ) : (
+                          data.kits.map((kit: any) => (
+                            <div key={kit._id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{kit.name}</p>
+                                <p className="text-xs text-slate-500">{kit.components?.length || 0} components</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </Accordion>
               </div>
-            </Accordion>
-          </div>
-
-          {/* INVENTORY OVERVIEW */}
-          <div>
-            <Accordion
-              id="inventory"
-              title="INVENTORY OVERVIEW"
-              icon={<Layers className="h-4 w-4 text-blue-500" />}
-              open={sections.inventory}
-              onToggle={() => toggle("inventory")}
-            >
-              <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    { label: "Healthy", value: healthy.length, total, color: "bg-green-500", textColor: "text-green-700 dark:text-green-400" },
-                    { label: "Low Stock", value: lowStock.length, total, color: "bg-amber-500", textColor: "text-amber-700 dark:text-amber-400" },
-                    { label: "Stock-Out", value: stockouts.length, total, color: "bg-red-500", textColor: "text-red-700 dark:text-red-400" },
-                    { label: "Overstocked", value: overstocked.length, total, color: "bg-blue-500", textColor: "text-blue-700 dark:text-blue-400" },
-                  ].map((s, i) => (
-                    <div key={i} className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold uppercase text-slate-500">{s.label}</span>
-                        <span className={`text-lg font-black ${s.textColor}`}>{s.value}</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${s.color}`} style={{ width: `${(s.value / s.total) * 100}%` }} />
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-1">{Math.round((s.value / s.total) * 100)}% of {s.total}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Accordion>
-          </div>
-
-          {/* KITS */}
-          <div>
-            <Accordion
-              id="kits"
-              title="KIT STATUS"
-              icon={<Layers className="h-4 w-4 text-purple-500" />}
-              count={data.kits.length}
-              open={sections.kits}
-              onToggle={() => toggle("kits")}
-            >
-              <div className="mt-2 space-y-2">
-                {data.kits.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-4">No kits configured</p>
-                ) : (
-                  data.kits.map((kit: any) => (
-                    <div key={kit._id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                      <div>
-                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{kit.name}</p>
-                        <p className="text-xs text-slate-500">{kit.components?.length || 0} components</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </Accordion>
-          </div>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { requireCapability } from "./authGuard";
 import { publishRealtimePulse } from "./realtimePulsePublisher";
 
@@ -62,6 +63,11 @@ export const transition = action({
     const correlationId = args.correlationId.trim();
     if (!correlationId || correlationId.length > 128) {
       throw new Error("Invalid correlation id");
+    }
+
+    if (args.targetStatus === "exported") {
+      const value = await ctx.runQuery(internal.configActions.getConfigValueInternal, { key: "features.sapExportEnabled" });
+      if (value === false) throw new Error("SAP export is currently disabled by configuration");
     }
 
     const { url, serviceKey } = getSupabaseConfig();

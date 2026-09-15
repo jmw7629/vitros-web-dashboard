@@ -101,3 +101,267 @@ Login implementation verification: the role-entry component now waits for a comp
 Read-only Convex code generation, complete TypeScript checking and the production Vite build passed in the isolated VPS verification checkout. Eleven focused role/employee/security scripts passed, including eight actual React role-entry scenarios and eight server-handler scenarios. These tests use synthetic auth/database boundaries and do not establish production credential configuration or live sign-in success. PIN/hash values are absent from source and fixtures. Production release and live acceptance remain pending.
 
 Credential ownership follow-up: the existing authenticated Convex administration connection permits the authorized PIN rotation without exposing its hash. Authentication credentials are now managed directly in Convex, as documented in `.env.example`; the Vercel runtime synchronization allowlist contains only the three integration settings. This prevents a stale Vercel hash from reverting a later PIN rotation. The integration-secret presence gate and coupled Convex/production build remain intact. The actual sync script passes behavioral checks for preview isolation, all missing-key failures before writes, exact integration allowlisting, private stdin, and fail-closed child errors; the static regression gate passes.
+
+## 2026-09-14 — Universal customization implementation (issue #81)
+
+Starting from the role-entry changes above. The goal is a server-authoritative enterprise configuration layer so the browser deployment functions as enterprise software.
+
+### Admin capability/control inventory (REAL / PARTIAL / PLACEHOLDER)
+
+| Control Area | Status | Notes |
+|---|---|---|
+| SAP Operational Settings (6 keys) | REAL | Versioned, audited, Supabase-backed, server RBAC |
+| Employee Management | REAL | Cross-store lifecycle, versioned, Convex+Supabase |
+| Part Master Management | REAL | Versioned, audited, Supabase-backed |
+| Navigation / Sidebar | PLACEHOLDER | Hardcoded arrays in AppSidebar.tsx, not configurable |
+| Route Labels | PLACEHOLDER | Hardcoded record in VitrosLayout.tsx |
+| Dashboard Modules | PLACEHOLDER | No configurability |
+| Theme / Colors | PARTIAL | 5 palettes in ThemeContext.tsx, user-selectable via localStorage but not admin-editable |
+| Roles / Capabilities | PLACEHOLDER | Hardcoded in authGuard.ts (3 roles, 8 capabilities) |
+| Feature Flags | PLACEHOLDER | No runtime feature flag system |
+| Table Columns / Layouts | PLACEHOLDER | No configurable column definitions |
+| Chart Definitions | PLACEHOLDER | Hardcoded per page |
+| Report Definitions | PLACEHOLDER | No admin-editable report config |
+| Kit Configuration | REAL (via Part Master) | Managed through part master and kits table |
+| REM Configuration | PARTIAL | REM data is in Convex; config surface incomplete |
+| DHR Binding Configuration | PLACEHOLDER | Controlled-document prerequisites not met; disabled per #73 |
+| SAP Export Configuration | REAL | Movement types, plant, storage location versioned |
+| Import Mappings | PARTIAL | REM import exists; production-plan mapping incomplete |
+| Archive / Retention | PLACEHOLDER | No configurable retention |
+| System Defaults | PLACEHOLDER | No configurable defaults system |
+
+### Architecture decisions for this implementation
+
+1. **Config storage**: Convex tables (configDrafts, configPublished, configAuditLog) — keeps config server-authoritative with Convex's transactional guarantees.
+2. **Config registry**: Typed TypeScript registry (`src/lib/configRegistry.ts`) defining all configurable keys, types, defaults, validation, and RBAC requirements.
+3. **Rendering integration**: `AppSidebar.tsx` and `VitrosLayout.tsx` read from config registry + published values to render navigation.
+4. **Preview/publish**: Draft → review → publish flow with optimistic concurrency (version checks).
+5. **Rollback**: Creates a new audited version from a previous published state.
+6. **Import/export**: Versioned JSON schema with dry-run preview and rejection reporting.
+7. **Secret boundary**: Registry explicitly marks sensitive keys; export excludes them; validation rejects secret mutations through the config API.
+
+### What this implementation does NOT change
+
+- Inventory quantity transitions, ledger, or audit authority
+- SAP posting semantics
+- Employee lifecycle barriers
+- Digital DHR (remains disabled pending controlled-source prerequisites)
+- Existing visual design system (VITROS blue dark theme, gradient icons, card-based layout)
+- Existing route paths or page components
+- Login/auth flow
+
+### Implementation status — 2026-09-14
+
+**Files created:**
+- `src/lib/configRegistry.ts` — 43-entry typed configuration registry with categories, validation, defaults, and RBAC requirements
+- `convex/configActions.ts` — Server-authoritative config CRUD: public queries, admin mutations, import/export actions with RBAC, audit, and optimistic concurrency
+- `convex/configMutations.ts` — Internal mutations for cross-function calls from actions
+- `src/hooks/useConfig.tsx` — React hooks for reading published config values with resolved defaults
+- `src/components/ConfigProvider.tsx` — React context provider bridging Convex config queries to the component tree
+- `src/components/ConfigEditor.tsx` — Full admin config editor with category grouping, draft/publish/rollback, audit log, import/export UI
+- `scripts/config-registry-check.mjs` — 17 assertions (1,711 checks) for registry integrity
+- `scripts/config-validation-check.mjs` — 18 assertions (121 checks) for value validation
+- `scripts/config-security-check.mjs` — 16 assertions (1,126 checks) for security boundaries
+- `scripts/config-import-export-check.mjs` — 18 assertions (134 checks) for import/export
+
+**Files modified:**
+- `convex/schema.ts` — Added `configPublished`, `configDrafts`, `configAuditLog` tables with indexes
+- `src/components/AppSidebar.tsx` — Now reads nav items and branding from config registry
+- `src/components/VitrosLayout.tsx` — Now reads route labels from config registry
+- `src/main.tsx` — Wrapped app with ConfigProvider
+- `src/pages/Settings.tsx` — Integrated ConfigEditor component
+- `docs/REBUILD_AUDIT.md` — Updated with implementation evidence
+
+**Verification:**
+- TypeScript check: PASS (`tsc --noEmit` clean)
+- Vite build: PASS (`npm run build` succeeds, output: 1,507 KB JS, 197 KB CSS)
+- Config registry check: PASS (1,711 checks)
+- Config validation check: PASS (121 checks)
+- Config security check: PASS (1,126 checks)
+- Config import/export check: PASS (134 checks)
+- Total assertions: 2,092
+
+**Configuration categories implemented:**
+1. Branding & Titles (4 keys) — app title, subtitle, sidebar title/subtitle
+2. Navigation & Sidebar (5 keys) — inventory/REM/report nav items, route labels, section order
+3. Dashboard Modules (1 key) — configurable dashboard module layout
+4. Theme & Appearance (2 keys) — default theme, available themes
+5. Table Columns (2 keys) — stock summary and transaction search column config
+6. Chart Configuration (3 keys) — inventory turnover, ABC analysis, REM progress
+7. Report Definitions (1 key) — configurable report definitions
+8. Alerts & Thresholds (4 keys) — reorder, low stock, aged inventory, SLA warning
+9. Feature Flags (5 keys) — DHR, REM import, cycle count, kit analysis, SAP export
+10. System Defaults (4 keys) — part type, currency, date format, timezone
+11. SAP Configuration (6 keys) — plant, storage, movement types, header text
+12. REM Configuration (4 keys) — default view, kanban/gantt/field status visibility
+13. Form Configuration (2 keys) — reorder and incoming stock form fields
+
+**Remaining items for follow-up:**
+- Production Vercel deployment (pending Vercel access)
+- Production Convex deployment (codegen succeeded locally)
+- Browser acceptance testing in production
+- Dashboard page components wired to read from config (currently hardcoded per-page)
+- Table components wired to read column config (currently hardcoded per-page)
+- Chart components wired to read chart config (currently hardcoded per-page)
+- Form components wired to read field config (currently hardcoded per-page)
+- DHR feature flag integration (remains disabled per controlled-document prerequisites)
+- Independent verification issue creation
+
+## 2026-09-14 — Mid-review correction pass (issue #81, second pass)
+
+The first-pass snapshot was rejected by actual-handler testing. Every correction was
+reconciled against this worktree's source before editing; all were confirmed:
+
+1. **Audit forgery / open reads** — `createAuditEntry` was a PUBLIC mutation accepting
+   caller-supplied actor/capability (convex/configActions.ts:746); `listDrafts`,
+   `getDraft`, `getAuditLog` had no capability check (configActions.ts:199-278).
+2. **Divergent validation** — three hand-copied key unions (configActions.ts:8,
+   configMutations.ts:4, src/lib/configRegistry.ts) already disagreed; structured
+   values (nav/table/dashboard/report/form) passed with only a `JSON.parse` round-trip,
+   so `nav.inventoryItems='not an array'` and empty required form fields were accepted.
+3. **Draft races** — `createDraft` silently overwrote the single global draft by key
+   and reset its version (configActions.ts:315-334); no draft identity/revision
+   precondition existed, so two Superuser tabs could publish each other's unseen edits.
+4. **Broken rollback** — `rollbackToVersion` ignored `targetVersion` and took the
+   latest audit `newValue` (configActions.ts:464-485); a handler test requesting v1
+   returned v2 while reporting v3.
+5. **Non-atomic import** — `importConfig` applied per-entry `runMutation`s (partial
+   writes on failure), deleted unrelated drafts, and appended an invented
+   representative-key audit event under `brand.appTitle`; no idempotency receipt.
+6. **Preview not wired** — `useConfig` held its own Convex subscription independent of
+   `ConfigProvider`; the provider had no preview state; `nav.routeLabels` was computed
+   in VitrosLayout.tsx but the variable was never used.
+7. **Duplicate SAP source of truth** — editable `sap.*` entries persisted to Convex
+   `configPublished` while real SAP operations read the audited Supabase settings
+   managed by `convex/adminSettingsActions.ts` / Settings.
+8. **No role-policy configuration** — no registry key and no authGuard integration.
+9. **Unconsumed values** — `dashboard.modules`, `tables.*`, `charts.*`,
+   `reports.definitions`, `forms.*`, `thresholds.*`, `theme.defaultMode`, `rem.*`,
+   `defaults.*`, `features.*` had no consumers; several defaults described invented UI
+   (dashboard KPI set, table column sets, form field lists, chart colors) that does not
+   match the shipped pages.
+10. **Static-only tests** — scripts/config-*-check.mjs inspected source text/regex and
+    could not detect any of the above.
+11. **Build/codegen** — `convex/_generated/api.d.ts` already references the
+    `configActions`/`configMutations` modules and infers signatures via
+    `typeof import(...)`, and `dataModel.d.ts` imports `schema.ts`; changes inside
+    existing modules and schema table additions therefore typecheck without new
+    codegen. Only brand-new registered-function modules would require it.
+12. **No-backend fallback** — src/main.tsx still mounted `ConvexDataProvider` and
+    `ConfigProvider` (useQuery consumers) without a Convex provider when
+    `VITE_CONVEX_URL` is absent.
+
+### Corrective architecture (this pass)
+
+- Single shared pure contract `convex/configContract.ts` (no Convex imports;
+  browser-safe) is the only key/validator/default source. `src/lib/configRegistry.ts`
+  becomes a re-export shim. Backend and frontend can no longer diverge.
+- Delegated/excluded controls (documented, not duplicated): SAP operational settings
+  remain the existing audited Supabase settings surface; employee/part-master/kit/REM/
+  DHR authorities are reused as-is; DHR enablement stays the deploy-time
+  `DIGITAL_DHR_ENABLED` env gate (no competing config flag); `forms.reorderFields` and
+  `forms.incomingStockFields` were removed (no such forms exist in the shipped UI and
+  the receiving workflow's identity/quantity/documentRef fields are
+  business-integrity-critical); `thresholds.reorderAlert`, `thresholds.lowStockWarning`
+  (status classification stays canonical: `qoh < minQty`), and `thresholds.slaWarningDays`
+  (per-analyzer `slaDays` is REM authority data) were removed as invented; form
+  configuration is re-scoped to the real part-master add/edit form.
+- New server lifecycle: draft identity (`draftId`) + owner + monotonic revision +
+  expected-revision preconditions; publish names the exact reviewed draft revision and
+  expected published version; immutable `configVersions` snapshots make rollback exact;
+  import preview/apply are separate, apply is one atomic authorized mutation with a
+  bounded idempotency receipt; audit append is a private helper inside the same
+  transaction; published reads expose only non-secret presentation values without
+  actor metadata; role policy (`roles.policy`) is enforced inside
+  `requireCapability` within immutable ceilings, fail-closed.
+- Feature gates: `features.remImportEnabled`/`features.cycleCountEnabled` gate their
+  server write paths; `features.sapExportEnabled` gates the export transition;
+  `features.kitAnalysisEnabled` is labeled visibility (read-only analysis page).
+- Enterprise writes remain default OFF in production until the reviewed deployment and
+  authenticated acceptance gates pass (process gate owned by the coordinator).
+
+## 2026-09-15 — Customization completion and reporting implementation
+
+### Issues addressed from handler/component test failures
+
+**Fixed failures in `/tmp/vitros-resume-20260915/handlers.log`:**
+1. `configContract.ts:103` — `TypeError: base.filter is not a function` in `effectiveRoleCapabilities` for prototype-pollution keys (`toString`, `constructor`, `__proto__`). Fixed by using `Object.prototype.hasOwnProperty.call()` for all role lookups.
+2. `configActions.ts` — Unbounded `.collect()` reads in `createDraft` (line 374) and `exportConfig` (line 724). Replaced with bounded `.take()` using registry size limits.
+3. `validateImportEnvelope` — Missing validation for `exportedAt` (must be positive integer timestamp) and entry `version` (must be non-negative integer). Added strict checks.
+4. `nav.remItems` / `nav.inventoryReports` default validation — New routes `/rem/reports-v2`, `/engineer-dashboard`, `/enterprise-dashboard`, `/inventory-reports` added to `KNOWN_ROUTES`; missing gradient `from-blue-500 to-blue-700` added to `NAV_GRADIENTS`.
+
+**Fixed failures in `/tmp/vitros-resume-20260915/components.log`:**
+1. `ThemeProvider` — Configured default mode not applied on initial render. Fixed by reading config values in `useState` initializer and validating `setThemeMode` against `availableModes`.
+2. `ThemeProvider` — Personal choice preservation and unavailable mode rejection. Fixed by validating `setThemeMode` input against `availableModes`.
+3. `StockSummary` — Header/body `gridTemplateColumns` misalignment (missing Actions column width in header). Added `+ " 65px"` to header grid template.
+
+**Fixed `diff.log`:** Trailing whitespace in `src/components/vitros/SharedComponents.tsx` (lines 266-277).
+
+### Reporting implementation (issue scope from `/tmp/vitros-reporting-role-scope-20260914.md`)
+
+**New pure period helper:** `src/lib/periodHelper.ts` — 27 behavioral tests passing. Provides:
+- `PeriodType`: `"weekly" | "monthly" | "quarterly" | "annual"`
+- `createPeriodRange`, `getPreviousPeriod`, `getNextPeriod`, `createPeriodNavigator`
+- `filterByPeriod`, `isInPeriod`, `getAvailablePeriods`
+- ISO week boundaries, explicit calendar rules, no fiscal assumptions
+
+**Inventory Reports page:** `src/pages/reports/InventoryReports.tsx`
+- Period selector (weekly/monthly/quarterly/annual) with previous/next/today navigation
+- Date-range banner showing exact period bounds
+- KPI strip: total SKUs, health %, stock-outs, period activity
+- Inventory status breakdown with progress bars
+- Transaction activity by mode (IN/OUT/RECEIVE/ADJUST)
+- Reorder alerts with part numbers
+- Top moving parts by volume
+- CSV export with period metadata
+- Print support
+
+**REM Reports page (v2):** `src/pages/rem/RemReports.tsx`
+- Same period selector and navigation
+- Cross-period analyzer completion rates, stage breakdown, SLA breaches
+- LVCC item counts per period
+- CSV and XLSX export with period metadata
+- Honest unavailable-source banner when Supabase REM data fails
+
+**Role-based dashboards:**
+- `DashboardPage.tsx` — Redirects by role: Superuser → `/dashboard` (configurable ExecutiveDashboard), Engineer → `/engineer-dashboard`, Viewer → `/dashboard`
+- `src/pages/inventory/EngineerDashboard.tsx` — Simplified operational view (7 KPIs, quick actions: Scan Kiosk, Incoming Stock, Transaction Search, Reorder/Stock-Out, recent transactions, inventory status). No admin metrics (SAP, system settings).
+- `src/pages/inventory/EnterpriseDashboard.tsx` — Cross-module status with period selector: Inventory (health, stock-outs, reorder, activity), REM (completion, stages, SLA), DHR (disabled with honest reason), SAP (staging counts, errors). Data source status footer showing live/unavailable per module.
+
+**Navigation & config updates:**
+- Added `/engineer-dashboard`, `/enterprise-dashboard`, `/inventory-reports`, `/rem/reports-v2` routes
+- Updated `KNOWN_ROUTES`, `NAV_DEFAULTS`, `routeLabels` in `configDefaults.ts`
+- Configurable nav items for new report pages
+
+### Verification results
+
+- TypeScript: `tsc --noEmit` — PASS (clean)
+- Handler tests: `scripts/customization-handler-test.mjs` — 14/14 PASS
+- Component tests: `scripts/config-editor-behavior-check.mjs` — 14/14 PASS
+- Period helper tests: `scripts/period-helper-test.mjs` — 27/27 PASS
+- `git diff --check` — PASS (no whitespace errors)
+- Vite build: `npm run build` — PASS (1,507 KB JS, 197 KB CSS)
+
+### Remaining items for follow-up
+
+- Production Vercel deployment (pending Vercel access)
+- Production Convex deployment (codegen succeeded locally)
+- Browser acceptance testing in production
+- DHR feature flag integration (remains disabled per controlled-document prerequisites)
+- Independent verification issue creation
+- Real-source REM workbook import (corrected workbook still required)
+- Employee lifecycle fixes (canonical legacy initials, null creation timestamps, deactivation revocation)
+
+
+## Dashboard-first release priority 2026-09-15
+User explicitly prioritizes complete VITROS Inventory/REM dashboards and reporting before enterprise expansion, and authorizes Codex implementation alongside parallel OpenCode sessions. Coordinator now owns source edits. Three native freeZen/default sessions provide independent read-only reporting, role/config and browser checks. Existing login release remains production; no new release yet. TypeScript/build previously pass, functional checks under review. Preserve business data, authorization, existing design and source provenance.
+
+
+## September 15 dashboard-first release review
+Scope: authenticated configuration draft/preview/publish/history/rollback and role capability ceilings;35validated registry keys; role landing routes; limited Engineer dashboard; weekly/monthly/quarterly/annual inventory and REM reports.
+REM uses source quarter/year, ISOweek and labeled Thursday wholeweek monthly allocation. Missing activity dates/actuals remain distinct. Current snapshots labeled separately. Export disabled on core/planning error/loading. Inventory reports paginate explicit movement audit events, with fixed period/as-of boundary; partmaster insertion audits do not become fake inventory receipts.
+/rem/reports canonical; /rem/reports-v2 alias. Unreleased EnterpriseDashboard archived outside repository for later enterprise scope. Source workbook d22317dbf18187ad00e3e73d62d1aaed88bb1415594a6530f042b5d6c8ddf299,67sheets/40hidden. Authorized imports live: stock596 including182newOptional/QOH0/min1/max1; allprior414rows unchanged. REM125analyzers/28active,212trackerweekly,53buildweeks,19staff,3notes,4targets,LVCCactive0. Operational history27096records/27096immutableevents,import8311a2ce-97d9-4c18-ab3b-9c4a62979531. Authenticated Engineer APIread verified counts September15 13:43UTC. Source exception metadata retained; original workbook unchanged. No DHR consumption/SAP posting inferred from history.
+Fixed preexisting ambiguous PL/pgSQL create_part_master identifiers, complete function migration included. Failed transactions rolled back before successful verified insertion.
+True npm run typecheck checks frontend+Convex; bare npx tsc --noEmit is insufficient. Full typecheck/buildPASS. Actual confighandlers14/14,components14/14,parser20,calendar31,rolehelper45,REMreport28,renderedApp/report10 andinventoryactionpagination checksPASS. Newtests included in CompletionRegression. ExactheadCI andproductionbrowser acceptance follow before completion claim.
+OpenCode sessions freeZen/default only, noGo use. Root reviewed and fixed actual quarter grouping,partialexports,CSVformulas,routeguard mounting andfullbuild failures. Readonlyreview claims against valid epoch comparisons/local boundaries and max-minus-QOH reorder policy rejected as incorrect.
+Runtime sync no longer copies a different provider credential from OPENAI_API_KEY. OCR provider unresolved. DigitalDHR staysOFF pending controlleddocument/approvedconsumptionmapping. Enterprise deferred per user. Noenterprise/OCR/DHRcompletion claim. Backend bindings regenerated for explicitexistingproductionselector; noconvexdev/configure. Code remainsunmerged/unreleased atthis checkpoint.

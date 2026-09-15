@@ -28,7 +28,7 @@ const ctx = { db: {
     const predicates = [];
     const q = { eq(key, value) { predicates.push([key, value]); return q; } };
     constrain(q);
-    return { async unique() {
+    return { async first() { return this.unique(); }, async unique() {
       const matches = [...rows.values()].filter(row => row._id.startsWith(`${table}:`) && predicates.every(([key, value]) => row[key] === value));
       assert.ok(matches.length < 2, "indexed uniqueness");
       return matches[0] ?? null;
@@ -38,15 +38,17 @@ const ctx = { db: {
 const employeeId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const actor = await ctx.db.insert("users", { role: "engineer" });
 await ctx.db.insert("authAccounts", { userId: actor, provider: "vitros-role", providerAccountId: `employee:${employeeId}` });
-const internal = { employeeAccess: { assertUserAccess: "access" }, users: { getUserRole: "role" } };
+const internal = { configActions: { getRolePolicyInternal: "config-policy" }, employeeAccess: { assertUserAccess: "access" }, users: { getUserRole: "role" } };
 const guard = load("convex/authGuard.ts", {
   "@convex-dev/auth/server": { getAuthUserId: async () => actor },
   "./employeeAccess": access, "./_generated/api": { internal },
   "./roleIdentity": load("convex/roleIdentity.ts", {}),
+  "./configContract": load("convex/configContract.ts", { "./configDefaults": load("convex/configDefaults.ts", {}) }),
 });
 const actionCtx = { async runQuery(ref, args) {
   if (ref === "access") return access.assertUserAccess.handler(ctx, args);
   if (ref === "role") return (await ctx.db.get(args.userId)).role;
+  if (ref === "config-policy") return null; // Preserve existing barrier scenarios with default policy.
   throw new Error("Unexpected query");
 } };
 const begin = (correlationId, expectedVersion, requestKey = correlationId) => access.beginTransition.handler(ctx, { employeeId, correlationId, expectedVersion, requestKey });

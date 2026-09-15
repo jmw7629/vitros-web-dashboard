@@ -4,6 +4,7 @@ import { useServerActions, type EditableSettingKey, type EnterpriseSettingRow, t
 import { WebCard, StatusBadge, theme } from "../components/vitros/SharedComponents";
 import { useRole } from "../hooks/useRole";
 import { Plus, Pencil, Power, X, Check, Shield, Lock } from "lucide-react";
+import { ConfigEditor } from "../components/ConfigEditor";
 
 const SETTING_DEFINITIONS: Array<{
   key: EditableSettingKey;
@@ -503,6 +504,9 @@ export function Settings() {
           </div>
         )}
       </WebCard>
+
+      {/* ═══ CONFIGURATION EDITOR ═══ */}
+      <ConfigEditor />
 
       {/* ═══ EMPLOYEE MANAGEMENT ═══ */}
       <WebCard className="overflow-hidden">

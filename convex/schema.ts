@@ -273,4 +273,73 @@ export default defineSchema({
     key: v.string(),
     value: v.string(),
   }).index("by_key", ["key"]),
+
+  // ============ CONFIGURATION MANAGEMENT ============
+  // NOTE: configDrafts was reshaped (explicit draft identity/owner/revision,
+  // published base revision preserved) and configVersions/configImportReceipts
+  // were added in the 2026-09-14 correction pass. These tables have never been
+  // deployed to production; any development rows from the rejected first
+  // pass must be cleared before the next push.
+
+  configPublished: defineTable({
+    key: v.string(),
+    value: v.any(),
+    version: v.number(),
+    publishedAt: v.number(),
+    publishedBy: v.string(),
+  }).index("by_key", ["key"]),
+
+  configDrafts: defineTable({
+    key: v.string(),
+    value: v.any(),
+    /** Published version the draft was based on (preserved, never reset). */
+    baseVersion: v.number(),
+    /** Monotonically increasing per-draft revision (optimistic concurrency). */
+    revision: v.number(),
+    /** Server-resolved owning user id. */
+    owner: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"])
+    .index("by_owner", ["owner"]),
+
+  /** Immutable published-value snapshots indexed by (key, version). */
+  configVersions: defineTable({
+    key: v.string(),
+    version: v.number(),
+    value: v.any(),
+    publishedAt: v.number(),
+    publishedBy: v.string(),
+  }).index("by_key_and_version", ["key", "version"]),
+
+  configAuditLog: defineTable({
+    key: v.string(),
+    action: v.union(
+      v.literal("create"),
+      v.literal("update"),
+      v.literal("delete"),
+      v.literal("rollback"),
+      v.literal("publish"),
+      v.literal("import"),
+    ),
+    previousValue: v.optional(v.any()),
+    newValue: v.optional(v.any()),
+    actor: v.string(),
+    capability: v.string(),
+    timestamp: v.number(),
+    correlationId: v.string(),
+    reason: v.optional(v.string()),
+  }).index("by_key", ["key"])
+    .index("by_timestamp", ["timestamp"])
+    .index("by_correlationId", ["correlationId"]),
+
+  /** Bounded idempotency receipts for atomic config imports. */
+  configImportReceipts: defineTable({
+    correlationId: v.string(),
+    payloadDigest: v.string(),
+    result: v.any(),
+    appliedAt: v.number(),
+    actor: v.string(),
+  }).index("by_correlationId", ["correlationId"])
+    .index("by_appliedAt", ["appliedAt"]),
 });

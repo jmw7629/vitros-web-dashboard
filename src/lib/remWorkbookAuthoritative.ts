@@ -246,11 +246,21 @@ function parseAnalyzers(sheet: XLSX.WorkSheet, sheetName: string) {
   const header = rows[headerIndex].map(normalize);
   const productionOrderCol = header.indexOf("production order");
   const serialCol = header.indexOf("wip");
-  const cleanCol = header.indexOf("clean");
-  const serviceCol = header.indexOf("service");
-  const finalLineCol = header.indexOf("fl");
-  const releaseCol = header.indexOf("release/clean");
-  const packCol = header.indexOf("pack");
+  // Some workbooks have an FL operator column before the FL progress group.
+  // The second header row identifies the current-week numeric progress column.
+  const subheader = (rows[headerIndex + 1] ?? []).map(normalize);
+  const stageColumn = (label: string) => {
+    const matches = header.flatMap((value, index) => value === label ? [index] : []);
+    const current = matches.filter(index => subheader[index] === "this wk");
+    if (current.length === 1) return current[0];
+    if (matches.length === 1) return matches[0];
+    throw new Error(`Ambiguous ${label} progress column in ${sheetName}`);
+  };
+  const cleanCol = stageColumn("clean");
+  const serviceCol = stageColumn("service");
+  const finalLineCol = stageColumn("fl");
+  const releaseCol = stageColumn("release/clean");
+  const packCol = stageColumn("pack");
 
   const analyzers: AnalyzerImportRow[] = [];
   const serials = new Set<string>();
