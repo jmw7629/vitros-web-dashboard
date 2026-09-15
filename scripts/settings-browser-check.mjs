@@ -1,0 +1,66 @@
+import fs from "node:fs";import path from "node:path";import os from "node:os";import http from "node:http";import assert from "node:assert/strict";import react from "@vitejs/plugin-react";import tailwind from "@tailwindcss/vite";import{build}from"vite";import{chromium}from"playwright";
+const root=process.cwd(),dir=fs.mkdtempSync(path.join(os.tmpdir(),"rem-settings-browser-")),artifacts=process.env.SETTINGS_BROWSER_ARTIFACT_DIR??path.join(dir,"artifacts");
+fs.mkdirSync(artifacts,{recursive:true});fs.symlinkSync(path.join(root,"node_modules"),path.join(dir,"node_modules"));
+const write=(n,s)=>fs.writeFileSync(path.join(dir,n),s);
+write("package.json",'{"type":"module"}');
+write("index.html",'<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"></head><body><div id="root"></div><script type="module" src="/entry.tsx"></script></body></html>');
+write("style.css",'@import '+JSON.stringify(path.join(root,"src/index.css"))+';\n@source '+JSON.stringify(path.join(root,"src"))+';\nbody{margin:0;background:#0c111b;color:#f1f5f9}');
+write("entry.tsx",'import React from"react";import{createRoot}from"react-dom/client";import{BrowserRouter}from"react-router-dom";import{Settings}from"'+root+'/src/pages/Settings";import"./style.css";createRoot(document.getElementById("root")!).render(<BrowserRouter><main style={{maxWidth:800,margin:"auto",padding:16}}><Settings/></main></BrowserRouter>);');
+write("api.ts",'export const api=new Proxy({},{get:()=>new Proxy({},{get:(_,key)=>key})});');
+write("role.ts",'export const useRole=()=>({role:"superuser",setRole:()=>{}})');
+write("fixture.ts","import {useSyncExternalStore} from \"react\";\nimport {getConfigEntry,valueDigest} from \"__ROOT__/src/lib/configRegistry\";\nconst data={parts:[{partNumber:\"PART-CATALOG-MUST-NOT-RENDER\",qoh:0,status:\"OUT\",type:\"Optional\",onPlan:false,minQty:1,maxQty:1}],transactions:[],kits:[],analyzers:[],employees:[{_id:\"employee-1\",name:\"Alexandra Sample Employee\",initials:\"AS\",email:\"alexandra.sample.employee@example.invalid\",active:true,version:1}],refresh:async()=>{}};\nconst f=window.fixture={calls:[],published:[],drafts:[],overlay:{},data};\nlet revision=0;const listeners=new Set(),notify=()=>{revision++;listeners.forEach(fn=>fn())},subscribe=fn=>{listeners.add(fn);return()=>listeners.delete(fn)};\nfunction watch(){useSyncExternalStore(subscribe,()=>revision)}\nexport function useQuery(ref,args){watch();if(ref===\"listPublishedAdmin\")return f.published;if(ref===\"listDrafts\")return f.drafts;if(ref===\"listVersions\"||ref===\"getAuditLog\")return [];throw Error(\"Unexpected query \"+ref)}\nconst mutations=new Map();\nexport function useMutation(ref){if(!mutations.has(ref))mutations.set(ref,async args=>{\nf.calls.push({ref,args:structuredClone(args)});\nif(ref===\"createDraft\"){const d={draftId:\"draft-1\",key:args.key,value:args.value,revision:1,baseVersion:0,owner:\"admin\",createdAt:1,updatedAt:1};f.drafts=[d];notify();return d}\nif(ref===\"publishDraft\"){const draft=f.drafts[0];if(args.expectedValueDigest!==valueDigest(draft.value))throw Error(\"Invalid review\");const p={key:draft.key,value:draft.value,version:1,publishedAt:1,publishedBy:\"admin\"};f.published=[p];f.drafts=[];notify();return p}\nthrow Error(\"Unexpected mutation \"+ref);\n});return mutations.get(ref)}\nexport function useConvex(){return {query:async()=>{throw Error(\"Unexpected query\")}}}\nexport function useConfigContext(){watch();return{get:key=>f.overlay[key]??f.published.find(row=>row.key===key)?.value??getConfigEntry(key).defaultValue,preview:(key,value)=>{f.overlay={...f.overlay,[key]:value};notify()},clearPreview:()=>{f.overlay={};notify()},isPreviewing:key=>key in f.overlay}}\nexport const useConfig=useConfigContext;\nexport function useConvexData(){return data}\nconst listEditableSettings=async()=>{f.calls.push({ref:\"listEditableSettings\"});return [\"sapPlantCode\",\"sapStorageLocation\",\"sapMovementIN\",\"sapMovementOUT\",\"sapMovementADJUST\",\"sapHeaderText\"].map((key,i)=>({key,value:[\"US08\",\"MAIN\",\"101\",\"261\",\"711\",\"Synthetic header\"][i],version:1}))};\nconst updateEditableSetting=async args=>{f.calls.push({ref:\"updateEditableSetting\",args:structuredClone(args)});return {...args,version:args.expectedVersion+1}};\nexport function useServerActions(){return{listEditableSettings,updateEditableSetting,listPartMaster:()=>{throw Error(\"Parts list must not load in Settings\")}}}\n".replaceAll("__ROOT__",root));
+let browser,server;const report={checks:[],errors:[]};
+try{
+await build({configFile:false,root:dir,plugins:[{name:"settings-test-boundaries",enforce:"pre",resolveId(id){
+if(id==="convex/react"||["/hooks/useConvexData","/hooks/useServerActions","/hooks/useConfig","/ConfigProvider"].some(s=>id.endsWith(s)))return path.join(dir,"fixture.ts");
+if(id.endsWith("/_generated/api"))return path.join(dir,"api.ts");if(id.endsWith("/hooks/useRole"))return path.join(dir,"role.ts");
+}},react(),tailwind()],resolve:{alias:{"@":path.join(root,"src")}},build:{outDir:path.join(dir,"dist")}});
+const dist=path.join(dir,"dist");server=http.createServer((req,res)=>{const url=new URL(req.url,"http://localhost"),file=path.resolve(dist,"."+url.pathname+(url.pathname.endsWith("/")?"index.html":""));if(path.relative(dist,file).startsWith("..")||!fs.existsSync(file)){res.writeHead(404).end();return}res.setHeader("Content-Type",({".js":"text/javascript",".css":"text/css",".html":"text/html"})[path.extname(file)]??"application/octet-stream");res.end(fs.readFileSync(file))});
+await new Promise(r=>server.listen(0,"127.0.0.1",r));const base="http://127.0.0.1:"+server.address().port;
+browser=await chromium.launch({headless:true,...(process.env.SETTINGS_BROWSER_EXECUTABLE_PATH?{executablePath:process.env.SETTINGS_BROWSER_EXECUTABLE_PATH}:{})});
+for(const width of [1440,390,320]){
+const context=await browser.newContext({viewport:{width,height:1000}}),page=await context.newPage();page.setDefaultTimeout(10000);
+page.on("pageerror",e=>report.errors.push(String(e)));page.on("console",m=>{if(m.type()==="error")report.errors.push(m.text())});
+await page.goto(base);await page.getByRole("heading",{name:"Make the Engineer dashboard simpler",exact:true}).waitFor();
+assert.equal(await page.getByLabel("Setting",{exact:true}).inputValue(),"engineer.view");
+assert.equal(await page.getByText("PART-CATALOG-MUST-NOT-RENDER",{exact:true}).count(),0);
+assert.equal(await page.getByText("Part Master Management",{exact:true}).count(),0);
+await page.getByRole("textbox",{name:"title",exact:true}).fill("Simplified Engineer");
+await page.getByRole("button",{name:"People",exact:true}).click();
+assert(await page.getByRole("button",{name:"Edit Alexandra Sample Employee",exact:true}).isVisible());
+await page.getByRole("button",{name:"Add Employee",exact:true}).click();await page.getByLabel("Employee full name",{exact:true}).fill("Draft employee name");
+await page.screenshot({path:path.join(artifacts,"people-"+width+".png"),fullPage:true});
+assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+await page.getByRole("button",{name:"SAP settings",exact:true}).click();await page.getByLabel("SAP Header Text",{exact:true}).fill("New synthetic header");
+await page.screenshot({path:path.join(artifacts,"sap-"+width+".png"),fullPage:true});
+assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+await page.getByRole("button",{name:"Dashboard views",exact:true}).click();assert.equal(await page.getByRole("textbox",{name:"title",exact:true}).inputValue(),"Simplified Engineer");
+await page.getByRole("button",{name:"Save draft",exact:true}).click();await page.getByText("Draft saved. Published settings are unchanged.",{exact:true}).waitFor();
+await page.getByRole("button",{name:"Preview in this tab",exact:true}).click();
+await page.getByRole("heading",{name:"Simplified Engineer",exact:true}).waitFor();
+await page.getByRole("button",{name:"Close Engineer preview",exact:true}).click();
+await page.getByRole("button",{name:"Review publication",exact:true}).click();await page.getByRole("dialog").waitFor();
+assert.equal(await page.evaluate(()=>window.fixture.calls.filter(c=>c.ref==="publishDraft").length),0);
+await page.getByRole("button",{name:"Confirm change",exact:true}).click();await page.getByText("Published version 1.",{exact:true}).waitFor();
+await page.getByRole("button",{name:"Engineer starting page",exact:true}).click();
+assert.equal(await page.getByLabel("Setting",{exact:true}).inputValue(),"roles.engineerDefaultRoute");
+await page.getByRole("button",{name:"Customize Engineer view",exact:true}).click();
+await page.getByText("Dashboard cards",{exact:true}).click();
+const cards=page.locator('section[aria-label="Engineer view controls"] > details').first();
+await cards.locator("details").first().locator("summary").first().click();
+await page.screenshot({path:path.join(artifacts,"engineer-"+width+".png"),fullPage:true});
+assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+await page.getByRole("button",{name:"People",exact:true}).click();assert.equal(await page.getByLabel("Employee full name",{exact:true}).inputValue(),"Draft employee name");
+await page.getByRole("button",{name:"SAP settings",exact:true}).click();assert.equal(await page.getByLabel("SAP Header Text",{exact:true}).inputValue(),"New synthetic header");
+await page.getByRole("button",{name:"Save SAP Header Text",exact:true}).click();
+await page.waitForFunction(()=>window.fixture.calls.some(c=>c.ref==="updateEditableSetting"));
+const save=await page.evaluate(()=>window.fixture.calls.find(c=>c.ref==="updateEditableSetting").args);assert.equal(save.expectedVersion,1);assert.equal(save.value,"New synthetic header");
+await page.getByRole("button",{name:"System",exact:true}).click();
+assert.equal(await page.getByRole("link",{name:"Open AI Administration",exact:true}).getAttribute("href"),"/ai-administration");
+assert.equal(await page.getByRole("link",{name:"Open Stock Summary",exact:true}).getAttribute("href"),"/stock-summary");
+assert(await page.getByRole("button",{name:"Reset All Data — Unavailable",exact:true}).isDisabled());
+await page.screenshot({path:path.join(artifacts,"system-"+width+".png"),fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+report.checks.push({width,engineerDefault:true,noParts:true,editPreservation:true,previewPublish:true,sapSave:true,peopleActions:true,layout:true});await context.close();
+}
+assert.deepEqual(report.errors,[]);report.passed=true;console.log("SETTINGS_BROWSER=PASS actual Settings and Engineer editor, desktop/mobile, section edit preservation, reviewed publication and SAP save");
+}catch(e){const p=browser?.contexts()[0]?.pages()[0];if(p){await p.screenshot({path:path.join(artifacts,"failure.png"),fullPage:true});fs.writeFileSync(path.join(artifacts,"failure.txt"),await p.locator("body").innerText())}report.passed=false;report.failure=String(e.stack);console.error(e);process.exitCode=1}finally{await browser?.close();if(server?.listening)await new Promise(r=>server.close(r));fs.writeFileSync(path.join(artifacts,"report.json"),JSON.stringify(report,null,2))}

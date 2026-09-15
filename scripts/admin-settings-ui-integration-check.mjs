@@ -40,7 +40,8 @@ assert(!partMasterMigration.includes("foreach v_key in select"), "Migration must
 assert(partMaster.includes("must be a non-negative integer"), "Browser server action must reject fractional min/max quantities");
 assert(!partMasterMigration.includes("delete_part_master"), "Migration must not create a destructive delete RPC without approved recovery");
 assert(partMasterMigration.includes("to service_role;"), "Privileged part-master RPCs must remain service-role only");
-assert(settings.includes("Part Master Management"), "Settings must expose the part-master administration slice");
+assert(!settings.includes("Part Master Management") && !settings.includes("listPartMaster"), "Settings must not duplicate or fetch the parts catalog");
+assert(settings.includes('<ConfigEditor initialKey="engineer.view" />'), "Settings must open Engineer customization directly");
 assert(!settings.includes("Delete <strong"), "Settings must not offer irreversible part deletion");
 assert(!settings.includes("addQtyOnHand"), "Part creation UI must not bypass receiving/inventory transition authority");
 

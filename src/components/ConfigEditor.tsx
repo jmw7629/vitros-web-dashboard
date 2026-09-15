@@ -15,7 +15,7 @@ import {
 } from "../lib/configRegistry";
 
 const buttonClass = "rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed";
-const fieldClass = "w-full rounded-lg border px-3 py-2 text-sm";
+const fieldClass = "min-w-0 max-w-full w-full rounded-lg border px-3 py-2 text-sm";
 const fieldStyle = { backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.cardBorder };
 const correlation = () => `config:${crypto.randomUUID()}`;
 const display = (value: unknown) => JSON.stringify(value, null, 2) ?? "null";
@@ -45,7 +45,7 @@ function ValueFields({ name, value, change, disabled, engineer = false }: { engi
       change(next.map((row, order) => row && typeof row === "object" && "order" in row ? { ...row, order } : row));
     };
     return <details key={index} className="rounded-lg border p-3" style={{ borderColor: theme.cardBorder }}>
-      <summary className="cursor-pointer font-semibold text-sm">{label}</summary>
+      <summary className="cursor-pointer break-words font-semibold text-sm">{label}</summary>
       <div className="mt-3 space-y-3"><div className="flex gap-2">
         <Button disabled={disabled || index === 0} onClick={() => move(-1)} aria-label={`Move ${label} up`}>Move up</Button>
         <Button disabled={disabled || index === value.length - 1} onClick={() => move(1)} aria-label={`Move ${label} down`}>Move down</Button>
@@ -56,7 +56,7 @@ function ValueFields({ name, value, change, disabled, engineer = false }: { engi
     <ValueFields engineer={engineer} name={key} value={current} disabled={disabled || ["id", "key", "path", "order", ...(engineer ? ["type"] : [])].includes(key)} change={next => change({ ...value, [key]: next })} />
   </div>)}</div>;
   const options = engineer && name === "metric" ? ENGINEER_METRICS : optionSets[name];
-  return <label className="block text-sm"><span className="mb-1 block font-medium">{getConfigEntry(name)?.label ?? name.replace(/([a-z])([A-Z])/g, "$1 $2")}</span>
+  return <label className="block min-w-0 text-sm"><span className="mb-1 block font-medium">{getConfigEntry(name)?.label ?? name.replace(/([a-z])([A-Z])/g, "$1 $2")}</span>
     {typeof value === "boolean" ? <input type="checkbox" checked={value} disabled={disabled} onChange={event => change(event.target.checked)} className="h-5 w-5" />
       : options ? <select className={fieldClass} style={fieldStyle} value={String(value)} disabled={disabled} onChange={event => change(event.target.value)}>{options.map(option => <option key={option} value={option}>{option}</option>)}</select>
       : <input className={fieldClass} style={fieldStyle} type={typeof value === "number" ? "number" : typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? "color" : "text"} value={String(value ?? "")} disabled={disabled} onChange={event => change(typeof value === "number" ? Number(event.target.value) : event.target.value)} />}
@@ -154,7 +154,7 @@ function EntryPanel({ entry, published, drafts }: { entry: ConfigEntryDef; publi
     {message && <p role="status" className="rounded-lg border border-emerald-500 p-3 text-sm">{message}</p>}
     {changed && <p role="status" className="rounded-lg border border-amber-500 p-3 text-sm">A saved version changed. Your current edit is preserved. Reload the current settings before reviewing again.</p>}
     <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => load(drafts[0] ?? null)}>Reload current settings</Button><Button disabled={busy} onClick={() => setText(display(entry.defaultValue))}>Use default value</Button></div>
-    {drafts.length > 0 && <label className="block text-sm">Saved drafts<select className={`${fieldClass} mt-1`} style={fieldStyle} disabled={busy} value={draft?.draftId ?? ""} onChange={event => load(drafts.find(row => row.draftId === event.target.value) ?? null)}>
+    {drafts.length > 0 && <label className="block min-w-0 text-sm">Saved drafts<select className={`${fieldClass} mt-1`} style={fieldStyle} disabled={busy} value={draft?.draftId ?? ""} onChange={event => load(drafts.find(row => row.draftId === event.target.value) ?? null)}>
       <option value="">Start a new draft</option>{drafts.map(row => <option key={row.draftId} value={row.draftId}>Revision {row.revision} · {new Date(row.updatedAt).toLocaleString()}</option>)}
     </select></label>}
     {!invalid && (entry.key === "engineer.view" ? <EngineerFields value={value as EngineerViewConfig} disabled={busy || !entry.editable} change={next => setText(display(next))} /> : <ValueFields name={entry.valueType === "json" ? entry.label : entry.key} value={value} disabled={busy || !entry.editable} change={next => setText(display(next))} />)}
@@ -209,13 +209,13 @@ function ImportExport() {
       const link = document.createElement("a"); link.href = url; link.download = `vitros-settings-${new Date().toISOString().slice(0, 10)}.json`; link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     })}>Export settings</Button>
-    <label className="block text-sm">Configuration file<input className="mt-2 block w-full" type="file" accept="application/json,.json" disabled={busy} onChange={event => {
+    <label className="block min-w-0 text-sm">Configuration file<input className="mt-2 block w-full" type="file" accept="application/json,.json" disabled={busy} onChange={event => {
       const file = event.target.files?.[0]; if (!file) return;
       change(""); const currentGeneration = generation.current;
       if (file.size > 1048576) { setError("Choose a configuration file smaller than 1 MB."); return; }
       void file.text().then(text => { if (generation.current === currentGeneration) change(text); }).catch(() => setError("Could not read this file."));
     }} /></label>
-    <label className="block text-sm">Import contents<textarea className={`${fieldClass} mt-1 font-mono`} style={fieldStyle} rows={6} value={raw} disabled={busy} onChange={event => change(event.target.value)} /></label>
+    <label className="block min-w-0 text-sm">Import contents<textarea className={`${fieldClass} mt-1 font-mono`} style={fieldStyle} rows={6} value={raw} disabled={busy} onChange={event => change(event.target.value)} /></label>
     <Button disabled={busy || !raw.trim()} onClick={() => void preview()}>{busy ? "Working…" : "Review import"}</Button>
     {review && <section aria-label="Import review" className="space-y-3"><h4 className="font-semibold">Reviewed changes</h4>
       {review.entries.length === 0 && <p>No settings in this file. Applying it makes no configuration changes.</p>}
@@ -230,29 +230,29 @@ function ImportExport() {
   </WebCard>;
 }
 
-function AdminEditor() {
+function AdminEditor({ initialKey = "brand.appTitle" }: { initialKey?: AllConfigKey }) {
   const published = useQuery(api.configActions.listPublishedAdmin);
   const drafts = useQuery(api.configActions.listDrafts);
   const entries = getAllConfigEntries();
-  const [selected, setSelected] = useState("brand.appTitle");
+  const [selected, setSelected] = useState<string>(initialKey);
   const [search, setSearch] = useState("");
   const entry = entries.find(row => row.key === selected)!;
   if (published === undefined || drafts === undefined) return <p role="status">Loading configuration…</p>;
   const matches = entries.filter(row => `${row.label} ${CATEGORY_LABELS[row.category]}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="space-y-5" style={{ color: theme.textPrimary }}><header><h2 className="text-xl font-bold">Customize REM Command Center</h2><p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>Edit a draft, preview the screen, and review it before publication.</p></header>
+  return <div className="min-w-0 space-y-5" style={{ color: theme.textPrimary }}><header><h2 className="text-xl font-bold">Customize REM Command Center</h2><p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>Edit a draft, preview the screen, and review it before publication.</p></header>
     <div className="flex flex-wrap gap-2" aria-label="Customization shortcuts">
       <Button onClick={() => { setSearch(""); setSelected("engineer.view"); }}>Customize Engineer view</Button>
       <Button onClick={() => { setSearch(""); setSelected("roles.engineerDefaultRoute"); }}>Engineer starting page</Button>
     </div>
-    <WebCard className="p-4 grid gap-3 sm:grid-cols-2"><label className="text-sm">Find a setting<input className={`${fieldClass} mt-1`} style={fieldStyle} value={search} onChange={event => setSearch(event.target.value)} /></label>
-      <label className="text-sm">Setting<select className={`${fieldClass} mt-1`} style={fieldStyle} value={selected} onChange={event => setSelected(event.target.value)}>{!matches.some(row => row.key === selected) && <option value={selected}>{entry.label}</option>}{matches.map(row => <option key={row.key} value={row.key}>{CATEGORY_LABELS[row.category]} — {row.label}</option>)}</select>{matches.length === 0 && <span className="text-xs">No matching settings.</span>}</label>
+    <WebCard className="p-4 grid gap-3 sm:grid-cols-2"><label className="min-w-0 text-sm">Find a setting<input className={`${fieldClass} mt-1`} style={fieldStyle} value={search} onChange={event => setSearch(event.target.value)} /></label>
+      <label className="min-w-0 text-sm">Setting<select className={`${fieldClass} mt-1`} aria-label="Setting" style={fieldStyle} value={selected} onChange={event => setSelected(event.target.value)}>{!matches.some(row => row.key === selected) && <option value={selected}>{entry.label}</option>}{matches.map(row => <option key={row.key} value={row.key}>{CATEGORY_LABELS[row.category]} — {row.label}</option>)}</select>{matches.length === 0 && <span className="text-xs">No matching settings.</span>}</label>
     </WebCard>
     <EntryPanel key={selected} entry={entry} published={published.find(row => row.key === selected)} drafts={drafts.filter(row => row.key === selected).sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)} />
-    <ImportExport />
+    <details className="rounded-xl border p-4" style={{ borderColor: theme.cardBorder }}><summary className="cursor-pointer text-sm font-semibold">Advanced: import or export settings</summary><div className="mt-4"><ImportExport /></div></details>
   </div>;
 }
 
-export function ConfigEditor() {
+export function ConfigEditor({ initialKey }: { initialKey?: AllConfigKey }) {
   const { role } = useRole();
-  return role === "superuser" ? <AdminEditor /> : <p>Superuser access is required to manage configuration.</p>;
+  return role === "superuser" ? <AdminEditor initialKey={initialKey} /> : <p>Superuser access is required to manage configuration.</p>;
 }
