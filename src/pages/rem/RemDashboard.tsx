@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useConvexData } from "../../hooks/useConvexData";
 import { useConfig } from "../../hooks/useConfig";
 import { WebCard, DashCard, ProgressBar, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";

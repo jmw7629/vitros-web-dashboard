@@ -21,7 +21,6 @@ requireInvariant(
 for (const required of [
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "OPENAI_API_KEY",
 ]) {
   requireInvariant(sync.includes(`\"${required}\"`), `sync allowlist missing ${required}`);
 }
@@ -29,6 +28,8 @@ requireInvariant(
   !sync.includes('"VITROS_SUPERUSER_PASSWORD_HASH"'),
   "Vercel builds must not overwrite Convex-managed auth secrets",
 );
+
+requireInvariant(!sync.includes('"OPENAI_API_KEY"'), "Vercel builds must not overwrite provider-specific runtime credentials");
 
 requireInvariant(sync.includes("spawnSync"), "sync must use a no-shell child process");
 requireInvariant(sync.includes("shell: false"), "child process must explicitly disable shell execution");

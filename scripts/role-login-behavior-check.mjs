@@ -27,9 +27,28 @@ const DialogTitle = props => React.createElement("h2", props);
 const DialogDescription = props => React.createElement("p", props);
 const Icon = () => React.createElement("svg", { "aria-hidden": true });
 
-async function harness() {
+
+const moduleCache = new Map();
+function loadRoleConfig(relative) {
+  const url = new URL(relative, import.meta.url);
+  if (moduleCache.has(url.href)) return moduleCache.get(url.href).exports;
+  const module = { exports: {} }; moduleCache.set(url.href, module);
+  const output = ts.transpileModule(fs.readFileSync(url, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  vm.runInNewContext(output, { module, exports: module.exports, require: name => {
+    if (name.startsWith(".")) return loadRoleConfig(new URL(name + ".ts", url).href);
+    return require(name);
+  }, Map, Set, Date, Intl, console });
+  return module.exports;
+}
+const actualRoleRoutes = loadRoleConfig("../src/lib/dashboardRoutes.ts");
+
+async function harness(publishedValues = new Map()) {
   const requests = []; const navigations = []; const roleHints = []; const timeline = []; const focuses = [];
   const imports = {
+    "../hooks/useConfig": { useConfig: () => ({ publishedValues }) },
+    "../lib/dashboardRoutes": actualRoleRoutes,
     "react-router-dom": { useNavigate: () => destination => { navigations.push(destination); timeline.push("navigate"); } },
     "@convex-dev/auth/react": { useAuthActions: () => ({ signIn: (provider, args) => new Promise((resolve, reject) => {
       requests.push({ provider, args, resolve: result => { timeline.push("auth-resolved"); resolve(result); }, reject });
@@ -84,7 +103,7 @@ await test("Engineer is a native single-click button with no initials or credent
   assert.match(text(h.root().findByProps({ role: "status" })), /Signing in/);
   await h.settle({ signingIn: true });
   assert.deepEqual(h.timeline, ["auth-resolved", "role-hint", "navigate"]);
-  assert.deepEqual(h.roleHints, ["engineer"]); assert.deepEqual(h.navigations, ["/dashboard"]); await h.close();
+  assert.deepEqual(h.roleHints, ["engineer"]); assert.deepEqual(h.navigations, ["/engineer-dashboard"]); await h.close();
 });
 
 await test("same-tick repeated Engineer activation and disabled role switching dispatch only once", async () => {
@@ -103,7 +122,7 @@ await test("Engineer rejection exposes a safe accessible retry state without ass
   assert.equal(h.button("Engineer").props["aria-describedby"], h.alerts()[0].props.id);
   assert.equal(h.button("Engineer").props.disabled, false); assert.equal(h.button("Superuser").props.disabled, false);
   await h.click("Engineer"); assert.equal(h.alerts().length, 0); assert.equal(h.requests.length, 2);
-  await h.settle({ signingIn: true }); assert.deepEqual(h.navigations, ["/dashboard"]); await h.close();
+  await h.settle({ signingIn: true }); assert.deepEqual(h.navigations, ["/engineer-dashboard"]); await h.close();
 });
 
 await test("resolved incomplete or malformed authentication never navigates", async () => {
@@ -164,6 +183,15 @@ await test("empty Superuser input never dispatches and reopening clears stale er
   assert.equal(h.requests.length, 0); assert.equal(h.alerts().length, 1);
   await h.password("synthetic-cancelled-fixture"); await h.click("Cancel"); await h.click("Superuser");
   assert.equal(h.input().props.value, ""); assert.equal(h.alerts().length, 0); await h.close();
+});
+
+
+await test("Superuser login follows the validated published default route", async () => {
+  const h = await harness(new Map([["roles.superuserDefaultRoute", "/stock-summary"]]));
+  await h.click("Superuser"); await h.password("synthetic-auth-fixture"); await h.click("Login");
+  assert.deepEqual(h.navigations, []);
+  await h.settle({ signingIn: true }); assert.deepEqual(h.navigations, ["/stock-summary"]);
+  await h.close();
 });
 
 console.log(`ROLE_LOGIN_BEHAVIOR=PASS checks=${checks} (real React component; synthetic auth/dialog boundaries)`);
