@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useConfig } from "../../hooks/useConfig";
 import { WebCard, DashCard, ProgressBar, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
 import { browserSafeRead } from "../../lib/browserSafeRead";
+import type { RemProgressChartConfig } from "../../lib/configRegistry";
 
 type RemSummary = {
   total: number;
@@ -15,6 +17,8 @@ type RemSummary = {
 
 export function RemDashboard() {
   const data = useRemCoreData();
+  const { get } = useConfig();
+  const remProgressConfig = get<RemProgressChartConfig>("charts.remProgress");
   const [summary, setSummary] = useState<RemSummary | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
 
@@ -70,6 +74,9 @@ export function RemDashboard() {
   const lvccActive = summary?.lvcc_active ?? data.lvccItems.filter((item) => !item.isComplete).length;
   const unavailable = !!liveError && !!data.error;
 
+  const progressColor = remProgressConfig.color || "#6366f1";
+  const showProgress = remProgressConfig.visible !== false;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -88,25 +95,27 @@ export function RemDashboard() {
       )}
 
       <div className="grid grid-cols-3 gap-3">
-        <DashCard label="TOTAL" value={total} icon="🔬" color="#6366f1" />
+        <DashCard label="TOTAL" value={total} icon="🔬" color={progressColor} />
         <DashCard label="COMPLETED" value={completed} icon="✅" color={theme.statusOk} />
         <DashCard label="IN PROGRESS" value={active} icon="🔧" color="#f59e0b" />
       </div>
 
-      <WebCard className="p-4">
-        <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>By Analyzer Type</h3>
-        {byType.length === 0 ? (
-          <div className="text-sm py-4 text-center" style={{ color: theme.textMuted }}>No REM analyzers available</div>
-        ) : byType.map(([type, counts]) => (
-          <div key={type} className="mb-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm" style={{ color: theme.textPrimary }}>{type}</span>
-              <span className="text-xs" style={{ color: theme.textMuted }}>{counts.completed}/{counts.total} complete</span>
+      {showProgress && (
+        <WebCard className="p-4">
+          <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>By Analyzer Type</h3>
+          {byType.length === 0 ? (
+            <div className="text-sm py-4 text-center" style={{ color: theme.textMuted }}>No REM analyzers available</div>
+          ) : byType.map(([type, counts]) => (
+            <div key={type} className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm" style={{ color: theme.textPrimary }}>{type}</span>
+                <span className="text-xs" style={{ color: theme.textMuted }}>{counts.completed}/{counts.total} complete</span>
+              </div>
+              <ProgressBar value={counts.completed} maxValue={counts.total} color={progressColor} />
             </div>
-            <ProgressBar value={counts.completed} maxValue={counts.total} color="#6366f1" />
-          </div>
-        ))}
-      </WebCard>
+          ))}
+        </WebCard>
+      )}
 
       <WebCard className="p-4">
         <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>WIP by Stage</h3>
@@ -115,10 +124,10 @@ export function RemDashboard() {
         ) : byStage.map(([stage, count]) => (
           <div key={stage} className="flex items-center justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#6366f1" }} />
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: progressColor }} />
               <span className="text-sm" style={{ color: theme.textPrimary }}>{stage}</span>
             </div>
-            <span className="text-sm font-bold" style={{ color: "#6366f1" }}>{count}</span>
+            <span className="text-sm font-bold" style={{ color: progressColor }}>{count}</span>
           </div>
         ))}
       </WebCard>

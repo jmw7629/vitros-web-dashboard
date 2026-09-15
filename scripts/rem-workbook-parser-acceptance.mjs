@@ -111,6 +111,23 @@ run("renamed filename same parsed data", ()=>{
   assert(a.fileName!==b.fileName,"filename differs but data same");
 });
 
+run("duplicate FL initials column uses the explicitly marked current-week progress", () => {
+  const wb = makeBaseWorkbook();
+  const name = "WIP Productivity VITROS WK 5";
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null });
+  rows[0].splice(4, 0, "FL");
+  rows[1] = [null, null, "This Wk", "This Wk", "Operator", "This Wk", "This Wk", "This Wk"];
+  for (const row of rows.slice(2)) row.splice(4, 0, "RA");
+  wb.Sheets[name] = XLSX.utils.aoa_to_sheet(rows);
+  const preview = parseAuthoritativeRemWorkbook("synthetic.xlsx", "duplicate-fl", wb);
+  equal(preview.analyzers.length, 6, "all source analyzers survive the duplicate header");
+  equal(preview.analyzers[0].finalLinePct, 30, "numeric progress is used, not operator initials");
+  wb.Sheets[name].F2 = { t: "s", v: "Unknown" };
+  let rejected = false;
+  try { parseAuthoritativeRemWorkbook("synthetic.xlsx", "ambiguous-fl", wb); } catch { rejected = true; }
+  assert(rejected, "duplicate stages without an explicit current-week marker are rejected");
+});
+
 run("exact SCRAP production marker is excluded with an explicit warning", () => {
   const wb = makeBaseWorkbook();
   wb.Sheets["WIP Productivity VITROS WK 5"].A3 = { t: "s", v: "SCRAP" };

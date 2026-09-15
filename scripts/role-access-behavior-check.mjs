@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 const v = new Proxy({}, { get: () => () => ({}) });
 const registered = { query: x => x, mutation: x => x, internalQuery: x => x, internalMutation: x => x, internalAction: x => x };
 const internal = {
+  configActions: { getRolePolicyInternal: "config-policy" },
   auth: { validateRoleSelection: "validate" },
   users: { getUserRole: "role" },
   employeeAccess: { assertUserAccess: "access", provisionVerifiedEmployeeAccess: "provision" },
@@ -26,7 +27,7 @@ const db = {
   query(table) { return { withIndex(index, filter) {
     const conditions = []; const q = { eq(key, value) { conditions.push([key, value]); return q; } }; filter(q);
     assert.ok(["userIdAndProvider", "by_key", "by_employeeId"].includes(index));
-    return { async unique() {
+    return { async first() { return this.unique(); }, async unique() {
       const found = [...rows.values()].filter(row => row._id.startsWith(`${table}:`) && conditions.every(([key, value]) => row[key] === value));
       assert.ok(found.length <= 1); return found[0] ?? null;
     } };
@@ -72,6 +73,7 @@ function load(name) {
   });
   dependencies[`./${name}`] = exports; return exports;
 }
+load("configDefaults"); load("configContract");
 const identity = load("roleIdentity"); const access = load("employeeAccess"); const limiter = load("roleSignInLimiter");
 const users = load("users"); const guard = load("authGuard"); const auth = load("auth");
 const actionCtx = {
@@ -83,6 +85,7 @@ const actionCtx = {
   runQuery(ref, args) {
     if (ref === "access") return access.assertUserAccess.handler(ctx, args);
     if (ref === "role") return users.getUserRole.handler(ctx, args);
+    if (ref === "config-policy") return null; // No published policy: exercise historical default capabilities.
     throw new Error(`Unexpected query ${ref}`);
   },
   runAction(ref, args) { assert.equal(ref, "validate"); return auth.validateRoleSelection.handler(actionCtx, args); },

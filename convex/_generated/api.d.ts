@@ -14,6 +14,10 @@ import type * as aiGateway from "../aiGateway.js";
 import type * as auth from "../auth.js";
 import type * as authGuard from "../authGuard.js";
 import type * as bulkImport from "../bulkImport.js";
+import type * as configActions from "../configActions.js";
+import type * as configContract from "../configContract.js";
+import type * as configDefaults from "../configDefaults.js";
+import type * as configMutations from "../configMutations.js";
 import type * as constants from "../constants.js";
 import type * as cycleCount from "../cycleCount.js";
 import type * as dhr from "../dhr.js";
@@ -29,6 +33,7 @@ import type * as incomingStockDeterministicIdentity from "../incomingStockDeterm
 import type * as incomingStockPdfOcr from "../incomingStockPdfOcr.js";
 import type * as incomingStockReview from "../incomingStockReview.js";
 import type * as inventoryActions from "../inventoryActions.js";
+import type * as inventoryReportActions from "../inventoryReportActions.js";
 import type * as kits from "../kits.js";
 import type * as partMasterActions from "../partMasterActions.js";
 import type * as parts from "../parts.js";
@@ -71,6 +76,10 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authGuard: typeof authGuard;
   bulkImport: typeof bulkImport;
+  configActions: typeof configActions;
+  configContract: typeof configContract;
+  configDefaults: typeof configDefaults;
+  configMutations: typeof configMutations;
   constants: typeof constants;
   cycleCount: typeof cycleCount;
   dhr: typeof dhr;
@@ -86,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   incomingStockPdfOcr: typeof incomingStockPdfOcr;
   incomingStockReview: typeof incomingStockReview;
   inventoryActions: typeof inventoryActions;
+  inventoryReportActions: typeof inventoryReportActions;
   kits: typeof kits;
   partMasterActions: typeof partMasterActions;
   parts: typeof parts;

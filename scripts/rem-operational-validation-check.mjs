@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import * as XLSX from 'xlsx';
 const v = new Proxy({}, { get: () => () => ({}) });
+let importEnabled = null;
+const internal = { configActions: { getConfigValueInternal: 'config-value' } };
+const authContext = allowed => ({ allowed, runQuery: async (ref, args) => { assert.equal(ref, 'config-value'); assert.equal(args.key, 'features.remImportEnabled'); return importEnabled; } });
 function load(path, dependencies, extra={}) {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path, 'utf8'), {
@@ -48,7 +51,7 @@ let errorStatus=0;
 let readFailureBody=false;
 const requests=[];
 const actions=load('convex/remOperationalImportActions.ts', {
-  'convex/values':{v}, './_generated/server':{action:x=>x},
+  'convex/values':{v}, './_generated/server':{action:x=>x}, './_generated/api':{internal},
   './remOperationalImportValidation':validation,
   './authGuard':{requireCapability:async(ctx,capability)=>{
     if(!ctx.allowed.includes(capability))throw new Error('capability denied');
@@ -67,27 +70,27 @@ const actions=load('convex/remOperationalImportActions.ts', {
 const importId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const baseProgress={importId,planYear:2026,expectedRows:1,receivedRows:0,nextBatchIndex:0,status:'staging'};
 const beginArgs={fileHash:'a'.repeat(64),planYear:2026,expectedRows:1,actor:'caller-must-not-win'};
-await assert.rejects(actions.beginOperationalImport.handler({allowed:[]},beginArgs),/capability denied/);
+await assert.rejects(actions.beginOperationalImport.handler(authContext([]),beginArgs),/capability denied/);
 assert.equal(requests.length,0);
 nextReceipt=baseProgress;
-await actions.beginOperationalImport.handler({allowed:['rem.write']},beginArgs);
+await actions.beginOperationalImport.handler(authContext(['rem.write']),beginArgs);
 assert.equal(requests.at(-1).payload.p_actor,'canonical-server-actor');
 for(const bad of [
   {...baseProgress,nextBatchIndex:-1}, {...baseProgress,receivedRows:1,nextBatchIndex:0},
   {...baseProgress,status:'applied'}, {...baseProgress,nextBatchIndex:2},
 ]) {
   nextReceipt=bad;
-  await assert.rejects(actions.beginOperationalImport.handler({allowed:['rem.write']},beginArgs),/Invalid REM import receipt/);
+  await assert.rejects(actions.beginOperationalImport.handler(authContext(['rem.write']),beginArgs),/Invalid REM import receipt/);
 }
 nextReceipt=url=>url.includes('get_rem_')?baseProgress:{...baseProgress,receivedRows:1,nextBatchIndex:1,duplicate:false};
-await actions.stageOperationalImport.handler({allowed:['rem.write']},{importId,batchIndex:0,records:[good[0]]});
+await actions.stageOperationalImport.handler(authContext(['rem.write']),{importId,batchIndex:0,records:[good[0]]});
 assert.equal(requests.at(-1).payload.p_actor,'canonical-server-actor');
 nextReceipt={records:[],total:0,offset:0,limit:50,hasMore:false};
-await actions.listOperationalRecords.handler({allowed:['rem.read']},{dataset:'field_status',planYear:2026,offset:0,limit:50,query:' Synthetic ',product:' vitros '});
+await actions.listOperationalRecords.handler(authContext(['rem.read']),{dataset:'field_status',planYear:2026,offset:0,limit:50,query:' Synthetic ',product:' vitros '});
 assert.equal(requests.at(-1).payload.p_plan_year,2026);
 assert.equal(requests.at(-1).payload.p_product,'VITROS');
 errorStatus=400;
-await assert.rejects(actions.beginOperationalImport.handler({allowed:['rem.write']},beginArgs),/validation or retry conflict/);
+await assert.rejects(actions.beginOperationalImport.handler(authContext(['rem.write']),beginArgs),/validation or retry conflict/);
 assert.equal(readFailureBody,false);
 console.log('REM_OPERATIONAL_ACTION_AUTH_ACTOR_PROGRESS_ERROR_CONTAINMENT=PASS');
 
@@ -99,7 +102,7 @@ let coreStatus=400;
 let pulses=0;
 const coreRequests=[];
 const coreActions=load('convex/remWorkbookActions.ts', {
-  'convex/values':{v}, './_generated/server':{action:x=>x},
+  'convex/values':{v}, './_generated/server':{action:x=>x}, './_generated/api':{internal},
   './authGuard':{requireCapability:async(ctx,capability)=>{
     if(!ctx.allowed.includes(capability))throw new Error('capability denied');
     return 'canonical-server-actor';
@@ -123,12 +126,12 @@ const coreArgs={
   staff:Array.from({length:5},(_,n)=>({sourceKey:`2026:staff:${n+1}`,year:2026,wwid:String(100001+n),name:`Synthetic Staff ${n+1}`,skills:{},certifications:{}})),
   weeklyNotes:[],targets:[{sourceKey:'2026:target:VITROS_ANNUAL_PLAN',year:2026,targetType:'VITROS_ANNUAL_PLAN',targetValue:10,actualValue:0,data:{}}],
 };
-await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler({allowed:[]},coreArgs),/capability denied/);
-await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler({allowed:['rem.write']},{...coreArgs,operationalImportId:'malformed'}),/Invalid REM operational import identifier/);
-await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler({allowed:['rem.write']},{...coreArgs,analyzers:[]}),/Invalid analyzer row count/);
+await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler(authContext([]),coreArgs),/capability denied/);
+await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),{...coreArgs,operationalImportId:'malformed'}),/Invalid REM operational import identifier/);
+await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),{...coreArgs,analyzers:[]}),/Invalid analyzer row count/);
 assert.equal(coreRequests.length,0);
 coreFailure={message:'partial_lvcc_reviews_changed_source_requires_review',details:'private provider text'};
-await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler({allowed:['rem.write']},coreArgs),error=>{
+await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),coreArgs),error=>{
   assert.equal(error.message,'This sheet moved existing reviews. Restore or review the current review IDs before applying this workbook.');
   return true;
 });
@@ -141,7 +144,7 @@ for(const failure of [
   new Error('private response decoding failure'),
 ]) {
   coreFailure=failure;
-  await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler({allowed:['rem.write']},coreArgs),error=>{
+  await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),coreArgs),error=>{
     assert.equal(error.message,genericFailure);return true;
   });
 }
@@ -150,9 +153,18 @@ assert.match(coreRequests.at(-1).url,/\/apply_rem_full_workbook_import$/);
 assert.equal(coreRequests.at(-1).payload.p_operational_import_id,importId);
 assert.equal(coreRequests.at(-1).payload.p_actor,'canonical-server-actor');
 coreStatus=200;coreFailure={already_applied:true,operational:{import_id:importId,rows:1,inserted:1,updated:0,unchanged:0,datasets:{field_status:1}}};
-await coreActions.applyAuthoritativeWorkbookImport.handler({allowed:['rem.write']},coreArgs);
+await coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),coreArgs);
 assert.equal(pulses,1);
-await coreActions.applyAuthoritativeWorkbookImport.handler({allowed:['rem.write']},{...coreArgs,operationalImportId:undefined});
+await coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),{...coreArgs,operationalImportId:undefined});
 assert.match(coreRequests.at(-1).url,/\/apply_rem_authoritative_workbook_import$/);
 assert.equal('p_operational_import_id' in coreRequests.at(-1).payload,false);
 console.log('REM_FULL_ACTION_CORE_VALIDATION_WHITELIST_ERROR_CONTAINMENT=PASS');
+
+const requestsBeforeDisabled = requests.length; const coreBeforeDisabled = coreRequests.length;
+importEnabled = false;
+await assert.rejects(actions.beginOperationalImport.handler(authContext(['rem.write']),beginArgs),/disabled by configuration/);
+await assert.rejects(actions.stageOperationalImport.handler(authContext(['rem.write']),{importId,batchIndex:0,records:[good[0]]}),/disabled by configuration/);
+await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),coreArgs),/disabled by configuration/);
+await assert.rejects(coreActions.applyAuthoritativeWorkbookImport.handler(authContext(['rem.write']),{...coreArgs,operationalImportId:undefined}),/disabled by configuration/);
+assert.equal(requests.length,requestsBeforeDisabled);assert.equal(coreRequests.length,coreBeforeDisabled);
+console.log('REM_IMPORT_DISABLED_ALL_ENTRYPOINTS_NO_PROVIDER_WRITES=PASS');

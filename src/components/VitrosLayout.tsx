@@ -4,55 +4,18 @@ import { TopNavBar } from "./TopNavBar";
 import { AppSidebar } from "./AppSidebar";
 import { useConvexData } from "../hooks/useConvexData";
 import { useTheme } from "../contexts/ThemeContext";
+import { useConfig } from "../hooks/useConfig";
 import { Menu } from "lucide-react";
-
-// Route label map
-const routeLabels: Record<string, string> = {
-  "/dashboard": "Executive Dashboard",
-  "/scan-kiosk": "Scan Kiosk",
-  "/user-dashboard": "User Dashboard",
-  "/stock-summary": "Stock Summary",
-  "/incoming-stock": "Incoming Stock Intake",
-  "/reorder-stockout": "Reorder / Stock-Out",
-  "/transaction-search": "Transaction Search",
-  "/aged-inventory": "Aged Inventory",
-  "/wip-cycle-time": "WIP & Cycle Time",
-  "/inventory-turnover": "Inventory Turnover",
-  "/inventory-accuracy": "Inventory Accuracy",
-  "/analyzer-analysis": "Analyzer Analysis",
-  "/abc-analysis": "ABC Analysis",
-  "/kit-analysis": "Kit Analysis",
-  "/sap-staging": "SAP Staging",
-  "/sap-analytics": "SAP Analytics",
-  "/cycle-count": "Cycle Count",
-  "/health-heatmap": "Health Heatmap",
-  "/executive-report": "Executive Report",
-  "/mobile-quick-view": "Mobile Quick View",
-  "/report-preview": "Report Preview",
-  "/upload-refresh": "Upload / Refresh",
-  "/rem/dashboard": "REM Dashboard",
-  "/rem/morning-snapshot": "Morning Snapshot",
-  "/rem/kanban": "REM Kanban",
-  "/rem/gantt": "REM Gantt",
-  "/rem/kiosk": "REM Kiosk",
-  "/rem/analyzers": "Analyzers",
-  "/rem/lvcc": "LVCC Tracker",
-  "/rem/production-plan": "Production Plan",
-  "/rem/field-status": "Field Status",
-  "/rem/staff": "Staff & Training",
-  "/rem/notes": "Weekly Notes",
-  "/rem/reports": "REM Reports",
-  "/rem/import": "REM Bulk Import",
-  "/settings": "Settings",
-};
 
 export function VitrosLayout() {
   const { isLoading, error } = useConvexData();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const { palette } = useTheme();
+  const { get } = useConfig();
   const isRem = location.pathname.startsWith("/rem");
-  const sectionLabel = isRem ? "REM Tracker" : "Inventory";
+  const routeLabels = get<Record<string, string>>("nav.routeLabels");
+  const sectionLabel = routeLabels[location.pathname] || (isRem ? "REM Tracker" : "Inventory");
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: palette.pageBg }}>

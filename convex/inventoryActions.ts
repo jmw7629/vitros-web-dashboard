@@ -3,6 +3,7 @@
 // The database function owns locking, idempotency, ledger creation, and SAP staging.
 import { action } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { requireCapability } from "./authGuard";
 import { publishRealtimePulse } from "./realtimePulsePublisher";
 
@@ -292,6 +293,10 @@ export const updateSapStatus = action({
     if (status !== "ready" && status !== "posted") {
       throw new Error("Legacy SAP status changes only support reviewed ready/exported transitions");
     }
+    if (status === "posted") {
+      const sapExportValue = await ctx.runQuery(internal.configActions.getConfigValueInternal, { key: "features.sapExportEnabled" });
+      if (sapExportValue === false) throw new Error("SAP export is currently disabled by configuration");
+    }
     const { url, serviceKey } = getSupabaseConfig();
     const result = await applySapStagingStatusTransition(
       serviceKey,
@@ -322,6 +327,8 @@ export const markSapBatchExported = action({
   returns: v.any(),
   handler: async (ctx, { ids }) => {
     const actorId = await requireCapability(ctx, "inventory.write");
+    const sapExportValue = await ctx.runQuery(internal.configActions.getConfigValueInternal, { key: "features.sapExportEnabled" });
+    if (sapExportValue === false) throw new Error("SAP export is currently disabled by configuration");
     const { url, serviceKey } = getSupabaseConfig();
     const result = await applySapStagingStatusTransition(serviceKey, url, String(actorId), ids, "exported");
     await publishRealtimePulse(ctx);

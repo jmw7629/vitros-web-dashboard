@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireCapability } from "./authGuard";
 import { publishRealtimePulse } from "./realtimePulsePublisher";
 
@@ -129,8 +130,12 @@ export const applyAuthoritativeWorkbookImport = action({
   handler: async (ctx, args) => {
     const userId = await requireCapability(ctx, "rem.write");
     assertYear(args.planYear);
-    if (args.operationalImportId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.operationalImportId)) {
-      throw new Error("Invalid REM operational import identifier");
+    const remImportValue = await ctx.runQuery(internal.configActions.getConfigValueInternal, { key: "features.remImportEnabled" });
+    if (remImportValue === false) throw new Error("REM import is currently disabled by configuration");
+    if (args.operationalImportId !== undefined) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.operationalImportId)) {
+        throw new Error("Invalid REM operational import identifier");
+      }
     }
     if (args.fileName.trim().length < 1 || args.fileName.length > 255) throw new Error("Invalid workbook file name");
     if (!/^[a-f0-9]{64}$/.test(args.fileHash)) throw new Error("Invalid workbook fingerprint");

@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useRole } from "../hooks/useRole";
-import { useTheme, THEME_PALETTES, type ThemeMode } from "../contexts/ThemeContext";
+import { useConfig } from "../hooks/useConfig";
+import { useTheme, THEME_PALETTES } from "../contexts/ThemeContext";
+import { getRoleDefaultRoute, type RoleName } from "../lib/dashboardRoutes";
 
 export function BottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setRole } = useRole();
-  const { themeMode, setThemeMode, palette } = useTheme();
+  const { role, setRole } = useRole();
+  const { publishedValues } = useConfig();
+  const { themeMode, setThemeMode, palette, availableModes } = useTheme();
   const [showThemePicker, setShowThemePicker] = useState(false);
 
   const handleLogout = () => {
@@ -19,9 +22,11 @@ export function BottomNav() {
 
   const isActive = (path: string) => location.pathname === path;
 
+  const dashboardRoute = getRoleDefaultRoute(role as RoleName, publishedValues);
+
   const navItems = [
     { icon: "📷", label: "Scan", path: "/scan-kiosk" },
-    { icon: "📊", label: "Dashboard", path: "/dashboard" },
+    { icon: "📊", label: "Dashboard", path: dashboardRoute },
     { icon: "✅", label: "Count", path: "/cycle-count" },
     { icon: "⚙️", label: "Settings", path: "/settings" },
   ];
@@ -41,12 +46,13 @@ export function BottomNav() {
               <p className="text-xs mt-0.5" style={{ color: palette.textMuted }}>Select your preferred appearance</p>
             </div>
             <div className="px-4 pb-4 grid grid-cols-1 gap-2">
-              {Object.entries(THEME_PALETTES).map(([key, p]) => {
+              {availableModes.map((key) => {
+                const p = THEME_PALETTES[key];
                 const active = key === themeMode;
                 return (
                   <button
                     key={key}
-                    onClick={() => { setThemeMode(key as ThemeMode); setShowThemePicker(false); }}
+                    onClick={() => { setThemeMode(key); setShowThemePicker(false); }}
                     className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all"
                     style={{
                       backgroundColor: active ? `${p.accentBlue}22` : `${p.pageBg}`,

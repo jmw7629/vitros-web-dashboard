@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useConfig } from "../hooks/useConfig";
+import type { ThemeMode } from "../../convex/configContract";
 
 // ─── Theme Palettes ───
 export interface ThemePalette {
@@ -202,42 +204,53 @@ function applyThemeCSSVars(palette: ThemePalette) {
 }
 
 // ─── Context ───
-export type ThemeMode = keyof typeof THEME_PALETTES;
 
 interface ThemeContextType {
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
   palette: ThemePalette;
+  availableModes: ThemeMode[];
 }
 
 const ThemeContext = createContext<ThemeContextType>({
   themeMode: "dark",
   setThemeMode: () => {},
   palette: THEME_PALETTES.dark,
+  availableModes: ["dark", "light", "midnight", "ocean", "vitros"],
 });
 
-interface ThemeProviderProps {
-  children: ReactNode;
-  defaultTheme?: ThemeMode | "system";
-  switchable?: boolean;
-}
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const { get, isPreviewing } = useConfig();
+  const configDefaultMode = get<ThemeMode>("theme.defaultMode");
+  const configAvailableModes = get<string[]>("theme.availableModes");
 
-export function ThemeProvider({ children, defaultTheme = "dark" }: ThemeProviderProps) {
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    const stored = localStorage.getItem("vitros-theme");
-    if (stored && stored in THEME_PALETTES) return stored as ThemeMode;
-    if (defaultTheme === "system") {
-      return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Filter available palettes to only include configured available modes
+  const availableModes = useMemo(
+    () => (Object.keys(THEME_PALETTES) as ThemeMode[]).filter((k) => configAvailableModes.includes(k)),
+    [configAvailableModes]
+  );
+
+  // Store only an explicit personal choice. Defaults and preview overlays are
+  // resolved on each render, including when an administrator removes a mode.
+  const [personalMode, setPersonalMode] = useState(() => localStorage.getItem("vitros-theme"));
+  const themeMode = !isPreviewing("theme.defaultMode") && personalMode && availableModes.includes(personalMode as ThemeMode)
+    ? personalMode as ThemeMode
+    : availableModes.includes(configDefaultMode) ? configDefaultMode : availableModes[0] || "dark";
+
+  // setThemeMode updates both state and localStorage (explicit user choice)
+  // Only allows modes that are in the configured availableModes
+  const setThemeMode = (mode: ThemeMode) => {
+    if (availableModes.includes(mode)) {
+      setPersonalMode(mode);
+      localStorage.setItem("vitros-theme", mode);
     }
-    return defaultTheme in THEME_PALETTES ? defaultTheme as ThemeMode : "dark";
-  });
+  };
 
-  const palette = THEME_PALETTES[themeMode] || THEME_PALETTES.dark;
+  const palette = THEME_PALETTES[themeMode] || THEME_PALETTES[availableModes[0]] || THEME_PALETTES.dark;
 
+  // Apply theme CSS variables and tailwind dark class
   useEffect(() => {
     applyThemeCSSVars(palette);
-    localStorage.setItem("vitros-theme", themeMode);
-    // Also set dark/light class for tailwind
     if (themeMode === "light") {
       document.documentElement.classList.remove("dark");
     } else {
@@ -245,13 +258,8 @@ export function ThemeProvider({ children, defaultTheme = "dark" }: ThemeProvider
     }
   }, [themeMode, palette]);
 
-  // Apply on mount
-  useEffect(() => {
-    applyThemeCSSVars(palette);
-  }, []);
-
   return (
-    <ThemeContext.Provider value={{ themeMode, setThemeMode, palette }}>
+    <ThemeContext.Provider value={{ themeMode, setThemeMode, palette, availableModes }}>
       {children}
     </ThemeContext.Provider>
   );

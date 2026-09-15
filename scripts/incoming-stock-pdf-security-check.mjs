@@ -94,7 +94,9 @@ requireTokens(imageUi, "Incoming Stock image provenance", [
 
 requireTokens(app, "Incoming Stock route", [
   'import { IncomingStockDocument } from "./pages/inventory/IncomingStockDocument"',
-  '<Route path="/incoming-stock" element={<IncomingStockDocument />} />',
 ]);
 
+if (!/<Route\s+path="\/incoming-stock"\s+element=\{\s*<RoleGuard\s+route="\/incoming-stock"[^>]*>\s*<IncomingStockDocument\s*\/>\s*<\/RoleGuard>\s*\}\s*\/>/.test(app)) {
+  throw new Error("Incoming Stock must mount the reviewed document component inside its role guard");
+}
 console.log("Incoming Stock PDF security invariants: PASS");

@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { assertUserEmployeeAccess } from "./employeeAccess";
 import { internal } from "./_generated/api";
 import { resolveServerIdentity } from "./roleIdentity";
+import { effectiveRoleCapabilities } from "./configContract";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -13,7 +14,8 @@ export type Capability =
   | "rem.read"
   | "rem.write"
   | "admin.system_settings.manage"
-  | "admin.users.manage";
+  | "admin.users.manage"
+  | "admin.audit.read";
 
 export const ROLE_CAPABILITIES: Record<string, Capability[]> = {
   superuser: [
@@ -25,6 +27,7 @@ export const ROLE_CAPABILITIES: Record<string, Capability[]> = {
     "rem.write",
     "admin.system_settings.manage",
     "admin.users.manage",
+    "admin.audit.read",
   ],
   engineer: [
     "inventory.read",
@@ -53,6 +56,17 @@ async function getUserRole(ctx: DbCtx, userId: Id<"users">): Promise<string> {
   return (await resolveServerIdentity(ctx, userId))?.role ?? "viewer";
 }
 
+async function getRolePolicy(ctx: AuthCtx): Promise<unknown> {
+  if ("db" in ctx) {
+    const row = await ctx.db
+      .query("configPublished")
+      .withIndex("by_key", (q) => q.eq("key", "roles.policy"))
+      .first();
+    return row ? row.value : null;
+  }
+  return await ctx.runQuery(internal.configActions.getRolePolicyInternal, {});
+}
+
 export async function requireCapability(
   ctx: AuthCtx,
   capability: Capability,
@@ -68,6 +82,17 @@ export async function requireCapability(
   const caps = ROLE_CAPABILITIES[role];
   if (!caps || !caps.includes(capability)) {
     throw new Error(`Missing capability: ${capability}`);
+  }
+
+  // Server-side role policy enforcement: the published policy may only REMOVE
+  // optional capabilities inside the immutable ceiling (and can never remove
+  // mandatory recovery access). effectiveRoleCapabilities clamps the stored
+  // policy inside the ceiling and mandatory set, and falls back to the
+  // immutable defaults when no valid policy exists — it can never widen.
+  const policy = await getRolePolicy(ctx);
+  const effective = effectiveRoleCapabilities(role, policy);
+  if (!effective.includes(capability)) {
+    throw new Error(`Capability disabled by role policy: ${capability}`);
   }
   return userId;
 }

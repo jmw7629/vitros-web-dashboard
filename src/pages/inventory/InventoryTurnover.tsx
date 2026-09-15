@@ -1,9 +1,13 @@
 import { useMemo } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
+import { useConfig } from "../../hooks/useConfig";
 import { WebCard, StatusBadge, DashCard, theme } from "../../components/vitros/SharedComponents";
+import type { TurnoverChartConfig } from "../../lib/configRegistry";
 
 export function InventoryTurnover() {
   const data = useConvexData();
+  const { get } = useConfig();
+  const turnoverConfig = get<TurnoverChartConfig>("charts.inventoryTurnover");
 
   const turnoverData = useMemo(() => {
     return data.parts.map(p => {
@@ -21,7 +25,15 @@ export function InventoryTurnover() {
   const low = turnoverData.filter(p => p.cls === "Low").length;
   const none = turnoverData.filter(p => p.cls === "None").length;
 
-  const clsColor = (c: string) => c === "High" ? theme.statusOk : c === "Medium" ? "#3b82f6" : c === "Low" ? "#f59e0b" : theme.statusOut;
+  const clsColor = (c: string) => {
+    const colors = turnoverConfig.colors;
+    switch (c) {
+      case "High": return colors[0] || theme.statusOk;
+      case "Medium": return colors[1] || "#3b82f6";
+      case "Low": return colors[2] || "#f59e0b";
+      default: return colors[3] || theme.statusOut;
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -30,12 +42,14 @@ export function InventoryTurnover() {
         <p className="text-sm mt-0.5" style={{ color: theme.textSecondary }}>How fast each part moves through the system</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
-        <DashCard label="HIGH" value={high} icon="🟢" color={theme.statusOk} />
-        <DashCard label="MEDIUM" value={med} icon="🔵" color="#3b82f6" />
-        <DashCard label="LOW" value={low} icon="🟡" color="#f59e0b" />
-        <DashCard label="NONE" value={none} icon="🔴" color={theme.statusOut} />
-      </div>
+      {turnoverConfig.showClassCards && (
+        <div className="grid grid-cols-4 gap-2">
+          <DashCard label="HIGH" value={high} icon="🟢" color={clsColor("High")} />
+          <DashCard label="MEDIUM" value={med} icon="🔵" color={clsColor("Medium")} />
+          <DashCard label="LOW" value={low} icon="🟡" color={clsColor("Low")} />
+          <DashCard label="NONE" value={none} icon="🔴" color={clsColor("None")} />
+        </div>
+      )}
 
       <WebCard className="overflow-hidden">
         <div className="px-4 py-3 border-b" style={{ borderColor: theme.cardBorder }}>

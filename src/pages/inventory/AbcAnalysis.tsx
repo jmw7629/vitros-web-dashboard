@@ -1,6 +1,8 @@
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
+import { useConfig } from "../../hooks/useConfig";
 import { WebCard, DashCard, StatusBadge, theme, downloadCSV } from "../../components/vitros/SharedComponents";
+import type { AbcChartConfig } from "../../lib/configRegistry";
 
 // ═══════════════════════════════════════════════════════════════
 // ABC Analysis — mirrors reference app exactly
@@ -24,13 +26,19 @@ interface ClassifiedPart {
   cumulativePct: number;
 }
 
-const CLASS_COLORS = { A: "#ef4444", B: "#f59e0b", C: "#22c55e" } as const;
-
 export function AbcAnalysis() {
   const data = useConvexData();
+  const { get } = useConfig();
+  const abcConfig = get<AbcChartConfig>("charts.abcAnalysis");
   const [selectedClass, setSelectedClass] = useState<"All" | "A" | "B" | "C">("All");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All Types");
+
+  const CLASS_COLORS = {
+    A: abcConfig.colors[0] || "#ef4444",
+    B: abcConfig.colors[1] || "#f59e0b",
+    C: abcConfig.colors[2] || "#22c55e",
+  } as const;
 
   const classified = useMemo<ClassifiedPart[]>(() => {
     // Score each part based on usage volume, criticality, and stock health
@@ -108,25 +116,25 @@ export function AbcAnalysis() {
       {/* Class Cards — 3 across */}
       <div className="grid grid-cols-3 gap-3">
         <ClassCard label="CLASS A" count={aItems.length} pct={Math.round((aItems.length / total) * 100)}
-          sub="Critical" icon="📊" borderColor="#ef4444" iconBg="#ef444420" />
+          sub="Critical" icon="📊" borderColor={CLASS_COLORS.A} iconBg={`${CLASS_COLORS.A}20`} />
         <ClassCard label="CLASS B" count={bItems.length} pct={Math.round((bItems.length / total) * 100)}
-          sub="Moderate" icon="📊" borderColor="#f59e0b" iconBg="#f59e0b20" />
+          sub="Moderate" icon="📊" borderColor={CLASS_COLORS.B} iconBg={`${CLASS_COLORS.B}20`} />
         <ClassCard label="CLASS C" count={cItems.length} pct={Math.round((cItems.length / total) * 100)}
-          sub="Low" icon="✅" borderColor="#22c55e" iconBg="#22c55e20" />
+          sub="Low" icon="✅" borderColor={CLASS_COLORS.C} iconBg={`${CLASS_COLORS.C}20`} />
       </div>
 
       {/* Pareto Chart */}
-      <ParetoChart parts={classified.slice(0, 40)} />
+      {abcConfig.showPareto && <ParetoChart parts={classified.slice(0, 40)} classColors={CLASS_COLORS} />}
 
       {/* Donut Chart */}
-      <DonutChart a={aItems.length} b={bItems.length} c={cItems.length} />
+      {abcConfig.showDonut && <DonutChart a={aItems.length} b={bItems.length} c={cItems.length} classColors={CLASS_COLORS} />}
 
       {/* Filter Pills */}
       <div className="flex items-center gap-2 flex-wrap">
         {(["All", "A", "B", "C"] as const).map(cls => {
           const count = cls === "All" ? classified.length : classified.filter(p => p.class === cls).length;
           const active = selectedClass === cls;
-          const color = cls === "All" ? theme.accentBlue : CLASS_COLORS[cls];
+          const color = cls === "All" ? theme.accentBlue : CLASS_COLORS[cls as keyof typeof CLASS_COLORS];
           return (
             <button key={cls} onClick={() => setSelectedClass(cls)}
               className="text-xs font-bold px-4 py-2 rounded-xl transition-all"
@@ -244,7 +252,7 @@ function ClassCard({ label, count, pct, sub, icon, borderColor, iconBg }: {
 }
 
 // ─── Pareto Chart (SVG — bars + cumulative line) ───
-function ParetoChart({ parts }: { parts: ClassifiedPart[] }) {
+function ParetoChart({ parts, classColors }: { parts: ClassifiedPart[]; classColors: { A: string; B: string; C: string } }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const W = 700, H = 300, PAD_L = 45, PAD_R = 40, PAD_T = 20, PAD_B = 60;
   const plotW = W - PAD_L - PAD_R;
@@ -280,8 +288,8 @@ function ParetoChart({ parts }: { parts: ClassifiedPart[] }) {
           const y80 = PAD_T + plotH - (80 / 100) * plotH;
           return (
             <>
-              <line x1={PAD_L} y1={y80} x2={W - PAD_R} y2={y80} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="6 4" />
-              <text x={W - PAD_R + 4} y={y80 + 4} fill="#ef4444" fontSize="10" fontWeight="bold">80%</text>
+              <line x1={PAD_L} y1={y80} x2={W - PAD_R} y2={y80} stroke={classColors.A} strokeWidth="1.5" strokeDasharray="6 4" />
+              <text x={W - PAD_R + 4} y={y80 + 4} fill={classColors.A} fontSize="10" fontWeight="bold">80%</text>
             </>
           );
         })()}
@@ -293,7 +301,7 @@ function ParetoChart({ parts }: { parts: ClassifiedPart[] }) {
           const y = PAD_T + plotH - h;
           return (
             <g key={p._id}>
-              <rect x={x} y={y} width={barW} height={h} fill="#ef4444" rx={1} opacity={0.9} />
+              <rect x={x} y={y} width={barW} height={h} fill={classColors.A} rx={1} opacity={0.9} />
               {/* X-axis label */}
               {i % Math.ceil(parts.length / 10) === 0 && (
                 <text x={x + barW / 2} y={H - PAD_B + 14} textAnchor="end" fill={theme.textMuted} fontSize="8"
@@ -327,7 +335,7 @@ function ParetoChart({ parts }: { parts: ClassifiedPart[] }) {
       {/* Legend */}
       <div className="flex justify-center gap-6 mt-2">
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#ef4444" }} />
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: classColors.A }} />
           <span className="text-[11px]" style={{ color: theme.textSecondary }}>Score</span>
         </div>
         <div className="flex items-center gap-1.5">
@@ -340,7 +348,7 @@ function ParetoChart({ parts }: { parts: ClassifiedPart[] }) {
 }
 
 // ─── Donut Chart (SVG) ───
-function DonutChart({ a, b, c }: { a: number; b: number; c: number }) {
+function DonutChart({ a, b, c, classColors }: { a: number; b: number; c: number; classColors: { A: string; B: string; C: string } }) {
   const total = a + b + c || 1;
   const aPct = Math.round((a / total) * 100);
   const bPct = Math.round((b / total) * 100);
@@ -351,9 +359,9 @@ function DonutChart({ a, b, c }: { a: number; b: number; c: number }) {
   const circumference = 2 * Math.PI * R;
 
   const segments = [
-    { pct: aPct, color: "#ef4444", label: `A ${aPct}%`, offset: 0 },
-    { pct: bPct, color: "#f59e0b", label: `B ${bPct}%`, offset: aPct },
-    { pct: cPct, color: "#22c55e", label: `C ${cPct}%`, offset: aPct + bPct },
+    { pct: aPct, color: classColors.A, label: `A ${aPct}%`, offset: 0 },
+    { pct: bPct, color: classColors.B, label: `B ${bPct}%`, offset: aPct },
+    { pct: cPct, color: classColors.C, label: `C ${cPct}%`, offset: aPct + bPct },
   ];
 
   return (
@@ -385,15 +393,15 @@ function DonutChart({ a, b, c }: { a: number; b: number; c: number }) {
       {/* Legend */}
       <div className="flex justify-center gap-6 mt-2">
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#ef4444" }} />
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: classColors.A }} />
           <span className="text-[11px]" style={{ color: theme.textSecondary }}>A – Critical</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#f59e0b" }} />
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: classColors.B }} />
           <span className="text-[11px]" style={{ color: theme.textSecondary }}>B – Moderate</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#22c55e" }} />
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: classColors.C }} />
           <span className="text-[11px]" style={{ color: theme.textSecondary }}>C – Low</span>
         </div>
       </div>

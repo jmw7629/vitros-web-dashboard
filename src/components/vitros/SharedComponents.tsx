@@ -254,10 +254,31 @@ export function Pill({ label, active, icon, onClick }: PillProps) {
 
 export function formatNumber(n: number): string { return n.toLocaleString(); }
 
-export function formatDate(timestamp: number): string {
+export function formatDate(
+  timestamp: number,
+  dateFormat?: string,
+  timezone?: string
+): string {
   const d = new Date(timestamp);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " +
-    d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const format = dateFormat || "MMM d h:mm A";
+  const tz = timezone || "local";
+  if (tz === "local") {
+    return d.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: format.includes("A"),
+    });
+  }
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: format.includes("A"),
+    timeZone: tz,
+  });
 }
 
 export function modeColor(mode: string): string {
