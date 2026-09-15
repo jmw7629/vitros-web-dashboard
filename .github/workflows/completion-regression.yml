@@ -86,6 +86,8 @@ jobs:
           node scripts/dhr-delete-action-check.mjs
           node scripts/dhr-delete-ui-check.mjs
           node scripts/runtime-env-sync-behavior.mjs
+      - name: Cycle Count durable session and UI behavior
+        run: node scripts/cycle-count-behavior-check.mjs
       - name: Config editor actual component behavior
         run: node scripts/config-editor-behavior-check.mjs
       - name: Customization server handlers and dashboard reporting
@@ -204,3 +206,15 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f database/migrations/20260906_dhr_session_event_trigger_least_privilege.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915145102_delete_active_dhr.sql
           psql -v ON_ERROR_STOP=1 -f database/tests/dhr_delete.sql
+
+      - name: Cycle Count durable sessions and atomic inventory adjustments
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: disposable_test_only
+          PGDATABASE: dhr_document_test
+        run: |
+          psql -v ON_ERROR_STOP=1 -c "alter table public.stock add column if not exists type text default 'Required'; alter table public.stock add column if not exists min_qty integer default 1; alter table public.stock add column if not exists max_qty integer default 10; alter table public.stock add column if not exists on_plan boolean default false;"
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915160246_cycle_count_sessions.sql
+          psql -v ON_ERROR_STOP=1 -f database/tests/cycle_count_sessions.sql

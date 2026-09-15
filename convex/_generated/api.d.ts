@@ -19,6 +19,8 @@ import type * as configContract from "../configContract.js";
 import type * as configDefaults from "../configDefaults.js";
 import type * as configMutations from "../configMutations.js";
 import type * as constants from "../constants.js";
+import type * as cycleCountActions from "../cycleCountActions.js";
+import type * as cycleCountContract from "../cycleCountContract.js";
 import type * as cycleCount from "../cycleCount.js";
 import type * as dhr from "../dhr.js";
 import type * as dhrDocumentActions from "../dhrDocumentActions.js";
@@ -82,6 +84,8 @@ declare const fullApi: ApiFromModules<{
   configMutations: typeof configMutations;
   constants: typeof constants;
   cycleCount: typeof cycleCount;
+  cycleCountActions: typeof cycleCountActions;
+  cycleCountContract: typeof cycleCountContract;
   dhr: typeof dhr;
   dhrDocumentActions: typeof dhrDocumentActions;
   dhrInventoryActions: typeof dhrInventoryActions;

@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useState, useRef, useEffect } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useCycleCountData, useCycleScheduleMutation } from "../../hooks/useCycleCountData";
+import { useActiveCycleSession } from "../../hooks/useActiveCycleSession";
+import { displayCountLines, scopeParts, sortCountLines, type CountLine } from "../../lib/cycleCountState";
+import { CYCLE_FREQUENCIES } from "../../../convex/cycleCountContract";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "../../components/ui/dialog";
+import type { CycleLineInput } from "../../../convex/cycleCountContract";
+import { useRole } from "../../hooks/useRole";
 import { useConvexData } from "../../hooks/useConvexData";
 import type { CycleSchedule, CycleResult, Part } from "../../hooks/useConvexData";
 import {
@@ -15,7 +22,7 @@ import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 
 // ─── Constants ───
-const FREQUENCIES = ["Single", "Weekly", "Bi-Weekly", "Monthly", "Quarterly"] as const;
+const FREQUENCIES = CYCLE_FREQUENCIES;
 
 // ─── Date helpers (UTC-safe to avoid timezone off-by-one) ───
 /** Display a timestamp as a date string using UTC so it never shifts a day */
@@ -28,140 +35,32 @@ function parseDate(dateStr: string): number {
   return new Date(dateStr + "T12:00:00Z").getTime();
 }
 
-// Cycle count data lives on the deployment that has cycleCount functions
-const CYCLE_CONVEX_URL = "https://terrific-snail-972.convex.cloud";
-
-async function cycleQuery<T>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(`${CYCLE_CONVEX_URL}/api/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: fn, args, format: "json" }),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.status === "success") return json.value as T;
-      throw new Error(json.errorMessage || "Query failed");
-    } catch (e) {
-      if (attempt === 2) throw e;
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-    }
-  }
-  throw new Error("Query failed after retries");
-}
-
-async function cycleMutation<T = unknown>(fn: string, args: Record<string, unknown> = {}): Promise<T> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10000);
-      const res = await fetch(`${CYCLE_CONVEX_URL}/api/mutation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: fn, args, format: "json" }),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.status === "success") return json.value as T;
-      throw new Error(json.errorMessage || "Mutation failed");
-    } catch (e) {
-      if (attempt === 2) throw e;
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-    }
-  }
-  throw new Error("Mutation failed after retries");
-}
-
-// ─── Types ───
-interface CountLine {
-  partNumber: string;
-  description: string;
-  systemQty: number;
-  countedQty: string;
-  wipEntries: Record<string, string>; // SN → qty string (dynamic per instrument)
-  incomingQty: string;
-  type: string;
-  onPlan: boolean;
-  minQty: number;
-  maxQty: number;
-  counted: boolean;        // counted field filled
-  incomingCounted: boolean; // Incoming field filled
-  allCounted: boolean;     // counted + ALL wip cols filled + incoming filled
-}
-
 type CountFilter = "all" | "remaining" | "counted";
-
-// ─── Hook: load cycle data from the cycle-count deployment ───
-function useCycleData() {
-  const [schedules, setSchedules] = useState<CycleSchedule[]>([]);
-  const [results, setResults] = useState<CycleResult[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const hasLoadedOnce = useRef(false);
-
-  const load = useCallback(async () => {
-    try {
-      // Load schedules and results separately — if one fails, we still get the other
-      let s: CycleSchedule[] | null = null;
-      let r: CycleResult[] | null = null;
-      let lastErr = "";
-      try { s = await cycleQuery<CycleSchedule[]>("cycleCount:listSchedules"); } catch (e: any) { lastErr = e?.message || "unknown"; }
-      try { r = await cycleQuery<CycleResult[]>("cycleCount:listResults"); } catch (e: any) { lastErr = e?.message || "unknown"; }
-
-      if (s !== null) { setSchedules(s); hasLoadedOnce.current = true; }
-      if (r !== null) setResults(r);
-
-      // Only show error if we've never loaded data at all
-      if (s === null && r === null && !hasLoadedOnce.current) {
-        setError(`Load failed: ${lastErr}`);
-      } else {
-        setError(null);
-      }
-    } catch (e: any) {
-      console.error("Failed to load cycle data:", e);
-      if (!hasLoadedOnce.current) setError(`Load failed: ${e?.message || "unknown"}`);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  // Gentle background refresh every 30s — never shows errors if we have data
-  useEffect(() => {
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
-  }, [load]);
-
-  return { schedules, results, loading, error, refresh: load };
-}
 
 // ─── Main Component ───
 export function CycleCount() {
   const data = useConvexData();
-  const cycle = useCycleData();
+  const cycle = useCycleCountData();
+  const cycleMutation = useCycleScheduleMutation();
+  const active = useActiveCycleSession(cycle.wip, cycle.setWip);
+  const { role } = useRole();
   const [activeTab, setActiveTab] = useState<"schedules" | "active" | "history">("schedules");
 
   const schedules = cycle.schedules;
   const results = cycle.results;
   const parts = data.parts || [];
 
-  // Active count state
-  const [activeSchedule, setActiveSchedule] = useState<CycleSchedule | null>(null);
-  const [countLines, setCountLines] = useState<CountLine[]>([]);
-  const [wipSerials, setWipSerials] = useState<string[]>([]); // dynamic WIP instrument SNs
-  const [sortMode, setSortMode] = useState<"alpha" | "w2w">("alpha");
-  const [submitting, setSubmitting] = useState(false);
-  const [autoSaveTime, setAutoSaveTime] = useState<string | null>(null);
+  const activeSchedule = active.schedule;
+  const sortMode = active.sortMode;
+  const setSortMode = active.setSortMode;
+  const wipSerials = cycle.wip.serials;
+  const countLines = useMemo(() => active.session ? displayCountLines(scopeParts(active.session, cycle.wip, sortMode), active.inputs, cycle.wip) : [], [active.session, active.inputs, cycle.wip, sortMode]);
+  const submitting = active.saving;
+  const autoSaveTime = active.savedAt ? new Date(active.savedAt).toLocaleTimeString() : null;
   const [countFilter, setCountFilter] = useState<CountFilter>("all");
   const [countSearch, setCountSearch] = useState("");
+  const [review, setReview] = useState<{lines:CycleLineInput[];display:CountLine[];fingerprint:string}|null>(null);
+  const [adjustmentBasis, setAdjustmentBasis] = useState<""|"counted"|"counted_wip_incoming">("");
 
   // New schedule modal
   const [showNewSchedule, setShowNewSchedule] = useState(false);
@@ -181,201 +80,19 @@ export function CycleCount() {
     return results.filter((r) => r.timestamp >= monthStart.getTime()).length;
   }, [results]);
 
-  // ─── Start Count (loads any previous partial results) ───
-  const startCount = useCallback(
-    (schedule: CycleSchedule) => {
-      // Find the most recent partial result for this schedule to pre-load counts
-      const previousPartial = results
-        .filter(r => r.scheduleId === schedule._id && r.status === "partial")
-        .sort((a, b) => b.timestamp - a.timestamp)[0];
-
-      // Reconstruct previous counts + WIP serial numbers
-      const previousCounts = new Map<string, { countedQty: number; wipEntries?: { sn: string; qty: number }[]; incomingQty?: number }>();
-      const restoredSerials = new Set<string>();
-      if (previousPartial) {
-        // First: restore saved wipSerials list (authoritative — includes SNs with no data yet)
-        const savedWipSerials = (previousPartial as any).wipSerials as string[] | undefined;
-        if (savedWipSerials) savedWipSerials.forEach(sn => restoredSerials.add(sn));
-        // Also pick up any SNs from individual result entries (backward compat)
-        for (const r of previousPartial.results) {
-          const wipArr = (r as any).wipEntries as { sn: string; qty: number }[] | undefined;
-          if (wipArr) wipArr.forEach(e => restoredSerials.add(e.sn));
-          previousCounts.set(r.partNumber, {
-            countedQty: r.countedQty,
-            wipEntries: wipArr,
-            incomingQty: (r as any).incomingQty,
-          });
-        }
-      }
-      const serialsList = Array.from(restoredSerials);
-
-      const lines: CountLine[] = schedule.parts.map((pn) => {
-        const part = parts.find((p) => p.partNumber === pn);
-        const prev = previousCounts.get(pn);
-        // -1 sentinel means "user didn't fill this field"; also handle old data where 0 meant unfilled
-        const hasCounted = prev?.countedQty !== undefined && prev.countedQty >= 0;
-        const hasIncoming = prev?.incomingQty !== undefined && prev.incomingQty >= 0;
-
-        // Build wipEntries record from previous saved entries
-        const wipEntries: Record<string, string> = {};
-        for (const sn of serialsList) wipEntries[sn] = ""; // init all
-        if (prev?.wipEntries) {
-          for (const e of prev.wipEntries) wipEntries[e.sn] = String(e.qty);
-        }
-
-        const wipFilled = serialsList.length > 0 && serialsList.every(sn => wipEntries[sn] !== undefined && wipEntries[sn] !== "");
-        return {
-          partNumber: pn,
-          description: part?.description ?? "",
-          systemQty: part?.qoh ?? 0,
-          countedQty: hasCounted ? String(prev!.countedQty) : "",
-          wipEntries,
-          incomingQty: hasIncoming ? String(prev!.incomingQty) : "",
-          type: part?.type ?? "Not on BOM",
-          onPlan: part?.onPlan ?? false,
-          minQty: (part as any)?.minQty ?? (part as any)?.min ?? 0,
-          maxQty: (part as any)?.maxQty ?? (part as any)?.max ?? 0,
-          counted: hasCounted,
-          incomingCounted: hasIncoming,
-          allCounted: hasCounted && wipFilled && hasIncoming,
-        };
-      });
-      setActiveSchedule(schedule);
-      setWipSerials(serialsList);
-      setCountLines(lines);
-      setSortMode("alpha");
-      setCountFilter("all");
-      setCountSearch("");
-      setAutoSaveTime(null);
-      setActiveTab("active");
-    },
-    [parts, results]
-  );
-
-  // ─── Auto-save effect ───
-  const autoSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const hasAnyEntry = countLines.some(l => l.counted || l.incomingCounted || Object.values(l.wipEntries).some(v => v !== ""));
-    if (!activeSchedule || !hasAnyEntry) return;
-    if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
-    autoSaveRef.current = setTimeout(() => {
-      const now = new Date();
-      setAutoSaveTime(now.toLocaleTimeString());
-    }, 2000);
-    return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current); };
-  }, [countLines, activeSchedule]);
-
-  // ─── Helper: build results payload with wipEntries ───
-  const buildResultsPayload = useCallback((lines: CountLine[]) => {
-    return lines
-      .filter((l) => l.counted || l.incomingCounted || Object.values(l.wipEntries).some(v => v !== ""))
-      .map((l) => ({
-        partNumber: l.partNumber,
-        systemQty: l.systemQty,
-        // Use -1 as sentinel for "user didn't fill this field" so restore can distinguish from real 0
-        countedQty: l.counted ? parseInt(l.countedQty, 10) || 0 : -1,
-        wipEntries: Object.entries(l.wipEntries)
-          .filter(([, v]) => v !== "")
-          .map(([sn, qty]) => ({ sn, qty: parseInt(qty, 10) || 0 })),
-        incomingQty: l.incomingCounted ? parseInt(l.incomingQty, 10) || 0 : -1,
-        variance: (l.counted ? parseInt(l.countedQty, 10) : 0) - l.systemQty,
-      }));
-  }, []);
-
-  // ─── Save & Exit (update QOH for counted parts, save progress, keep schedule active) ───
-  const handleSaveAndExit = useCallback(async () => {
-    if (!activeSchedule) return;
-    setSubmitting(true);
-    try {
-      const resultsPayload = buildResultsPayload(countLines);
-
-      if (resultsPayload.length > 0 || wipSerials.length > 0) {
-        // Save partial results so the count can be resumed later with green highlights
-        // Always include wipSerials so they restore even if no parts have WIP values yet
-        await cycleMutation("cycleCount:submitCount", {
-          scheduleId: activeSchedule._id,
-          countedBy: "Web User",
-          results: resultsPayload,
-          sortMode: sortMode === "w2w" ? "w2w" : "alphanumeric",
-          status: "partial",
-          wipSerials: wipSerials,
-        });
-
-        // Update QOH in Stock Summary for parts that were actually counted
-        // Physical inventory = counted + WIP (all serials) + incoming
-        const countedLines = countLines.filter(l => l.counted);
-        for (const line of countedLines) {
-          const stockPart = parts.find((p) => p.partNumber === line.partNumber);
-          if (stockPart && stockPart._id) {
-            const counted = parseInt(line.countedQty, 10) || 0;
-            const wipTotal = Object.values(line.wipEntries).reduce((sum, v) => sum + (parseInt(v, 10) || 0), 0);
-            const incoming = line.incomingCounted ? (parseInt(line.incomingQty, 10) || 0) : 0;
-            await data.updatePart(stockPart._id, { qoh: counted + wipTotal + incoming });
-          }
-        }
-      }
-
-      // Schedule stays ACTIVE — user can reopen and resume counting
-      // Previously counted parts will show green-highlighted and still be editable
-      setActiveSchedule(null);
-      setCountLines([]);
-      setWipSerials([]);
-      setActiveTab("schedules");
-      await cycle.refresh();
-    } catch (e) {
-      console.error("Save & Exit failed:", e);
-    } finally {
-      setSubmitting(false);
-    }
-  }, [activeSchedule, countLines, sortMode, cycle, parts, data, buildResultsPayload]);
-
-  // ─── Confirm & Close (update QOH for counted parts, close the schedule) ───
-  const handleConfirmAndClose = useCallback(async () => {
-    if (!activeSchedule) return;
-    setSubmitting(true);
-    try {
-      const resultsPayload = buildResultsPayload(countLines);
-
-      // Submit the final count results
-      await cycleMutation("cycleCount:submitCount", {
-        scheduleId: activeSchedule._id,
-        countedBy: "Web User",
-        results: resultsPayload,
-        sortMode: sortMode === "w2w" ? "w2w" : "alphanumeric",
-        wipSerials: wipSerials,
-      });
-
-      // Update QOH in Stock Summary ONLY for parts that were actually counted
-      // Physical inventory = counted + WIP (all serials) + incoming
-      // Uncounted parts keep their existing QOH
-      for (const r of resultsPayload) {
-        if (r.countedQty !== undefined && r.countedQty >= 0) {
-          const stockPart = parts.find((p) => p.partNumber === r.partNumber);
-          if (stockPart && stockPart._id) {
-            const wipTotal = (r.wipEntries || []).reduce((sum: number, w: { sn: string; qty: number }) => sum + (w.qty || 0), 0);
-            const incoming = (r.incomingQty !== undefined && r.incomingQty >= 0) ? r.incomingQty : 0;
-            await data.updatePart(stockPart._id, { qoh: r.countedQty + wipTotal + incoming });
-          }
-        }
-      }
-
-      // Mark schedule as completed — no longer shows as active
-      await cycleMutation("cycleCount:updateSchedule", {
-        id: activeSchedule._id,
-        status: "completed",
-      });
-
-      setActiveSchedule(null);
-      setCountLines([]);
-      setWipSerials([]);
-      setActiveTab("schedules");
-      await cycle.refresh();
-    } catch (e) {
-      console.error("Confirm & Close failed:", e);
-    } finally {
-      setSubmitting(false);
-    }
-  }, [activeSchedule, countLines, sortMode, cycle, parts, data, buildResultsPayload]);
+  const startCount = async (schedule: CycleSchedule) => {
+    if (await active.start(schedule)) { setActiveTab("active"); setCountFilter("all"); setCountSearch(""); }
+  };
+  const handleSaveAndExit = async () => {
+    if (await active.save("pause")) { setActiveTab("schedules"); await cycle.refresh(); }
+  };
+  const handleConfirmAndClose = async () => {
+    if (cycle.error) { active.setError("Refresh live WIP and stock before confirming."); return; }
+    if (countLines.some(line => line.stockChanged)) { active.setError("Stock changed during count. Re-enter the physical count for highlighted parts before confirming."); return; }
+    if (!countLines.some(line => line.counted)) { active.setError("At least one part must be counted before confirming."); return; }
+    setAdjustmentBasis("");
+    setReview({lines:structuredClone(active.inputs),display:structuredClone(countLines.filter(line=>line.counted)),fingerprint:cycle.wip.fingerprint});
+  };
 
   // ─── Sort & Filter Lines ───
   const sortedAndFilteredLines = useMemo(() => {
@@ -397,20 +114,7 @@ export function CycleCount() {
       lines = lines.filter(l => !l.allCounted);
     }
 
-    // Sort — W2W: Required parts first (alpha), then all other types commingled (alpha)
-    if (sortMode === "w2w") {
-      const required = lines
-        .filter((l) => (l.type || "").toLowerCase() === "required")
-        .sort((a, b) => a.partNumber.localeCompare(b.partNumber, undefined, { numeric: true }));
-      const remaining = lines
-        .filter((l) => (l.type || "").toLowerCase() !== "required")
-        .sort((a, b) => a.partNumber.localeCompare(b.partNumber, undefined, { numeric: true }));
-      return [...required, ...remaining];
-    }
-
-    return lines.sort((a, b) =>
-      a.partNumber.localeCompare(b.partNumber, undefined, { numeric: true })
-    );
+    return sortCountLines(lines, sortMode);
   }, [countLines, sortMode, countFilter, countSearch]);
 
   const countedCount = countLines.filter(l => l.counted).length;
@@ -420,6 +124,35 @@ export function CycleCount() {
 
   return (
     <div className="space-y-4">
+      {review && <Dialog open onOpenChange={open=>{if(!open&&!submitting)setReview(null);}}>
+        <DialogContent showCloseButton={!submitting} className="z-[70] max-h-[85vh] overflow-auto sm:max-w-3xl" style={{backgroundColor:theme.cardBg,color:theme.textPrimary}}>
+          <DialogTitle>Review cycle count adjustments</DialogTitle>
+          <DialogDescription>Only counted parts will change. Apply records manual adjustments, preserves the count history, and closes this session.</DialogDescription>
+          <label className="block text-sm font-semibold">Stock adjustment basis
+            <select aria-label="Stock adjustment basis" className="mt-2 w-full rounded-lg border p-2" style={{backgroundColor:theme.inputBg}} value={adjustmentBasis} disabled={submitting} onChange={event=>setAdjustmentBasis(event.target.value as typeof adjustmentBasis)}>
+              <option value="">Choose how to calculate Stock Summary</option>
+              <option value="counted">Counted stock only</option>
+              <option value="counted_wip_incoming">Counted stock + active-DHR WIP + incoming</option>
+            </select>
+          </label>
+          {adjustmentBasis==="counted_wip_incoming" && <p className="text-sm">This adds DHR-consumed quantities back to Stock Summary. Enter Incoming for each counted part, using zero when there is none.</p>}
+          <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><th className="text-left p-2">Part</th><th>Current QOH</th><th>Proposed QOH</th><th>Adjustment</th></tr></thead><tbody>{review.display.map(line=>{
+            const combined=Number(line.countedQty)+Object.values(line.wipEntries).reduce((sum,value)=>sum+Number(value),0)+Number(line.incomingQty);
+            const target=adjustmentBasis==="counted"?Number(line.countedQty):combined;
+            return <tr key={line.partNumber}><td className="p-2">{line.partNumber}</td><td className="text-center">{line.systemQty}</td><td className="text-center">{adjustmentBasis?target:"—"}</td><td className="text-center">{adjustmentBasis?target-line.systemQty:"—"}</td></tr>;
+          })}</tbody></table></div>
+          {active.error && <p role="alert" className="text-sm text-red-400">{active.error}</p>}
+          <div className="flex flex-wrap justify-end gap-2">
+            <button className="rounded-lg border px-3 py-2" disabled={submitting} onClick={()=>setReview(null)}>Cancel</button>
+            <button className="rounded-lg bg-red-600 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={submitting||!adjustmentBasis||(adjustmentBasis==="counted_wip_incoming"&&review.display.some(line=>!line.incomingCounted))} onClick={async()=>{
+              if(!adjustmentBasis)return;
+              if(await active.save("confirm",{adjustmentBasis,lines:review.lines,wipFingerprint:review.fingerprint})){
+                setReview(null);setActiveTab("schedules");await Promise.all([cycle.refresh(),data.refresh()]);
+              }
+            }}>{submitting?"Applying…":"Apply adjustments and close"}</button>
+          </div>
+        </DialogContent>
+      </Dialog>}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -432,6 +165,7 @@ export function CycleCount() {
         </div>
       </div>
 
+      {active.error && <p role="alert" className="rounded-xl border border-red-500 p-3 text-sm">{active.error}</p>}
       {/* Connection error banner */}
       {cycle.error && (
         <div className="px-4 py-3 rounded-xl text-sm font-bold"
@@ -441,18 +175,7 @@ export function CycleCount() {
             <button onClick={cycle.refresh} className="ml-auto px-3 py-1 rounded-lg text-xs font-bold"
               style={{ backgroundColor: "#ef4444", color: "white" }}>Retry</button>
           </div>
-          <button onClick={async () => {
-            try {
-              const r = await fetch(`${CYCLE_CONVEX_URL}/api/query`, {
-                method: "POST", headers: {"Content-Type":"application/json"},
-                body: JSON.stringify({path:"cycleCount:listSchedules",args:{},format:"json"})
-              });
-              const t = await r.text();
-              alert(`Status: ${r.status}\nBody: ${t.substring(0, 200)}`);
-            } catch (e: any) {
-              alert(`Fetch error: ${e?.name}: ${e?.message}`);
-            }
-          }} className="mt-2 text-xs underline opacity-70">Test Connection</button>
+
         </div>
       )}
 
@@ -520,58 +243,10 @@ export function CycleCount() {
             remainingCount={remainingCount}
             autoSaveTime={autoSaveTime}
             submitting={submitting}
-            onUpdateLine={(partNumber, field, value) => {
-              setCountLines(prev =>
-                prev.map(l => {
-                  if (l.partNumber !== partNumber) return l;
-                  const updated = { ...l, wipEntries: { ...l.wipEntries } };
-                  if (field === "counted") {
-                    updated.countedQty = value;
-                    updated.counted = value !== "";
-                  } else if (field.startsWith("wip:")) {
-                    const sn = field.slice(4);
-                    updated.wipEntries[sn] = value;
-                  } else if (field === "incoming") {
-                    updated.incomingQty = value;
-                    updated.incomingCounted = value !== "";
-                  }
-                  const wipFilled = wipSerials.length === 0 || wipSerials.every(sn => updated.wipEntries[sn] !== undefined && updated.wipEntries[sn] !== "");
-                  updated.allCounted = updated.counted && wipFilled && updated.incomingCounted;
-                  return updated;
-                })
-              );
-            }}
-            onAddWipSerial={(sn: string) => {
-              if (wipSerials.includes(sn)) return;
-              setWipSerials(prev => [...prev, sn]);
-              setCountLines(prev => prev.map(l => ({
-                ...l,
-                wipEntries: { ...l.wipEntries, [sn]: "" },
-                allCounted: false, // new column means not fully counted
-              })));
-            }}
-            onRemoveWipSerial={(sn: string) => {
-              const newSerials = wipSerials.filter(s => s !== sn);
-              setWipSerials(newSerials);
-              setCountLines(prev => prev.map(l => {
-                const entries = { ...l.wipEntries };
-                delete entries[sn];
-                const wipFilled = newSerials.length === 0 || newSerials.every(s => entries[s] !== undefined && entries[s] !== "");
-                return { ...l, wipEntries: entries, allCounted: l.counted && wipFilled && l.incomingCounted };
-              }));
-            }}
-            onRenameWipSerial={(oldSN: string, newSN: string) => {
-              const upper = newSN.toUpperCase().trim();
-              if (!upper || upper === oldSN || wipSerials.includes(upper)) return;
-              setWipSerials(prev => prev.map(s => s === oldSN ? upper : s));
-              setCountLines(prev => prev.map(l => {
-                const entries = { ...l.wipEntries };
-                const val = entries[oldSN];
-                delete entries[oldSN];
-                entries[upper] = val ?? "";
-                return { ...l, wipEntries: entries };
-              }));
-            }}
+            error={active.error || cycle.error}
+            onReload={()=>{if(window.confirm("Reload saved progress? Unsaved local edits will be discarded."))void active.reload();}}
+            canConfirm={role === "superuser"}
+            onUpdateLine={active.update}
             onSaveAndExit={handleSaveAndExit}
             onConfirmAndClose={handleConfirmAndClose}
           />
@@ -1064,8 +739,8 @@ function ActiveCountView({
   schedule, lines, allLines, wipSerials, sortMode, setSortMode,
   countFilter, setCountFilter, countSearch, setCountSearch,
   countedCount, incomingCount, allCountedCount, remainingCount,
-  autoSaveTime, submitting,
-  onUpdateLine, onAddWipSerial, onRemoveWipSerial, onRenameWipSerial, onSaveAndExit, onConfirmAndClose,
+  autoSaveTime, submitting, error, canConfirm, onReload,
+  onUpdateLine, onSaveAndExit, onConfirmAndClose,
 }: {
   schedule: CycleSchedule;
   lines: CountLine[];
@@ -1083,23 +758,19 @@ function ActiveCountView({
   remainingCount: number;
   autoSaveTime: string | null;
   submitting: boolean;
+  error: string | null;
+  canConfirm: boolean;
+  onReload: () => void;
   onUpdateLine: (partNumber: string, field: string, value: string) => void;
-  onAddWipSerial: (sn: string) => void;
-  onRemoveWipSerial: (sn: string) => void;
-  onRenameWipSerial: (oldSN: string, newSN: string) => void;
   onSaveAndExit: () => void;
   onConfirmAndClose: () => void;
 }) {
+  const cycleMutation = useCycleScheduleMutation();
   const totalParts = allLines.length;
   const [isFullScreen, setIsFullScreen] = useState(true);
-  const [showAddSN, setShowAddSN] = useState(false);
-  const [newSN, setNewSN] = useState("");
-  const [confirmRemoveSN, setConfirmRemoveSN] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
   const [displayName, setDisplayName] = useState(schedule.name);
-  const [editingWipSN, setEditingWipSN] = useState<string | null>(null);
-  const [editWipSNValue, setEditWipSNValue] = useState("");
   const [showEditPanel, setShowEditPanel] = useState(false);
   const [editFields, setEditFields] = useState({
     name: schedule.name,
@@ -1113,15 +784,6 @@ function ActiveCountView({
   const wipCols = wipSerials.map(() => "80px").join(" ");
   const gridCols = `90px minmax(120px, 2fr) 80px 70px 80px ${wipCols}${wipColCount > 0 ? " " : ""}80px 60px 60px 60px 36px`;
   const minW = 856 + wipColCount * 80;
-
-  const handleAddSN = () => {
-    const sn = newSN.trim().toUpperCase();
-    if (sn) {
-      onAddWipSerial(sn);
-      setNewSN("");
-      setShowAddSN(false);
-    }
-  };
 
   return (
     <div className={isFullScreen ? "fixed inset-0 z-50 overflow-y-auto" : "space-y-4"}
@@ -1216,12 +878,7 @@ function ActiveCountView({
                   onChange={e => setEditFields(p => ({ ...p, frequency: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2"
                   style={{ backgroundColor: theme.inputBg, borderColor: theme.cardBorder, color: theme.textPrimary }}>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="biweekly">Biweekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                  <option value="annually">Annually</option>
+                  {FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
                 </select>
               </div>
               <div>
@@ -1273,7 +930,7 @@ function ActiveCountView({
 
         {autoSaveTime && (
           <div className="text-xs mb-3" style={{ color: theme.statusOk }}>
-            Auto-saved {autoSaveTime}
+            Saved {autoSaveTime}
           </div>
         )}
 
@@ -1284,7 +941,7 @@ function ActiveCountView({
             style={{ backgroundColor: "#22c55e" }}>
             {submitting ? "Saving..." : "✅ Save & Exit"}
           </button>
-          <button onClick={onConfirmAndClose} disabled={submitting}
+          <button onClick={onConfirmAndClose} disabled={submitting || !canConfirm}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
             style={{ backgroundColor: "#ef4444" }}>
             {submitting ? "Confirming..." : "Confirm & Close"}
@@ -1305,42 +962,13 @@ function ActiveCountView({
           </span>
         </div>
 
-        {/* ── WIP Instruments (serial number pills + add button) ── */}
-        <div className="mt-3 flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: theme.textMuted }}>🔧 WIP Instruments:</span>
-          {wipSerials.map(sn => (
-            <span key={sn} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold"
-              style={{ backgroundColor: "#f59e0b22", color: "#f59e0b", border: "1px solid #f59e0b44" }}>
-              <button onClick={() => { setEditingWipSN(sn); setEditWipSNValue(sn); }} className="hover:underline" title={`Tap to rename ${sn}`}>{sn}</button>
-              <button onClick={() => setConfirmRemoveSN(sn)} className="ml-0.5 hover:opacity-70" title={`Remove ${sn}`}>✕</button>
-            </span>
-          ))}
-          {showAddSN ? (
-            <span className="inline-flex items-center gap-1">
-              <input
-                autoFocus
-                type="text"
-                value={newSN}
-                onChange={e => setNewSN(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") handleAddSN(); if (e.key === "Escape") { setShowAddSN(false); setNewSN(""); } }}
-                placeholder="J5600xxxx"
-                className="w-28 px-2 py-1 rounded-lg text-xs border focus:outline-none focus:ring-2"
-                style={{ backgroundColor: theme.inputBg, borderColor: "#f59e0b", color: theme.textPrimary }}
-              />
-              <button onClick={handleAddSN}
-                className="px-2 py-1 rounded-lg text-xs font-bold text-white"
-                style={{ backgroundColor: "#f59e0b" }}>Add</button>
-              <button onClick={() => { setShowAddSN(false); setNewSN(""); }}
-                className="text-xs" style={{ color: theme.textMuted }}>✕</button>
-            </span>
-          ) : (
-            <button onClick={() => setShowAddSN(true)}
-              className="px-2.5 py-1 rounded-lg text-xs font-bold border border-dashed transition-colors hover:border-solid"
-              style={{ borderColor: "#f59e0b88", color: "#f59e0b" }}>
-              + Add SN
-            </button>
-          )}
+        <div className="mt-3 flex items-center gap-2 flex-wrap" aria-label="Live WIP instruments">
+          <span className="text-xs font-bold" style={{ color: theme.textSecondary }}>WIP instruments — active DHRs:</span>
+          {wipSerials.length === 0 ? <span className="text-xs">No active DHRs</span> : wipSerials.map(sn => <span key={sn} className="rounded-lg px-2 py-1 text-xs font-bold" style={{ backgroundColor: "#f59e0b22", color: "#f59e0b" }}>{sn}</span>)}
         </div>
+        <p className="mt-2 text-xs" style={{ color: theme.textSecondary }}>WIP quantities update automatically from DHR scans. Count entries save every 30 seconds while this session is active. Save &amp; Exit keeps progress without changing Stock Summary.</p>
+        {error && <div className="mt-3 rounded-lg border border-red-500 p-3 text-sm"><p role="alert">{error}</p><button disabled={submitting} className="mt-2 rounded border px-2 py-1" onClick={onReload}>Reload saved progress</button></div>}
+
       </WebCard>
 
       {/* ── Search ── */}
@@ -1409,39 +1037,7 @@ function ActiveCountView({
             <span>Type ↕</span>
             <span className="text-center">System QOH ↕</span>
             <span className="text-center">Counted</span>
-            {wipSerials.map(sn => (
-              <span key={sn} className="text-center flex flex-col items-center gap-0.5" style={{ color: "#f59e0b" }}>
-                {editingWipSN === sn ? (
-                  <input
-                    autoFocus
-                    type="text"
-                    value={editWipSNValue}
-                    onChange={e => setEditWipSNValue(e.target.value.toUpperCase())}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") {
-                        const trimmed = editWipSNValue.trim();
-                        if (trimmed && trimmed !== sn) onRenameWipSerial(sn, trimmed);
-                        setEditingWipSN(null);
-                      } else if (e.key === "Escape") setEditingWipSN(null);
-                    }}
-                    onBlur={() => {
-                      const trimmed = editWipSNValue.trim();
-                      if (trimmed && trimmed !== sn) onRenameWipSerial(sn, trimmed);
-                      setEditingWipSN(null);
-                    }}
-                    className="w-[72px] px-1 py-0.5 rounded text-[9px] text-center font-bold border focus:outline-none focus:ring-1"
-                    style={{ backgroundColor: theme.inputBg, borderColor: "#f59e0b", color: "#f59e0b" }}
-                  />
-                ) : (
-                  <button
-                    onClick={() => { setEditingWipSN(sn); setEditWipSNValue(sn); }}
-                    className="text-[9px] truncate max-w-[72px] cursor-pointer hover:underline"
-                    title={`Tap to rename ${sn}`}>
-                    🔧 {sn}
-                  </button>
-                )}
-              </span>
-            ))}
+            {wipSerials.map(sn => <span key={sn} className="text-center truncate" title={sn}>🔧 {sn}</span>)}
             <span className="text-center">Incoming</span>
             <span className="text-center">Variance</span>
             <span className="text-center">Min</span>
@@ -1466,7 +1062,7 @@ function ActiveCountView({
             lines.map(line => {
               const countedVal = parseInt(line.countedQty);
               const variance = line.counted ? countedVal - line.systemQty : 0;
-              const isMatch = line.counted && countedVal === line.systemQty;
+              const isMatch = line.counted && !line.stockChanged && countedVal === line.systemQty;
               const nType = (!line.type || line.type === "0" || line.type === "") ? "Not on BOM" : line.type;
               const tBg = nType === "Required" ? "#ea580c" : nType === "Optional" ? "#ca8a04" : "#475569";
               const tColor = nType === "Required" || nType === "Optional" ? "#fff" : "#e2e8f0";
@@ -1509,7 +1105,7 @@ function ActiveCountView({
                         color: theme.textPrimary,
                         boxShadow: line.counted ? `0 0 0 2px ${isMatch ? theme.statusOk + "44" : theme.statusOut + "44"}` : undefined,
                       }}
-                      placeholder="—" value={line.countedQty}
+                      aria-label={`Counted ${line.partNumber}`} aria-invalid={line.stockChanged} title={line.stockChanged ? "Recount: stock changed since this count" : undefined} min={0} step={1} placeholder="—" value={line.countedQty}
                       onChange={e => onUpdateLine(line.partNumber, "counted", e.target.value)} />
                   </div>
                   {/* Dynamic WIP Columns */}
@@ -1527,7 +1123,7 @@ function ActiveCountView({
                             boxShadow: filled ? "0 0 0 2px #f59e0b44" : undefined,
                           }}
                           placeholder="—" value={val}
-                          onChange={e => onUpdateLine(line.partNumber, `wip:${sn}`, e.target.value)} />
+                          readOnly aria-label={`WIP ${sn} ${line.partNumber}`} title="Updated automatically from active DHRs" />
                       </div>
                     );
                   })}
@@ -1541,7 +1137,7 @@ function ActiveCountView({
                         color: theme.textPrimary,
                         boxShadow: line.incomingCounted ? "0 0 0 2px #8b5cf644" : undefined,
                       }}
-                      placeholder="—" value={line.incomingQty}
+                      aria-label={`Incoming ${line.partNumber}`} min={0} step={1} placeholder="—" value={line.incomingQty}
                       onChange={e => onUpdateLine(line.partNumber, "incoming", e.target.value)} />
                   </div>
                   {/* Variance */}
@@ -1575,27 +1171,7 @@ function ActiveCountView({
         </div>
       </WebCard>
 
-      {/* ── Confirm Remove WIP Serial Modal ── */}
-      {confirmRemoveSN && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setConfirmRemoveSN(null)}>
-          <div className="rounded-2xl p-6 w-80 shadow-2xl" style={{ backgroundColor: theme.cardBg, border: `1px solid ${theme.cardBorder}` }} onClick={e => e.stopPropagation()}>
-            <div className="text-center mb-4">
-              <span className="text-3xl">⚠️</span>
-              <h3 className="text-base font-bold mt-2" style={{ color: theme.textPrimary }}>Remove WIP Instrument?</h3>
-              <p className="text-xs mt-1" style={{ color: theme.textSecondary }}>
-                This will remove the <span className="font-bold" style={{ color: "#f59e0b" }}>{confirmRemoveSN}</span> column and all WIP counts for this instrument.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setConfirmRemoveSN(null)} className="flex-1 py-2.5 rounded-xl text-sm font-bold border"
-                style={{ borderColor: theme.cardBorder, color: theme.textSecondary }}>Cancel</button>
-              <button onClick={() => { onRemoveWipSerial(confirmRemoveSN); setConfirmRemoveSN(null); }}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
-                style={{ backgroundColor: "#ef4444" }}>Remove</button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </div>
     </div>
   );
@@ -1753,6 +1329,7 @@ function NewScheduleModal({
 }: {
   parts: Part[]; onClose: () => void; onCreated: () => void;
 }) {
+  const cycleMutation = useCycleScheduleMutation();
   const [name, setName] = useState("");
   const [frequency, setFrequency] = useState("Weekly");
   const [assignedTo, setAssignedTo] = useState("");

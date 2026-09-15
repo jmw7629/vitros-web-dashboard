@@ -6,24 +6,6 @@ import { browserSafeRead } from "../lib/browserSafeRead";
 import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
 import type { RemBuildPlanRow, RemStaffPlanningRow, RemTargetPlanningRow, RemTrackerPlanningRow } from "./useRemPlanningData";
 
-// ─── Legacy Convex HTTP helper is retained only for Cycle Count until that separate lane is migrated. ───
-const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud";
-
-async function convexQuery<T>(url: string, fn: string, args: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(`${url}/api/query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: fn, args, format: "json" }),
-  });
-  const json = await res.json();
-  if (json.status === "success") return json.value as T;
-  throw new Error(json.errorMessage || "Query failed");
-}
-
-async function safeConvexQuery<T>(url: string, fn: string, fallback: T): Promise<T> {
-  try { return await convexQuery<T>(url, fn); } catch { return fallback; }
-}
-
 // ─── Types ───
 
 export interface Part {
@@ -396,6 +378,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const convexListSapStaging = useAction(api.supabaseGateway.listSapStaging);
   const convexListKits = useAction(api.supabaseGateway.listKits);
   const convexListSettings = useAction(api.supabaseGateway.listSettings);
+  const convexCycleSummary = useAction(api.cycleCountActions.loadSummary);
   const remListCore = useAction(api.remReadActions.listCore);
   const remListPlanning = useAction(api.remReadActions.listPlanning);
 
@@ -528,13 +511,10 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       setStaffMembers(planningResult.staff);
       setAnnualTargets(planningResult.targets);
 
-      const [cs, cr] = await Promise.all([
-        safeConvexQuery<CycleSchedule[]>(CYCLE_CONVEX_URL, "cycleCount:listSchedules", []),
-        safeConvexQuery<CycleResult[]>(CYCLE_CONVEX_URL, "cycleCount:listResults", []),
-      ]);
-
+      const cycleSummary = await convexCycleSummary({});
       if (!isCurrentRead()) return;
-      setCycleSchedules(cs); setCycleResults(cr);
+      setCycleSchedules(cycleSummary.schedules ?? []);
+      setCycleResults(cycleSummary.results ?? []);
 
       hasLoadedOnce.current = true;
       setIsLoading(false);
@@ -544,7 +524,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       hasLoadedOnce.current = true;
       setIsLoading(false);
     }
-  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListKits, convexListSettings, remListCore, remListPlanning, loadEmployeeDirectory]);
+  }, [convexListStock, convexListAuditLog, convexListSapStaging, convexListKits, convexListSettings, convexCycleSummary, remListCore, remListPlanning, loadEmployeeDirectory]);
 
   performLoadAllRef.current = performLoadAll;
   if (refreshRunnerRef.current === null) {
