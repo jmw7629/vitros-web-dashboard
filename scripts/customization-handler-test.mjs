@@ -221,8 +221,8 @@ await test("open drafts and idempotency receipts remain bounded", async () => {
   assert.ok(rows("configAuditLog").length >= 103);
 });
 
-await test("all 35 actual registry defaults validate and invalid types fail", async () => {
-  const entries = contract.getAllConfigEntries(); assert.equal(entries.length, 35);
+await test("all 36 actual registry defaults validate and invalid types fail", async () => {
+  const entries = contract.getAllConfigEntries(); assert.equal(entries.length, 36);
   const exported = { schemaVersion: 1, entries: [] };
   for (const entry of entries) {
     const value = copy(entry.defaultValue);
@@ -246,5 +246,43 @@ await test("all 35 actual registry defaults validate and invalid types fail", as
 
 await test("every exercised config query uses bounded reads", async () => { assert.deepEqual([...unboundedReads], []); });
 
+
+await test("Engineer view rejects unsupported routes, metrics, malformed panels and markup", async () => {
+  const valid = copy(contract.getConfigDefault("engineer.view"));
+  assert.equal(contract.validateConfigValue("engineer.view", valid).valid, true);
+  const cases = [
+    v => { v.quickActions[0].path = "/sap-staging"; },
+    v => { v.quickActions[0].path = "https://example.com"; },
+    v => { v.cards[0].config.metric = "sapReady"; },
+    v => { v.cards[0].order = v.cards[1].order; },
+    v => { v.recentTransactions.limit = 51; },
+    v => { v.recentTransactions.limit = 0; },
+    v => { v.recentTransactions.visible = "true"; },
+    v => { v.inventoryMenu.forEach(row => row.visible = false); },
+    v => { v.remMenu[0].path = "/stock-summary"; },
+    v => { v.title = "<script>bad</script>"; },
+    v => { v.extra = true; },
+  ];
+  for (const mutate of cases) {
+    const value = copy(valid); mutate(value);
+    assert.equal(contract.validateConfigValue("engineer.view", value).valid, false);
+    await assert.rejects(() => create("engineer.view", value));
+  }
+  assert.equal(rows("configDrafts").length, 0);
+});
+await test("Engineer view drafts, publication, rollback and RBAC use actual handlers", async () => {
+  const original = copy(contract.getConfigDefault("engineer.view"));
+  const first = await publish(await create("engineer.view", original));
+  const edited = copy(original); edited.title = "Daily operations"; edited.cards[0].visible = false;
+  const draft = await create("engineer.view", edited);
+  assert.equal((await read("listPublished", {}, null)).find(row => row.key === "engineer.view").value.title, original.title);
+  await assert.rejects(() => create("engineer.view", edited, engineer), /denied|permission|capability|superuser/i);
+  await publish(draft);
+  assert.equal((await read("listPublished", {}, null)).find(row => row.key === "engineer.view").value.title, edited.title);
+  const restored = await call("rollbackToVersion", { key: "engineer.view", targetVersion: first.version, expectedCurrentVersion: 2, correlationId: cid(), reason: "Restore Engineer default" });
+  assert.equal(restored.version, 3); assert.deepEqual(restored.value, original);
+  assert.equal(rows("configVersions").filter(row => row.key === "engineer.view").length, 3);
+  assert(rows("configAuditLog").some(row => row.key === "engineer.view" && row.action === "rollback"));
+});
 console.log(`ACTUAL_CUSTOMIZATION_HANDLERS: ${passes} passed, ${failures} failed`);
 if (failures) process.exitCode = 1;

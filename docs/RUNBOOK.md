@@ -138,3 +138,8 @@ retrying again; preserve the atomic transaction and audit requirements.
 ## Digital DHR document field bridge
 
 See [the field bridge contract and rollout](DIGITAL_DHR_FIELD_BRIDGE.md) for the default-off adapter, immutable manifest registration, durable retry/conflict handling, existing scanner transaction reuse, and authenticated acceptance gates. The additive migration does not register a production template or enable consumption.
+
+## Customize the Engineer view
+Sign in as Superuser, open Settings, and select **Customize Engineer view** under **Customize VITROS**. Expand cards, quick actions, or panels to change labels, visibility, order, and card width. The recent-transactions limit accepts 1–50 rows. Enable **Use separate Engineer menus** to customize the Inventory, REM Tracker, and report menus; otherwise shared menus continue to apply. Keep one visible Inventory and REM menu item.
+
+Use **Preview in this tab** to see the actual Engineer dashboard inside Settings. Preview does not affect other users. Save the draft, select **Review publication**, and confirm the reviewed change to apply it. Published history provides rollback. **Engineer starting page** selects the route used on the next Engineer entry. Hiding a menu does not change access permissions.

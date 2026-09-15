@@ -52,9 +52,13 @@ function loader(f, realProvider = false) {
     const scopedRequire = name => {
       if (f.modules && name in f.modules) return f.modules[name];
       if (name === 'convex/react') return convex;
+      if (name === 'react-router-dom') return { useNavigate: () => path => (f.navigations ??= []).push(path), useLocation: () => ({ pathname: f.pathname ?? '/engineer-dashboard' }) };
+      if (name.endsWith('/hooks/useConvexData')) return { useConvexData: () => f.data ?? { parts: [], transactions: [], kits: [] } };
+      if (name.endsWith('/contexts/ThemeContext')) return { useTheme: () => ({ availableModes: [], palette: {}, themeMode: 'dark', setThemeMode() {} }), THEME_PALETTES: {} };
+
       if (name.endsWith('/_generated/api')) return { api: refs, internal: refs };
       if (name.endsWith('/hooks/useRole')) return { useRole: () => ({ role: f.role }) };
-      if (name.endsWith('/vitros/SharedComponents')) return { WebCard: card, theme: {} };
+      if (name.endsWith('/vitros/SharedComponents')) return { WebCard: card, DashCard: props => React.createElement('button', { 'data-card': props.label, onClick: props.onClick }, props.label, ':', props.value), theme: {} };
       if (name.endsWith('/ui/dialog')) return { Dialog: ({ open, children }) => open ? children : null, DialogContent: props => React.createElement('section', { ...props, role: 'dialog' }), DialogTitle: props => React.createElement('h2', props), DialogDescription: props => React.createElement('p', props) };
       if (!realProvider && name.endsWith('/ConfigProvider')) return { useConfigContext: () => ({ preview: (key, value) => f.previewCalls.push({ key, value }), clearPreview: () => {} }) };
       if (name.startsWith('.')) return load(path.relative(root, path.resolve(path.dirname(filename), name)));
@@ -125,7 +129,7 @@ await test('All registered default values validate and render through actual edi
   const f = fixture(); f.drafts = [];
   const load = loader(f); const contract = load('convex/configContract.ts');
   const h = await editor(f); let previous = 'brand.appTitle';
-  const entries = contract.getAllConfigEntries(); assert.equal(entries.length, 35);
+  const entries = contract.getAllConfigEntries(); assert.equal(entries.length, 36);
   for (const entry of entries) {
     const outcome = contract.validateConfigValue(entry.key, entry.defaultValue);
     assert.equal(outcome.valid, true, `${entry.key}: ${outcome.error}`);
@@ -238,5 +242,74 @@ await test('Actual ReportPreview uses configured section names, order and visibi
   await act(async () => renderer.unmount());
 });
 
+
+await test('Engineer shortcut exposes structured controls and an allowed starting-page selector', async () => {
+  const h = await editor(); await h.click('Customize Engineer view');
+  assert(h.renderer.root.findByProps({ 'aria-label': 'Engineer view controls' }));
+  const options = h.renderer.root.findAllByType('option').map(node => node.props.value);
+  assert(!options.includes('sapReady')); assert(!options.includes('sapPosted'));
+  await h.click('Engineer starting page');
+  const route = h.renderer.root.findAllByType('select').find(node => node.props.value === '/engineer-dashboard');
+  assert(route); assert(!route.findAllByType('option').some(node => node.props.value === '/sap-staging'));
+  await act(async () => route.props.onChange({ target: { value: '/scan-kiosk' } }));
+  await h.click('Preview in this tab');
+  assert.equal(h.f.previewCalls[0].value, '/scan-kiosk'); await h.close();
+});
+await test('Actual Engineer page applies titles, card order, visibility, action targets and activity limit', async () => {
+  const f = fixture(); const load = loader(f, true); const contract = load('convex/configContract.ts');
+  const view = structuredClone(contract.getConfigDefault('engineer.view'));
+  view.title = 'Bench operations'; view.subtitle = 'Daily bench work';
+  view.cards.forEach((row, i) => { row.visible = i < 2; row.order = i === 0 ? 1 : i === 1 ? 0 : i; });
+  view.cards[0].title = 'Available parts';
+  view.quickActions.forEach(row => { row.visible = row.path === '/dhr-scanner'; if (row.visible) row.label = 'Open DHR'; });
+  view.inventoryStatus.visible = false; view.recentTransactions.title = 'Latest scans'; view.recentTransactions.limit = 1;
+  f.published.push({ key: 'engineer.view', value: view, version: 1 });
+  f.data = { parts: [], kits: [], transactions: [
+    { partNumber: 'FIRST', timestamp: Date.now(), user: 'Fixture', mode: 'OUT', qty: -1 },
+    { partNumber: 'SECOND', timestamp: Date.now(), user: 'Fixture', mode: 'IN', qty: 2 },
+  ] };
+  const { ConfigProvider } = load('src/components/ConfigProvider.tsx'); const { EngineerDashboard } = load('src/pages/inventory/EngineerDashboard.tsx');
+  let renderer; await act(async () => { renderer = create(React.createElement(ConfigProvider, null, React.createElement(EngineerDashboard))); });
+  assert.match(text(renderer.root), /Bench operations/); assert.match(text(renderer.root), /Latest scans/);
+  assert(!text(renderer.root).includes('Inventory Status')); assert(!text(renderer.root).includes('SECOND'));
+  const cards = renderer.root.findAllByType('button').filter(node => node.props['data-card']);
+  assert.deepEqual(cards.map(node => node.props['data-card']), ['Health %', 'Available parts']);
+  assert.match(text(cards[1]), /:0$/);
+  const action = renderer.root.findAllByType('button').find(node => text(node).includes('Open DHR'));
+  await act(async () => action.props.onClick()); assert.equal(f.navigations.at(-1), '/dhr-scanner');
+  await act(async () => renderer.unmount());
+});
+await test('Engineer preview uses the actual dashboard and clears without a production mutation', async () => {
+  const f = fixture(); f.drafts = [];
+  const load = loader(f, true); const { ConfigProvider } = load('src/components/ConfigProvider.tsx'); const { ConfigEditor } = load('src/components/ConfigEditor.tsx');
+  let renderer; await act(async () => { renderer = create(React.createElement(ConfigProvider, null, React.createElement(ConfigEditor))); });
+  const click = async label => { const b = renderer.root.findAllByType('button').find(node => text(node) === label); assert(b); await act(async () => b.props.onClick()); };
+  await click('Customize Engineer view');
+  const title = renderer.root.findAllByType('input').find(node => node.props.value === 'Engineer Dashboard');
+  await act(async () => title.props.onChange({ target: { value: 'Preview bench view' } }));
+  await click('Preview in this tab');
+  const preview = renderer.root.findByProps({ 'aria-label': 'Engineer dashboard preview' });
+  assert.match(text(preview), /Preview bench view/); assert.equal(f.calls.length, 0);
+  await click('Close Engineer preview'); assert.equal(renderer.root.findAllByProps({ 'aria-label': 'Engineer dashboard preview' }).length, 0);
+  assert.equal(f.calls.length, 0); await act(async () => renderer.unmount());
+});
+await test('Engineer custom menus respect visibility and order without changing Superuser menus', async () => {
+  const f = fixture(); f.role = 'engineer';
+  const load = loader(f, true); const contract = load('convex/configContract.ts'); const view = structuredClone(contract.getConfigDefault('engineer.view'));
+  view.useCustomNavigation = true;
+  view.inventoryMenu.forEach(row => { row.visible = row.path === '/dhr-scanner'; if (row.visible) row.label = 'Bench DHR'; });
+  view.remMenu.forEach(row => { row.visible = row.path === '/rem/kiosk'; if (row.visible) row.label = 'Bench REM'; });
+  view.reportsMenu.forEach(row => row.visible = false);
+  f.published.push({ key: 'engineer.view', value: view, version: 1 });
+  const { ConfigProvider } = load('src/components/ConfigProvider.tsx'); const { AppSidebar } = load('src/components/AppSidebar.tsx');
+  let renderer; const tree = () => React.createElement(ConfigProvider, null, React.createElement(AppSidebar));
+  await act(async () => { renderer = create(tree()); });
+  assert.match(text(renderer.root), /Bench DHR/); assert(!text(renderer.root).includes('SAP Staging')); assert(!text(renderer.root).includes('Executive Report'));
+  f.pathname = '/rem/dashboard'; await act(async () => renderer.update(tree()));
+  assert.match(text(renderer.root), /Bench REM/); assert(!text(renderer.root).includes('Production Plan'));
+  f.role = 'superuser'; f.pathname = '/stock-summary'; await act(async () => renderer.update(tree()));
+  assert.match(text(renderer.root), /SAP Staging/); assert(!text(renderer.root).includes('Bench DHR'));
+  await act(async () => renderer.unmount());
+});
 console.log(`Config editor actual component checks: ${passed} passed, ${failed} failed (synthetic transport/portal boundaries).`);
 if (failed) process.exitCode = 1;

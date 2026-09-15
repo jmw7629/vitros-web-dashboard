@@ -10,6 +10,8 @@
  */
 
 export {
+  ENGINEER_METRICS, ENGINEER_EXCLUDED_ROUTES,
+  type EngineerViewConfig,
   // Types
   type AllConfigKey,
   type ConfigEntryDef,

@@ -21,6 +21,7 @@
  */
 
 import {
+  ENGINEER_VIEW_DEFAULT,
   BRAND_DEFAULTS,
   NAV_DEFAULTS,
   DASHBOARD_DEFAULTS,
@@ -36,6 +37,10 @@ import {
   ROLE_POLICY_DEFAULT,
   ROLE_ROUTE_DEFAULTS,
 } from "./configDefaults";
+
+/** Pure Engineer presentation contract. No role permissions are changed here. */
+export const ENGINEER_METRICS = ["skus", "health", "stockOuts", "reorder", "lowStock", "onPlan", "activity", "kits", "today"] as const;
+export const ENGINEER_EXCLUDED_ROUTES = ["/sap-staging", "/sap-analytics", "/enterprise-dashboard", "/settings"] as const;
 
 // ─── Capability model (immutable ceilings) ───────────────────────────────
 
@@ -735,7 +740,65 @@ export interface ConfigEntryDef {
   consumer: string;
 }
 
+export interface EngineerViewConfig {
+  title: string;
+  subtitle: string;
+  cards: DashboardModuleConfig[];
+  quickActions: NavItemConfig[];
+  inventoryStatus: { title: string; visible: boolean };
+  recentTransactions: { title: string; visible: boolean; limit: number };
+  useCustomNavigation: boolean;
+  inventoryMenu: NavItemConfig[];
+  remMenu: NavItemConfig[];
+  reportsMenu: NavItemConfig[];
+}
+
+function validateEngineerView(value: unknown): ValidationOutcome {
+  if (!isPlainObject(value)) return fail("Engineer view must be an object");
+  if (/[<>]/.test(JSON.stringify(value))) return fail("Engineer view labels must use plain text");
+  const properties = checkExactProperties(value, ["title", "subtitle", "cards", "quickActions", "inventoryStatus", "recentTransactions", "useCustomNavigation", "inventoryMenu", "remMenu", "reportsMenu"], "Engineer view");
+  if (!properties.valid) return properties;
+  for (const key of ["title", "subtitle"]) {
+    const result = checkDisplayText(value[key], key, 1, key === "title" ? 60 : 160);
+    if (!result.valid) return result;
+  }
+  const cards = validateDashboardModules(value.cards);
+  if (!cards.valid) return cards;
+  for (const card of value.cards as DashboardModuleConfig[]) {
+    if (card.type !== "kpi" || !ENGINEER_METRICS.includes(card.config.metric as typeof ENGINEER_METRICS[number])) return fail("Choose an operational Engineer metric");
+  }
+  if (typeof value.useCustomNavigation !== "boolean") return fail("Use custom navigation must be a boolean");
+  for (const key of ["quickActions", "inventoryMenu", "remMenu", "reportsMenu"]) {
+    const result = validateNavItems(value[key], key, key === "inventoryMenu" || key === "remMenu");
+    if (!result.valid) return result;
+    for (const item of value[key] as NavItemConfig[]) {
+      if ((ENGINEER_EXCLUDED_ROUTES as readonly string[]).includes(item.path)) return fail("Engineer view cannot link to administration or SAP");
+      if (key === "remMenu" && !item.path.startsWith("/rem/")) return fail("REM menu must use REM routes");
+      if ((key === "inventoryMenu" || key === "reportsMenu") && item.path.startsWith("/rem/")) return fail("Inventory menus must use inventory routes");
+    }
+  }
+  for (const key of ["inventoryStatus", "recentTransactions"]) {
+    const panel = value[key];
+    if (!isPlainObject(panel)) return fail(key + " must be an object");
+    const properties = checkExactProperties(panel, key === "recentTransactions" ? ["title", "visible", "limit"] : ["title", "visible"], key);
+    if (!properties.valid) return properties;
+    const title = checkDisplayText(panel.title, key + " title", 1, 60);
+    if (!title.valid) return title;
+    if (typeof panel.visible !== "boolean") return fail(key + " visible must be a boolean");
+    if (key === "recentTransactions" && (typeof panel.limit !== "number" || !Number.isInteger(panel.limit) || panel.limit < 1 || panel.limit > 50)) return fail("Recent transactions limit must be 1–50");
+  }
+  return ok();
+}
+
 export const CONFIG_ENTRIES: Record<string, ConfigEntryDef> = {
+  "engineer.view": {
+    key: "engineer.view", label: "Engineer view",
+    description: "Customize the Engineer dashboard title, cards, quick actions, panels, and optional Inventory and REM menus. These display settings do not grant permissions.",
+    category: "dashboard", valueType: "json", defaultValue: ENGINEER_VIEW_DEFAULT,
+    requiredCapability: "admin.system_settings.manage", sensitivity: "normal",
+    requiresReload: false, editable: true, public: true,
+    consumer: "EngineerDashboard; Engineer AppSidebar",
+  },
   "brand.appTitle": {
     key: "brand.appTitle", label: "Application Title",
     description: "Title shown in the top navigation bar and browser tab",
@@ -1072,6 +1135,7 @@ const BOOLEAN_KEYS = new Set<string>([
 // ─── Central validation entry point ──────────────────────────────────────
 
 const STRUCTURED_VALIDATORS: Record<string, (value: unknown) => ValidationOutcome> = {
+  "engineer.view": validateEngineerView,
   "nav.inventoryItems": (v) => validateNavItems(v, "Inventory navigation items", true),
   "nav.remItems": (v) => validateNavItems(v, "REM navigation items", true),
   "nav.inventoryReports": (v) => validateNavItems(v, "Report navigation items", false),

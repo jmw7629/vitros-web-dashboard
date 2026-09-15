@@ -2,6 +2,7 @@ import { useRef, useState, type ButtonHTMLAttributes } from "react";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { EngineerDashboard } from "../pages/inventory/EngineerDashboard";
 import { useRole } from "../hooks/useRole";
 import { useConfigContext } from "./ConfigProvider";
 import { WebCard, theme } from "./vitros/SharedComponents";
@@ -9,8 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dial
 import {
   getAllConfigEntries, getConfigEntry, validateConfigValue, validateImportEnvelope, valueDigest,
   CATEGORY_LABELS, THEME_MODES, PART_TYPES, DATE_FORMATS, REM_VIEWS,
-  NAV_ICONS, NAV_GRADIENTS, DASHBOARD_METRICS, DASHBOARD_LIST_SOURCES,
-  type ConfigEntryDef, type AllConfigKey,
+  NAV_ICONS, NAV_GRADIENTS, DASHBOARD_METRICS, DASHBOARD_LIST_SOURCES, ENGINEER_METRICS, KNOWN_ROUTES, ENGINEER_EXCLUDED_ROUTES,
+  type ConfigEntryDef, type AllConfigKey, type EngineerViewConfig,
 } from "../lib/configRegistry";
 
 const buttonClass = "rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed";
@@ -22,6 +23,7 @@ const failure = (error: unknown) => error instanceof Error ? error.message : "Th
 type Draft = { draftId: Id<"configDrafts">; key: string; value: unknown; revision: number; baseVersion: number; owner: string; createdAt: number; updatedAt: number };
 type Published = { key: string; value: unknown; version: number; publishedAt: number; publishedBy: string };
 const optionSets: Record<string, readonly string[]> = {
+  "roles.engineerDefaultRoute": KNOWN_ROUTES.filter(path => !(ENGINEER_EXCLUDED_ROUTES as readonly string[]).includes(path)),
   "theme.defaultMode": THEME_MODES, "defaults.partType": PART_TYPES,
   "defaults.dateFormat": DATE_FORMATS, "rem.defaultView": REM_VIEWS,
   icon: NAV_ICONS, iconBg: NAV_GRADIENTS, metric: DASHBOARD_METRICS,
@@ -33,7 +35,7 @@ function Button({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>)
 }
 
 /** Structured controls share the same value and validator as the advanced editor. */
-function ValueFields({ name, value, change, disabled }: { name: string; value: unknown; change: (value: unknown) => void; disabled: boolean }) {
+function ValueFields({ name, value, change, disabled, engineer = false }: { engineer?: boolean; name: string; value: unknown; change: (value: unknown) => void; disabled: boolean }) {
   if (Array.isArray(value)) return <div className="space-y-2">{value.map((item, index) => {
     const record = item && typeof item === "object" ? item as Record<string, unknown> : null;
     const label = String(record?.label ?? record?.title ?? record?.name ?? record?.key ?? record?.id ?? `Item ${index + 1}`);
@@ -47,18 +49,38 @@ function ValueFields({ name, value, change, disabled }: { name: string; value: u
       <div className="mt-3 space-y-3"><div className="flex gap-2">
         <Button disabled={disabled || index === 0} onClick={() => move(-1)} aria-label={`Move ${label} up`}>Move up</Button>
         <Button disabled={disabled || index === value.length - 1} onClick={() => move(1)} aria-label={`Move ${label} down`}>Move down</Button>
-      </div><ValueFields name={`${name} ${index + 1}`} value={item} disabled={disabled} change={next => change(value.map((row, i) => i === index ? next : row))} /></div>
+      </div><ValueFields engineer={engineer} name={`${name} ${index + 1}`} value={item} disabled={disabled} change={next => change(value.map((row, i) => i === index ? next : row))} /></div>
     </details>;
   })}</div>;
   if (value && typeof value === "object") return <div className="grid gap-3 sm:grid-cols-2">{Object.entries(value).map(([key, current]) => <div key={key} className={current && typeof current === "object" ? "sm:col-span-2" : ""}>
-    <ValueFields name={key} value={current} disabled={disabled || ["id", "key", "path", "order"].includes(key)} change={next => change({ ...value, [key]: next })} />
+    <ValueFields engineer={engineer} name={key} value={current} disabled={disabled || ["id", "key", "path", "order", ...(engineer ? ["type"] : [])].includes(key)} change={next => change({ ...value, [key]: next })} />
   </div>)}</div>;
-  const options = optionSets[name];
+  const options = engineer && name === "metric" ? ENGINEER_METRICS : optionSets[name];
   return <label className="block text-sm"><span className="mb-1 block font-medium">{getConfigEntry(name)?.label ?? name.replace(/([a-z])([A-Z])/g, "$1 $2")}</span>
     {typeof value === "boolean" ? <input type="checkbox" checked={value} disabled={disabled} onChange={event => change(event.target.checked)} className="h-5 w-5" />
       : options ? <select className={fieldClass} style={fieldStyle} value={String(value)} disabled={disabled} onChange={event => change(event.target.value)}>{options.map(option => <option key={option} value={option}>{option}</option>)}</select>
       : <input className={fieldClass} style={fieldStyle} type={typeof value === "number" ? "number" : typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? "color" : "text"} value={String(value ?? "")} disabled={disabled} onChange={event => change(typeof value === "number" ? Number(event.target.value) : event.target.value)} />}
   </label>;
+}
+
+function EngineerFields({ value, disabled, change }: { value: EngineerViewConfig; disabled: boolean; change: (value: EngineerViewConfig) => void }) {
+  const sections = [
+    ["cards", "Dashboard cards"], ["quickActions", "Quick actions"],
+    ["inventoryStatus", "Inventory status panel"], ["recentTransactions", "Recent transactions panel"],
+    ["inventoryMenu", "Inventory menu"], ["remMenu", "REM Tracker menu"], ["reportsMenu", "Inventory reports menu"],
+  ] as const;
+  return <section aria-label="Engineer view controls" className="space-y-4">
+    <div className="grid gap-3 sm:grid-cols-2">{(["title", "subtitle"] as const).map(key =>
+      <ValueFields key={key} name={key} value={value[key]} disabled={disabled} change={next => change({ ...value, [key]: next })} />
+    )}</div>
+    <p className="text-sm">Expand a section to rename, show, hide, or reorder items. Full-size cards span the dashboard width.</p>
+    <label className="flex gap-2 items-center text-sm font-semibold"><input type="checkbox" checked={value.useCustomNavigation} disabled={disabled} onChange={event => change({ ...value, useCustomNavigation: event.target.checked })} />Use separate Engineer menus</label>
+    <p className="text-xs">When unchecked, Engineer uses the shared menus. Menu visibility simplifies the screen; server permissions still apply.</p>
+    {sections.map(([key, label]) => <details key={key} className="rounded-lg border p-3" style={{ borderColor: theme.cardBorder }}>
+      <summary className="cursor-pointer font-semibold">{label}</summary>
+      <div className="mt-3"><ValueFields engineer name={label} value={value[key]} disabled={disabled || (key.endsWith("Menu") && !value.useCustomNavigation)} change={next => change({ ...value, [key]: next })} /></div>
+    </details>)}
+  </section>;
 }
 
 function ReviewDialog({ title, before, after, busy, close, confirm, error }: { error: string | null; title: string; before: unknown; after: unknown; busy: boolean; close: () => void; confirm: (reason: string) => void }) {
@@ -135,7 +157,7 @@ function EntryPanel({ entry, published, drafts }: { entry: ConfigEntryDef; publi
     {drafts.length > 0 && <label className="block text-sm">Saved drafts<select className={`${fieldClass} mt-1`} style={fieldStyle} disabled={busy} value={draft?.draftId ?? ""} onChange={event => load(drafts.find(row => row.draftId === event.target.value) ?? null)}>
       <option value="">Start a new draft</option>{drafts.map(row => <option key={row.draftId} value={row.draftId}>Revision {row.revision} · {new Date(row.updatedAt).toLocaleString()}</option>)}
     </select></label>}
-    {!invalid && <ValueFields name={entry.valueType === "json" ? entry.label : entry.key} value={value} disabled={busy || !entry.editable} change={next => setText(display(next))} />}
+    {!invalid && (entry.key === "engineer.view" ? <EngineerFields value={value as EngineerViewConfig} disabled={busy || !entry.editable} change={next => setText(display(next))} /> : <ValueFields name={entry.valueType === "json" ? entry.label : entry.key} value={value} disabled={busy || !entry.editable} change={next => setText(display(next))} />)}
     <details open={Boolean(invalid)}><summary className="cursor-pointer text-sm font-semibold">Advanced value editor</summary><label className="mt-2 block text-sm">{entry.label} value<textarea className={`${fieldClass} mt-1 font-mono`} style={fieldStyle} rows={8} value={text} onChange={event => setText(event.target.value)} disabled={busy || !entry.editable} aria-invalid={Boolean(invalid)} aria-describedby={invalid ? "config-value-error" : undefined} /></label></details>
     {invalid && <p id="config-value-error" role="alert" className="text-sm text-red-400">{invalid}</p>}
     <div className="flex flex-wrap gap-2">
@@ -144,6 +166,11 @@ function EntryPanel({ entry, published, drafts }: { entry: ConfigEntryDef; publi
       <Button disabled={busy || !draft || dirty || changed} onClick={() => draft && setReview({ kind: "publish", draft: structuredClone(draft), version: base.version, before: structuredClone(base.value), after: structuredClone(draft.value), id: correlation() })}>Review publication</Button>
       {draft && <Button disabled={busy} onClick={() => void run(async () => { await deleteDraft({ draftId: draft.draftId, expectedRevision: draft.revision, correlationId: correlation() }); setDraft(null); setText(display(base.value)); config.clearPreview(); setMessage("Draft deleted."); })}>Delete draft</Button>}
     </div>
+    {entry.key === "engineer.view" && config.isPreviewing?.(entry.key) && <section aria-label="Engineer dashboard preview" className="space-y-4 rounded-xl border p-3" style={{ borderColor: theme.cardBorder }}>
+      <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-bold">Engineer dashboard preview</h4><Button onClick={() => config.clearPreview()}>Close Engineer preview</Button></div>
+      <EngineerDashboard />
+      {config.get<EngineerViewConfig>("engineer.view").useCustomNavigation && <div className="grid gap-3 sm:grid-cols-3">{(["inventoryMenu", "remMenu", "reportsMenu"] as const).map(key => <div key={key}><h5 className="font-semibold text-sm">{({ inventoryMenu: "Inventory menu", remMenu: "REM Tracker menu", reportsMenu: "Reports menu" })[key]}</h5><ol className="text-sm mt-2 space-y-1">{config.get<EngineerViewConfig>("engineer.view")[key].filter(row => row.visible).sort((a, b) => a.order - b.order).map(row => <li key={row.path}>{row.icon} {row.label}</li>)}</ol></div>)}</div>}
+    </section>}
     {!entry.public && <p className="text-xs" style={{ color: theme.textSecondary }}>Access policies are enforced by the server after publication. Preview never grants permissions.</p>}
     <details><summary className="cursor-pointer font-semibold">Published history and rollback</summary><div className="mt-3 space-y-2">
       {versions === undefined ? <p>Loading history…</p> : versions.length === 0 ? <p>No published versions yet.</p> : versions.map(row => <div key={row.version} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3" style={{ borderColor: theme.cardBorder }}>
@@ -207,12 +234,16 @@ function AdminEditor() {
   const published = useQuery(api.configActions.listPublishedAdmin);
   const drafts = useQuery(api.configActions.listDrafts);
   const entries = getAllConfigEntries();
-  const [selected, setSelected] = useState(entries[0].key);
+  const [selected, setSelected] = useState("brand.appTitle");
   const [search, setSearch] = useState("");
   const entry = entries.find(row => row.key === selected)!;
   if (published === undefined || drafts === undefined) return <p role="status">Loading configuration…</p>;
   const matches = entries.filter(row => `${row.label} ${CATEGORY_LABELS[row.category]}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="space-y-5" style={{ color: theme.textPrimary }}><header><h2 className="text-xl font-bold">Customize VITROS</h2><p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>Edit a draft, preview the screen, and review it before publication.</p></header>
+    <div className="flex flex-wrap gap-2" aria-label="Customization shortcuts">
+      <Button onClick={() => { setSearch(""); setSelected("engineer.view"); }}>Customize Engineer view</Button>
+      <Button onClick={() => { setSearch(""); setSelected("roles.engineerDefaultRoute"); }}>Engineer starting page</Button>
+    </div>
     <WebCard className="p-4 grid gap-3 sm:grid-cols-2"><label className="text-sm">Find a setting<input className={`${fieldClass} mt-1`} style={fieldStyle} value={search} onChange={event => setSearch(event.target.value)} /></label>
       <label className="text-sm">Setting<select className={`${fieldClass} mt-1`} style={fieldStyle} value={selected} onChange={event => setSelected(event.target.value)}>{!matches.some(row => row.key === selected) && <option value={selected}>{entry.label}</option>}{matches.map(row => <option key={row.key} value={row.key}>{CATEGORY_LABELS[row.category]} — {row.label}</option>)}</select>{matches.length === 0 && <span className="text-xs">No matching settings.</span>}</label>
     </WebCard>
