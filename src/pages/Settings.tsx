@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useConvexData } from "../hooks/useConvexData";
-import { useServerActions, type EditableSettingKey, type EnterpriseSettingRow, type PartMasterRow } from "../hooks/useServerActions";
+import { useServerActions, type EditableSettingKey, type EnterpriseSettingRow } from "../hooks/useServerActions";
 import { WebCard, StatusBadge, theme } from "../components/vitros/SharedComponents";
 import { useRole } from "../hooks/useRole";
 import { Plus, Pencil, Power, X, Check, Shield, Lock } from "lucide-react";
@@ -33,38 +33,6 @@ function settingErrorMessage(error: unknown): string {
   return allowed.includes(error.message) ? error.message : "Enterprise settings request failed. Please retry.";
 }
 
-function partMasterErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return "Part master request failed. Please retry.";
-  const allowed = [
-    "Part version conflict: expected",
-    "Part not found",
-    "Part number already exists",
-    "Part number must be 1-64 characters",
-    "Description must be 1-255 characters",
-    "Invalid part type",
-    "Quantities cannot be negative",
-    "Unit cost cannot be negative",
-    "Field .* is not editable via part master administration",
-    "No permitted part master fields supplied",
-    "Invalid correlation id",
-    "Reason is too long",
-    "Expected version must be a positive integer",
-    "Invalid actor",
-    "Supabase config missing",
-    "Part master service is not configured",
-  ];
-  const msg = error.message;
-  for (const pattern of allowed) {
-    if (pattern.includes(".*")) {
-      const regex = new RegExp("^" + pattern.replace(".*", ".*") + "$");
-      if (regex.test(msg)) return msg;
-    } else if (msg.startsWith(pattern) || msg.includes(pattern)) {
-      return msg;
-    }
-  }
-  return "Part master request failed. Please retry.";
-}
-
 function employeeErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("Version conflict")) return "This employee changed. Cancel and reopen the form to review the latest details before saving.";
@@ -77,8 +45,9 @@ function employeeErrorMessage(error: unknown): string {
 export function Settings() {
   const data = useConvexData();
   const { role, setRole } = useRole();
-  const { listEditableSettings, updateEditableSetting, listPartMaster, updatePartMaster, createPartMaster } = useServerActions();
+  const { listEditableSettings, updateEditableSetting } = useServerActions();
   const isAdmin = role === "superuser";
+  const [section, setSection] = useState<"views" | "people" | "sap" | "system">("views");
 
   // ── Enterprise operational settings ──
   const [enterpriseSettings, setEnterpriseSettings] = useState<EnterpriseSettingRow[]>([]);
@@ -108,39 +77,6 @@ export function Settings() {
   const [confirmToggleVersion, setConfirmToggleVersion] = useState<number | null>(null);
   const [confirmToggleActive, setConfirmToggleActive] = useState<boolean | null>(null);
   const [toggleSaving, setToggleSaving] = useState(false);
-
-  // ── Part Master Management state ──
-  const [partMasterSettings, setPartMasterSettings] = useState<PartMasterRow[]>([]);
-  const [partMasterLoading, setPartMasterLoading] = useState(false);
-  const [partMasterError, setPartMasterError] = useState<string | null>(null);
-  const [partMasterReloadToken, setPartMasterReloadToken] = useState(0);
-
-  // ── Add Part state ──
-  const [showAddPartForm, setShowAddPartForm] = useState(false);
-  const [addPartNumber, setAddPartNumber] = useState("");
-  const [addDescription, setAddDescription] = useState("");
-  const [addType, setAddType] = useState("Required");
-  const [addMinQty, setAddMinQty] = useState(0);
-  const [addMaxQty, setAddMaxQty] = useState(0);
-  const [addOnPlan, setAddOnPlan] = useState(false);
-  const [addBinLocation, setAddBinLocation] = useState("");
-  const [addModule, setAddModule] = useState("");
-  const [addUnitCost, setAddUnitCost] = useState(0);
-  const [addPartSaving, setAddPartSaving] = useState(false);
-
-  // ── Edit Part state ──
-  const [editingPartId, setEditingPartId] = useState<string | null>(null);
-  const [editDescription, setEditDescription] = useState("");
-  const [editType, setEditType] = useState("Required");
-  const [editMinQty, setEditMinQty] = useState(0);
-  const [editMaxQty, setEditMaxQty] = useState(0);
-  const [editOnPlan, setEditOnPlan] = useState(false);
-  const [editBinLocation, setEditBinLocation] = useState("");
-  const [editModule, setEditModule] = useState("");
-  const [editUnitCost, setEditUnitCost] = useState(0);
-  const [editPartSaving, setEditPartSaving] = useState(false);
-
-  const partTypes = ["Required", "Optional", "Not on BOM", "Consumable"] as const;
 
   useEffect(() => {
     if (!isAdmin) {
@@ -174,35 +110,6 @@ export function Settings() {
       cancelled = true;
     };
   }, [isAdmin, listEditableSettings, settingsReloadToken]);
-
-  // ── Part Master Management ──
-  useEffect(() => {
-    if (!isAdmin) {
-      setPartMasterSettings([]);
-      setPartMasterError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setPartMasterLoading(true);
-    setPartMasterError(null);
-
-    listPartMaster()
-      .then((rows) => {
-        if (cancelled) return;
-        setPartMasterSettings(rows);
-      })
-      .catch((error) => {
-        if (!cancelled) setPartMasterError(partMasterErrorMessage(error));
-      })
-      .finally(() => {
-        if (!cancelled) setPartMasterLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin, listPartMaster, partMasterReloadToken]);
 
   const handleSaveSetting = async (key: EditableSettingKey) => {
     const current = enterpriseSettings.find((row) => row.key === key);
@@ -293,228 +200,44 @@ export function Settings() {
     setConfirmToggleActive(emp.active);
   };
 
-  // ── Part Master handlers ──
-  const handleAddPart = async () => {
-    if (!addPartNumber.trim() || !addDescription.trim()) return;
-    setAddPartSaving(true);
-    setPartMasterError(null);
-    try {
-      await createPartMaster({
-        partNumber: addPartNumber.trim().toUpperCase(),
-        description: addDescription.trim(),
-        type: addType,
-        minQty: addMinQty,
-        maxQty: addMaxQty,
-        onPlan: addOnPlan,
-        binLocation: addBinLocation.trim(),
-        module: addModule.trim(),
-        unitCost: addUnitCost,
-        correlationId: `part:create:${addPartNumber.trim().toUpperCase()}:${crypto.randomUUID()}`,
-        reason: "Created from REM Command Center Settings",
-      });
-      setShowAddPartForm(false);
-      setAddPartNumber("");
-      setAddDescription("");
-      setAddType("Required");
-      setAddMinQty(0);
-      setAddMaxQty(0);
-      setAddOnPlan(false);
-      setAddBinLocation("");
-      setAddModule("");
-      setAddUnitCost(0);
-      setPartMasterReloadToken((v) => v + 1);
-    } catch (error) {
-      setPartMasterError(partMasterErrorMessage(error));
-    }
-    setAddPartSaving(false);
-  };
-
-  const startEditPart = (part: PartMasterRow) => {
-    setEditingPartId(part.id);
-    setEditDescription(part.description);
-    setEditType(part.type);
-    setEditMinQty(part.minQty);
-    setEditMaxQty(part.maxQty);
-    setEditOnPlan(part.onPlan);
-    setEditBinLocation(part.binLocation);
-    setEditModule(part.module);
-    setEditUnitCost(part.unitCost);
-  };
-
-  const handleEditPart = async () => {
-    if (!editingPartId) return;
-    setEditPartSaving(true);
-    setPartMasterError(null);
-    const current = partMasterSettings.find((p) => p.id === editingPartId);
-    if (!current) {
-      setEditPartSaving(false);
-      return;
-    }
-    try {
-      await updatePartMaster({
-        partId: editingPartId,
-        updates: {
-          description: editDescription.trim(),
-          type: editType,
-          min_qty: editMinQty,
-          max_qty: editMaxQty,
-          on_plan: editOnPlan,
-          bin_location: editBinLocation.trim(),
-          module: editModule.trim(),
-          unit_cost: editUnitCost,
-        },
-        expectedVersion: current.version,
-        correlationId: `part:update:${current.partNumber}:v${current.version}:${crypto.randomUUID()}`,
-        reason: "Updated from REM Command Center Settings",
-      });
-      setEditingPartId(null);
-      setPartMasterReloadToken((v) => v + 1);
-    } catch (error) {
-      setPartMasterError(partMasterErrorMessage(error));
-    }
-    setEditPartSaving(false);
-  };
-
-
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-bold" style={{ color: theme.textPrimary }}>⚙️ Settings</h2>
-        <p className="text-sm mt-0.5" style={{ color: theme.textSecondary }}>System configuration and administration</p>
-      </div>
-
-      {/* Role */}
-      <WebCard className="p-4">
-        <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>Current Role</h3>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex items-center gap-1.5">
-            <Shield className="w-3.5 h-3.5" style={{ color: isAdmin ? "#a855f7" : "#22c55e" }} />
-            <StatusBadge text={role || "Unknown"} color={isAdmin ? "#a855f7" : "#22c55e"} />
-          </div>
-          <button onClick={() => { setRole(null); window.location.href = "/"; }}
-            className="text-xs font-medium ml-auto" style={{ color: theme.statusOut }}>
-            Sign Out
-          </button>
+    <div className="min-w-0 space-y-5" style={{ color: theme.textPrimary }}>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-bold">Settings</h2>
+          <p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>Manage dashboard views, people and system preferences.</p>
         </div>
-      </WebCard>
-
-      {/* ═══ ENTERPRISE OPERATIONAL SETTINGS ═══ */}
-      <WebCard className="overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: theme.cardBorder }}>
-          <div>
-            <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>SAP Operational Settings</h3>
-            <p className="text-[10px] mt-0.5" style={{ color: theme.textMuted }}>
-              Versioned, audited configuration. Authorization is enforced by the server.
-            </p>
-          </div>
-          {isAdmin && (
-            <button
-              onClick={() => setSettingsReloadToken((value) => value + 1)}
-              disabled={settingsLoading || savingSetting !== null}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold disabled:opacity-40"
-              style={{ backgroundColor: theme.cardBg, color: theme.textSecondary }}
-            >
-              Refresh
-            </button>
-          )}
-        </div>
-
-        {!isAdmin ? (
-          <div className="px-4 py-3 flex items-center gap-2">
-            <Lock className="w-3 h-3" style={{ color: theme.textMuted }} />
-            <span className="text-[10px]" style={{ color: theme.textMuted }}>
-              Enterprise operational settings require superuser access
-            </span>
-          </div>
-        ) : settingsLoading ? (
-          <div className="px-4 py-6 text-center text-xs" style={{ color: theme.textSecondary }}>
-            Loading authoritative settings...
-          </div>
-        ) : (
-          <div className="divide-y" style={{ borderColor: theme.cardBorder }}>
-            {SETTING_DEFINITIONS.map((definition) => {
-              const current = enterpriseSettings.find((row) => row.key === definition.key);
-              if (!current) return null;
-              const draft = settingDrafts[definition.key] ?? current.value;
-              const dirty = draft !== current.value;
-              const isSaving = savingSetting === definition.key;
-              return (
-                <div key={definition.key} className="px-4 py-3">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold" style={{ color: theme.textPrimary }}>{definition.label}</div>
-                      <div className="text-[10px] mt-0.5" style={{ color: theme.textMuted }}>{definition.description}</div>
-                      <div className="text-[9px] mt-1" style={{ color: theme.textMuted }}>
-                        Version {current.version}{current.updatedAt ? ` · Last updated ${new Date(current.updatedAt).toLocaleString()}` : ""}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 w-full max-w-sm">
-                      <input
-                        value={draft}
-                        placeholder={definition.placeholder}
-                        onChange={(event) => {
-                          setSavedSetting(null);
-                          setSettingDrafts((drafts) => ({ ...drafts, [definition.key]: event.target.value }));
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && dirty && !isSaving) void handleSaveSetting(definition.key);
-                        }}
-                        disabled={savingSetting !== null}
-                        className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
-                        style={{ borderColor: dirty ? "#6366f1" : theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                        aria-label={definition.label}
-                      />
-                      <button
-                        onClick={() => void handleSaveSetting(definition.key)}
-                        disabled={!dirty || savingSetting !== null}
-                        className="px-3 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-35 transition-all"
-                        style={{ backgroundColor: "#6366f1" }}
-                        aria-label={`Save ${definition.label}`}
-                      >
-                        {isSaving ? "Saving..." : "Save"}
-                      </button>
-                    </div>
-                  </div>
-                  {savedSetting === definition.key && (
-                    <div className="text-[10px] mt-2 flex items-center gap-1" style={{ color: "#22c55e" }}>
-                      <Check className="w-3 h-3" /> Saved and audited at version {current.version}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {enterpriseSettings.length === 0 && !settingsError && (
-              <div className="px-4 py-6 text-center text-xs" style={{ color: theme.textSecondary }}>
-                No editable operational settings are available.
-              </div>
-            )}
-          </div>
-        )}
-
-        {isAdmin && settingsError && (
-          <div className="px-4 py-3 border-t flex items-center gap-3" style={{ borderColor: theme.cardBorder, backgroundColor: "rgba(239,68,68,0.06)" }}>
-            <span className="text-xs flex-1" role="alert" style={{ color: theme.statusOut }}>{settingsError}</span>
-            <button
-              onClick={() => setSettingsReloadToken((value) => value + 1)}
-              className="px-3 py-1 rounded-lg text-xs font-bold"
-              style={{ backgroundColor: theme.cardBg, color: theme.textSecondary }}
-            >
-              Refresh
-            </button>
-          </div>
-        )}
-      </WebCard>
-
-      {isAdmin && <a href="/ai-administration" className="block rounded-xl border border-indigo-400 bg-indigo-600 px-4 py-3 font-semibold text-white">Open AI Administration — models, limits, usage and diagnostics</a>}
-      {/* ═══ CONFIGURATION EDITOR ═══ */}
-      <ConfigEditor />
-
+        <StatusBadge text={isAdmin ? "Superuser" : role || "Unknown"} color={isAdmin ? "#a855f7" : "#22c55e"} />
+      </header>
+      <nav aria-label="Settings sections" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {([
+          ["views", "Dashboard views"], ["people", "People"],
+          ["sap", "SAP settings"], ["system", "System"],
+        ] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={section === key} aria-controls={"settings-" + key} onClick={() => setSection(key)}
+          className="min-w-0 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors"
+          style={{ borderColor: section === key ? "#818cf8" : theme.cardBorder, backgroundColor: section === key ? "rgba(99,102,241,0.18)" : theme.cardBg, color: section === key ? theme.textPrimary : theme.textSecondary }}>
+          {label}
+        </button>)}
+      </nav>
+      <section id="settings-views" aria-label="Dashboard views settings" hidden={section !== "views"} className="min-w-0 space-y-4">
+        {isAdmin && <WebCard className="p-4 sm:p-5">
+          <h3 className="text-lg font-bold">Make the Engineer dashboard simpler</h3>
+          <p className="mt-2 text-sm" style={{ color: theme.textSecondary }}>Change the title, choose which cards and actions appear, reorder them, and simplify the menus. Select Engineer starting page to change where Engineers land after opening the dashboard.</p>
+          <ol className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+            <li><span className="font-semibold">1. Adjust the view</span><p className="mt-1" style={{ color: theme.textSecondary }}>Expand a section below to show, hide, rename or move items.</p></li>
+            <li><span className="font-semibold">2. Save and preview</span><p className="mt-1" style={{ color: theme.textSecondary }}>Save draft, then preview how the Engineer dashboard looks.</p></li>
+            <li><span className="font-semibold">3. Review and publish</span><p className="mt-1" style={{ color: theme.textSecondary }}>Review publication and confirm to make the changes visible to Engineers.</p></li>
+          </ol>
+        </WebCard>}
+        <ConfigEditor initialKey="engineer.view" />
+      </section>
+      <section id="settings-people" aria-label="People settings" hidden={section !== "people"} className="min-w-0 space-y-4">
       {/* ═══ EMPLOYEE MANAGEMENT ═══ */}
       <WebCard className="overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: theme.cardBorder }}>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b" style={{ borderColor: theme.cardBorder }}>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Employee Management</h3>
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.cardBg, color: theme.textMuted }}>
+            <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.cardBg, color: theme.textMuted }}>
               {data.employees.length}
             </span>
           </div>
@@ -541,9 +264,9 @@ export function Settings() {
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs font-bold" style={{ color: "#6366f1" }}>New Employee</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_4rem_auto_auto]">
               <input
-                className="flex-1 px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
+                className="col-span-3 sm:col-span-1 min-w-0 flex-1 px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
                 style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
                 aria-label="Employee full name"
                 placeholder="Full name..."
@@ -584,7 +307,7 @@ export function Settings() {
               </button>
             </div>
             {addSaving && (
-              <div className="text-[10px] mt-1" style={{ color: "#6366f1" }}>Adding employee...</div>
+              <div className="text-xs mt-1" style={{ color: "#6366f1" }}>Adding employee...</div>
             )}
           </div>
         )}
@@ -593,13 +316,13 @@ export function Settings() {
           {data.employees.map(emp => (
             <div key={emp._id}>
               {isAdmin && editingId === emp._id ? (
-                <div className="flex items-center gap-3 px-4 py-2.5" style={{ backgroundColor: "rgba(99,102,241,0.06)" }}>
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                <div className="flex min-w-0 flex-wrap items-center gap-3 px-4 py-2.5" style={{ backgroundColor: "rgba(99,102,241,0.06)" }}>
+                  <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold text-white"
                     style={{ backgroundColor: "#6366f1" }}>
                     {editInitials || emp.initials}
                   </div>
                   <input
-                    className="flex-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="min-w-0 flex-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
                     style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
                     aria-label="Employee full name"
                     value={editName}
@@ -625,34 +348,34 @@ export function Settings() {
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 px-4 py-2.5 group">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                <div className="grid min-w-0 grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-[2rem_minmax(0,1fr)_auto_auto]">
+                  <div className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold text-white"
                     style={{ backgroundColor: emp.active ? "#6366f1" : "#64748b" }}>
                     {emp.initials}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium" style={{ color: emp.active ? theme.textPrimary : theme.textMuted }}>
+                  <div className="col-span-2 min-w-0 sm:col-span-1">
+                    <div className="break-words text-sm font-medium" style={{ color: emp.active ? theme.textPrimary : theme.textMuted }}>
                       {emp.name}
                     </div>
-                    <div className="text-[10px]" style={{ color: theme.textMuted }}>
+                    <div className="break-words text-xs" style={{ color: theme.textMuted }}>
                       {emp.initials}{emp.email ? ` · ${emp.email}` : ""}
                     </div>
                   </div>
-                  <StatusBadge text={emp.active ? "Active" : "Inactive"} color={emp.active ? theme.statusOk : theme.textMuted} />
+                  <div className="col-start-2 sm:col-auto"><StatusBadge text={emp.active ? "Active" : "Inactive"} color={emp.active ? theme.statusOk : theme.textMuted} /></div>
 
                   {isAdmin && (
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1">
                       <button
                         onClick={() => startEdit(emp)}
                         className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors"
-                        title="Edit"
+                        title="Edit" aria-label={"Edit " + emp.name}
                       >
                         <Pencil className="w-3.5 h-3.5" style={{ color: "#6366f1" }} />
                       </button>
                       <button
                         onClick={() => startToggleConfirm(emp)}
                         className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors"
-                        title={emp.active ? "Deactivate" : "Activate"}
+                        title={emp.active ? "Deactivate" : "Activate"} aria-label={(emp.active ? "Deactivate " : "Activate ") + emp.name}
                       >
                         <Power className="w-3.5 h-3.5" style={{ color: emp.active ? theme.statusOut : "#22c55e" }} />
                       </button>
@@ -699,326 +422,113 @@ export function Settings() {
         {!isAdmin && (
           <div className="px-4 py-2.5 border-t flex items-center gap-2" style={{ borderColor: theme.cardBorder, backgroundColor: "rgba(255,255,255,0.02)" }}>
             <Lock className="w-3 h-3" style={{ color: theme.textMuted }} />
-            <span className="text-[10px]" style={{ color: theme.textMuted }}>
+            <span className="text-xs" style={{ color: theme.textMuted }}>
               Employee management requires superuser access
             </span>
           </div>
         )}
       </WebCard>
 
-      {/* ═══ PART MASTER MANAGEMENT ═══ */}
+      </section>
+      <section id="settings-sap" aria-label="SAP settings" hidden={section !== "sap"} className="min-w-0 space-y-4">
+      {/* ═══ ENTERPRISE OPERATIONAL SETTINGS ═══ */}
       <WebCard className="overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: theme.cardBorder }}>
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Part Master Management</h3>
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.cardBg, color: theme.textMuted }}>
-              {partMasterSettings.length}
-            </span>
+          <div>
+            <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>SAP Operational Settings</h3>
+            <p className="text-xs mt-0.5" style={{ color: theme.textMuted }}>
+              Versioned, audited configuration. Authorization is enforced by the server.
+            </p>
           </div>
           {isAdmin && (
             <button
-              onClick={() => { setShowAddPartForm(true); setAddPartNumber(""); setAddDescription(""); setAddType("Required"); setAddMinQty(0); setAddMaxQty(0); setAddOnPlan(false); setAddBinLocation(""); setAddModule(""); setAddUnitCost(0); }}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white transition-all hover:opacity-90"
-              style={{ backgroundColor: "#6366f1" }}
+              onClick={() => setSettingsReloadToken((value) => value + 1)}
+              disabled={settingsLoading || savingSetting !== null}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold disabled:opacity-40"
+              style={{ backgroundColor: theme.cardBg, color: theme.textSecondary }}
             >
-              <Plus className="w-3 h-3" /> Add Part
+              Refresh
             </button>
           )}
         </div>
 
-        {isAdmin && showAddPartForm && (
-          <div className="px-4 py-3 border-b" style={{ borderColor: theme.cardBorder, backgroundColor: "rgba(99,102,241,0.06)" }}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-bold" style={{ color: "#6366f1" }}>New Part</span>
-            </div>
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="Part Number *"
-                  value={addPartNumber}
-                  onChange={e => setAddPartNumber(e.target.value.toUpperCase())}
-                  maxLength={64}
-                  autoFocus
-                />
-                <input
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="Description *"
-                  value={addDescription}
-                  onChange={e => setAddDescription(e.target.value)}
-                  maxLength={255}
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <select
-                  value={addType}
-                  onChange={e => setAddType(e.target.value)}
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                >
-                  {partTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <input
-                  type="number"
-                  min="0"
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="Min"
-                  value={addMinQty}
-                  onChange={e => setAddMinQty(Math.max(0, parseInt(e.target.value) || 0))}
-                />
-                <input
-                  type="number"
-                  min="0"
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="Max"
-                  value={addMaxQty}
-                  onChange={e => setAddMaxQty(Math.max(0, parseInt(e.target.value) || 0))}
-                />
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={addOnPlan}
-                    onChange={e => setAddOnPlan(e.target.checked)}
-                    className="w-4 h-4 rounded border"
-                    style={{ borderColor: theme.cardBorder, accentColor: "#6366f1" }}
-                  />
-                  <span className="text-xs" style={{ color: theme.textSecondary }}>On Plan</span>
-                </div>
-                <input
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="Bin Location"
-                  value={addBinLocation}
-                  onChange={e => setAddBinLocation(e.target.value)}
-                />
-                <input
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="Module"
-                  value={addModule}
-                  onChange={e => setAddModule(e.target.value)}
-                />
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                  placeholder="Unit Cost"
-                  value={addUnitCost}
-                  onChange={e => setAddUnitCost(Math.max(0, parseFloat(e.target.value) || 0))}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAddPart}
-                  disabled={!addPartNumber.trim() || !addDescription.trim() || addPartSaving}
-                  className="p-2 rounded-lg text-white disabled:opacity-40 transition-all"
-                  style={{ backgroundColor: "#22c55e" }}
-                >
-                  <Check className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setShowAddPartForm(false)}
-                  className="p-2 rounded-lg transition-all"
-                  style={{ backgroundColor: theme.cardBg }}
-                >
-                  <X className="w-4 h-4" style={{ color: theme.textMuted }} />
-                </button>
-              </div>
-              {addPartSaving && (
-                <div className="text-[10px] mt-1" style={{ color: "#6366f1" }}>Adding part...</div>
-              )}
-            </div>
-          </div>
-        )}
-
         {!isAdmin ? (
           <div className="px-4 py-3 flex items-center gap-2">
             <Lock className="w-3 h-3" style={{ color: theme.textMuted }} />
-            <span className="text-[10px]" style={{ color: theme.textMuted }}>
-              Part master management requires superuser access
+            <span className="text-xs" style={{ color: theme.textMuted }}>
+              Enterprise operational settings require superuser access
             </span>
           </div>
-        ) : partMasterLoading ? (
+        ) : settingsLoading ? (
           <div className="px-4 py-6 text-center text-xs" style={{ color: theme.textSecondary }}>
-            Loading part master...
+            Loading authoritative settings...
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: theme.cardBorder }}>
-            {partMasterSettings.map(part => (
-              <div key={part.id}>
-                {isAdmin && editingPartId === part.id ? (
-                  <div className="px-4 py-2.5" style={{ backgroundColor: "rgba(99,102,241,0.06)" }}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                        style={{ backgroundColor: "#6366f1" }}>
-                        {part.partNumber.slice(0, 2)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium" style={{ color: theme.textPrimary }}>{part.partNumber}</div>
-                        <div className="text-[10px]" style={{ color: theme.textMuted }}>{part.description}</div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Description</label>
-                          <input
-                            className="w-full mt-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                            value={editDescription}
-                            onChange={e => setEditDescription(e.target.value)}
-                            maxLength={255}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Type</label>
-                          <select
-                            value={editType}
-                            onChange={e => setEditType(e.target.value)}
-                            className="w-full mt-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                          >
-                            {partTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Min Qty</label>
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-full mt-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                            value={editMinQty}
-                            onChange={e => setEditMinQty(Math.max(0, parseInt(e.target.value) || 0))}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Max Qty</label>
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-full mt-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                            value={editMaxQty}
-                            onChange={e => setEditMaxQty(Math.max(0, parseInt(e.target.value) || 0))}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Bin Location</label>
-                          <input
-                            className="w-full mt-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                            value={editBinLocation}
-                            onChange={e => setEditBinLocation(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Module</label>
-                          <input
-                            className="w-full mt-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                            value={editModule}
-                            onChange={e => setEditModule(e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={editOnPlan}
-                            onChange={e => setEditOnPlan(e.target.checked)}
-                            className="w-4 h-4 mt-4 rounded border"
-                            style={{ borderColor: theme.cardBorder, accentColor: "#6366f1" }}
-                          />
-                          <label className="text-[10px]" style={{ color: theme.textSecondary }}>On Plan</label>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>Unit Cost</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            className="w-full mt-1 px-2 py-1.5 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500"
-                            style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
-                            value={editUnitCost}
-                            onChange={e => setEditUnitCost(Math.max(0, parseFloat(e.target.value) || 0))}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <button
-                        onClick={handleEditPart}
-                        disabled={editPartSaving}
-                        className="p-2 rounded-lg text-white disabled:opacity-40"
-                        style={{ backgroundColor: "#22c55e" }}
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => setEditingPartId(null)} className="p-2 rounded-lg" style={{ backgroundColor: theme.cardBg }}>
-                        <X className="w-4 h-4" style={{ color: theme.textMuted }} />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3 px-4 py-2.5 group">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                      style={{ backgroundColor: part.onPlan ? "#6366f1" : "#64748b" }}>
-                      {part.partNumber.slice(0, 2)}
-                    </div>
+            {SETTING_DEFINITIONS.map((definition) => {
+              const current = enterpriseSettings.find((row) => row.key === definition.key);
+              if (!current) return null;
+              const draft = settingDrafts[definition.key] ?? current.value;
+              const dirty = draft !== current.value;
+              const isSaving = savingSetting === definition.key;
+              return (
+                <div key={definition.key} className="px-4 py-3">
+                  <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium" style={{ color: theme.textPrimary }}>{part.partNumber}</div>
-                      <div className="text-[10px]" style={{ color: theme.textMuted }}>
-                        {part.description} · {part.type} · QOH: {part.qtyOnHand} · Min: {part.minQty} · Max: {part.maxQty} · {part.onPlan ? "On Plan" : "Not on Plan"}
+                      <div className="text-xs font-bold" style={{ color: theme.textPrimary }}>{definition.label}</div>
+                      <div className="text-xs mt-0.5" style={{ color: theme.textMuted }}>{definition.description}</div>
+                      <div className="text-xs mt-1" style={{ color: theme.textMuted }}>
+                        Version {current.version}{current.updatedAt ? ` · Last updated ${new Date(current.updatedAt).toLocaleString()}` : ""}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 text-[10px]" style={{ color: theme.textMuted }}>
-                      <span>Bin: {part.binLocation || "—"}</span>
-                      <span>Mod: {part.module || "—"}</span>
-                      <span>${part.unitCost.toFixed(2)}</span>
+                    <div className="flex min-w-0 w-full items-center gap-2">
+                      <input
+                        value={draft}
+                        placeholder={definition.placeholder}
+                        onChange={(event) => {
+                          setSavedSetting(null);
+                          setSettingDrafts((drafts) => ({ ...drafts, [definition.key]: event.target.value }));
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && dirty && !isSaving) void handleSaveSetting(definition.key);
+                        }}
+                        disabled={savingSetting !== null}
+                        className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm border outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+                        style={{ borderColor: dirty ? "#6366f1" : theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }}
+                        aria-label={definition.label}
+                      />
+                      <button
+                        onClick={() => void handleSaveSetting(definition.key)}
+                        disabled={!dirty || savingSetting !== null}
+                        className="px-3 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-35 transition-all"
+                        style={{ backgroundColor: "#6366f1" }}
+                        aria-label={`Save ${definition.label}`}
+                      >
+                        {isSaving ? "Saving..." : "Save"}
+                      </button>
                     </div>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: theme.cardBg, color: theme.textMuted }}>
-                      v{part.version}
-                    </span>
-
-                    {isAdmin && (
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => startEditPart(part)}
-                          className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-3.5 h-3.5" style={{ color: "#6366f1" }} />
-                        </button>
-                      </div>
-                    )}
                   </div>
-                )}
-
-              </div>
-            ))}
-            {partMasterSettings.length === 0 && !partMasterError && (
+                  {savedSetting === definition.key && (
+                    <div className="text-xs mt-2 flex items-center gap-1" style={{ color: "#22c55e" }}>
+                      <Check className="w-3 h-3" /> Saved and audited at version {current.version}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {enterpriseSettings.length === 0 && !settingsError && (
               <div className="px-4 py-6 text-center text-xs" style={{ color: theme.textSecondary }}>
-                No parts defined yet.
+                No editable operational settings are available.
               </div>
             )}
           </div>
         )}
 
-        {isAdmin && partMasterError && (
+        {isAdmin && settingsError && (
           <div className="px-4 py-3 border-t flex items-center gap-3" style={{ borderColor: theme.cardBorder, backgroundColor: "rgba(239,68,68,0.06)" }}>
-            <span className="text-xs flex-1" role="alert" style={{ color: theme.statusOut }}>{partMasterError}</span>
+            <span className="text-xs flex-1" role="alert" style={{ color: theme.statusOut }}>{settingsError}</span>
             <button
-              onClick={() => setPartMasterReloadToken((value) => value + 1)}
+              onClick={() => setSettingsReloadToken((value) => value + 1)}
               className="px-3 py-1 rounded-lg text-xs font-bold"
               style={{ backgroundColor: theme.cardBg, color: theme.textSecondary }}
             >
@@ -1028,21 +538,32 @@ export function Settings() {
         )}
       </WebCard>
 
-      {/* System Info */}
+      </section>
+      <section id="settings-system" aria-label="System settings" hidden={section !== "system"} className="min-w-0 space-y-4">
+        {isAdmin && <WebCard className="p-4 sm:p-5">
+          <h3 className="text-lg font-bold">AI Administration</h3>
+          <p className="mt-2 text-sm" style={{ color: theme.textSecondary }}>Manage free Zen models, AI features, request limits and connection status.</p>
+          <a href="/ai-administration" className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">Open AI Administration</a>
+        </WebCard>
+        }
+        <WebCard className="p-4 sm:p-5">
+          <h3 className="text-lg font-bold">Inventory administration</h3>
+          <p className="mt-2 text-sm" style={{ color: theme.textSecondary }}>Manage parts and inventory in Stock Summary.</p>
+          <a href="/stock-summary" className="mt-3 inline-block text-sm font-semibold text-indigo-300 underline">Open Stock Summary</a>
+        </WebCard>
+      {/* Role */}
       <WebCard className="p-4">
-        <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>System Info</h3>
-        {[
-          ["Total Parts", String(data.parts.length)],
-          ["Total Transactions", String(data.transactions.length)],
-          ["Kits Defined", String(data.kits.length)],
-          ["Active Employees", String(data.employees.filter(e => e.active).length)],
-          ["REM Analyzers", String(data.analyzers.length)],
-        ].map(([k, v]) => (
-          <div key={k} className="flex justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
-            <span className="text-xs" style={{ color: theme.textSecondary }}>{k}</span>
-            <span className="text-xs font-bold" style={{ color: theme.textPrimary }}>{v}</span>
+        <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>Current Role</h3>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5" style={{ color: isAdmin ? "#a855f7" : "#22c55e" }} />
+            <StatusBadge text={role || "Unknown"} color={isAdmin ? "#a855f7" : "#22c55e"} />
           </div>
-        ))}
+          <button onClick={() => { setRole(null); window.location.href = "/"; }}
+            className="text-xs font-medium ml-auto" style={{ color: theme.statusOut }}>
+            Sign Out
+          </button>
+        </div>
       </WebCard>
 
       {/* Danger Zone — superuser only; destructive reset intentionally fails closed. */}
@@ -1063,6 +584,7 @@ export function Settings() {
           </button>
         </WebCard>
       )}
+      </section>
     </div>
   );
 }
