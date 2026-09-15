@@ -46,7 +46,9 @@ BEGIN
  BEGIN
   PERFORM public.apply_dhr_scan_transition('dcde0001-cccc-4ccc-8ccc-cccccccccccc','SYNTHETIC','ABC123',2,2,'required','Synthetic part','Synthetic Admin','deleted-scan',1,'SYNTHETIC-DELETE');
   RAISE EXCEPTION 'Deleted DHR scan accepted';
- EXCEPTION WHEN object_not_in_prerequisite_state THEN NULL; END;
+ EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM<>'DHR session is not open for inventory consumption' THEN RAISE; END IF;
+ END;
  BEGIN
   UPDATE public.dhr_scan_session_events SET deletion_reason='Overwrite' WHERE correlation_id='synthetic-delete';
   RAISE EXCEPTION 'Immutable event changed';
