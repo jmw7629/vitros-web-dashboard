@@ -219,7 +219,7 @@ export function Settings() {
         value,
         expectedVersion: current.version,
         correlationId: `settings:${key}:v${current.version}:${crypto.randomUUID()}`,
-        reason: "Updated from VITROS Settings",
+        reason: "Updated from REM Command Center Settings",
       });
       setEnterpriseSettings((rows) => rows.map((row) => row.key === key ? receipt : row));
       setSettingDrafts((drafts) => ({ ...drafts, [key]: receipt.value }));
@@ -310,7 +310,7 @@ export function Settings() {
         module: addModule.trim(),
         unitCost: addUnitCost,
         correlationId: `part:create:${addPartNumber.trim().toUpperCase()}:${crypto.randomUUID()}`,
-        reason: "Created from VITROS Settings",
+        reason: "Created from REM Command Center Settings",
       });
       setShowAddPartForm(false);
       setAddPartNumber("");
@@ -365,7 +365,7 @@ export function Settings() {
         },
         expectedVersion: current.version,
         correlationId: `part:update:${current.partNumber}:v${current.version}:${crypto.randomUUID()}`,
-        reason: "Updated from VITROS Settings",
+        reason: "Updated from REM Command Center Settings",
       });
       setEditingPartId(null);
       setPartMasterReloadToken((v) => v + 1);

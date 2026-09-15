@@ -32,16 +32,16 @@ export function TopNavBar({ onMenuToggle }: TopNavBarProps) {
     <header className="fixed top-0 left-0 right-0 z-40 flex items-center h-[48px] px-3 border-b"
       style={{ backgroundColor: palette.navBg, borderColor: palette.navBorder }}>
       {/* Logo */}
-      <button onClick={onMenuToggle} className="flex items-center gap-2 mr-4 shrink-0">
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm font-black"
+      <button onClick={onMenuToggle} aria-label={`Open ${appTitle} menu`} className="flex min-w-0 flex-1 items-center gap-2 mr-2 sm:flex-none sm:mr-4">
+        <div className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-white text-sm font-black"
           style={{ background: `linear-gradient(135deg, ${palette.accentBlue}, ${palette.iconPurple})` }}>
-          V
+          R
         </div>
-        <span className="font-bold text-sm tracking-wide" style={{ color: palette.textPrimary }}>{appTitle}</span>
+        <span className="min-w-0 text-left font-bold text-xs leading-tight sm:text-sm sm:tracking-wide" style={{ color: palette.textPrimary }}>{appTitle}</span>
       </button>
 
       {/* Tabs */}
-      <nav className="flex items-center gap-0 h-full">
+      <nav className="flex shrink-0 items-center gap-0 h-full">
         <TabButton
           label="Inventory"
           active={!isRem}
@@ -64,7 +64,7 @@ function TabButton({ label, active, onClick, palette }: { label: string; active:
     <button
       onClick={onClick}
       className={cn(
-        "relative h-full px-4 text-[13px] font-semibold transition-colors",
+        "relative h-full whitespace-nowrap px-2 sm:px-4 text-[13px] font-semibold transition-colors",
       )}
       style={{ color: active ? palette.textPrimary : palette.textMuted }}
     >

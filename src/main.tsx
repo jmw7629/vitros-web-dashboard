@@ -41,7 +41,7 @@ function UnavailableState() {
         }}>
           V
         </div>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>VITROS</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>REM Command Center</h1>
         <p style={{ fontSize: 14, color: "#94a3b8", marginBottom: 24 }}>
           The dashboard is temporarily unavailable. Please try again shortly.
         </p>

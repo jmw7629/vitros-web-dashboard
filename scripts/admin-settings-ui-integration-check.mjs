@@ -56,7 +56,7 @@ assert(settings.includes("listEditableSettings()"), "Settings page must load aut
 assert(settings.includes("updateEditableSetting({"), "Settings page must save through the server-authoritative action wrapper");
 assert(settings.includes("expectedVersion: current.version"), "Settings page must send the loaded row version on save");
 assert(settings.includes("crypto.randomUUID()"), "Settings page must create a unique idempotency correlation for each edit intent");
-assert(settings.includes('reason: "Updated from VITROS Settings"'), "Settings page must provide an auditable change reason");
+assert(settings.includes('reason: "Updated from REM Command Center Settings"'), "Settings page must provide an auditable change reason");
 assert(settings.includes('role === "superuser"'), "Settings UI must keep superuser-only presentation gating");
 assert(settings.includes("Authorization is enforced by the server."), "Settings UI must state that browser role presentation is not the authorization boundary");
 assert(!settings.includes("SUPABASE_SERVICE_ROLE_KEY"), "Settings page must not contain service-role credential handling");
