@@ -505,6 +505,7 @@ export function Settings() {
         )}
       </WebCard>
 
+      {isAdmin && <a href="/ai-administration" className="block rounded-xl border border-indigo-400 bg-indigo-600 px-4 py-3 font-semibold text-white">Open AI Administration — models, limits, usage and diagnostics</a>}
       {/* ═══ CONFIGURATION EDITOR ═══ */}
       <ConfigEditor />
 

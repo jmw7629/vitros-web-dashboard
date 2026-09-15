@@ -51,6 +51,7 @@ function isKnownRoute(route: string): boolean {
     "/report-preview",
     "/upload-refresh",
     "/settings",
+    "/ai-administration",
     "/rem/dashboard",
     "/rem/morning-snapshot",
     "/rem/kanban",
@@ -127,6 +128,7 @@ export function getAllRoleDefaultRoutes(
  * Server RBAC is the authority; this is a presentation guard only.
  */
 const ENGINEER_BLOCKED = new Set<string>([
+  "/ai-administration",
   "/sap-staging",
   "/sap-analytics",
   "/enterprise-dashboard",
@@ -136,6 +138,7 @@ const ENGINEER_BLOCKED = new Set<string>([
  * Routes inaccessible to viewers (write/mutate paths).
  */
 const VIEWER_BLOCKED = new Set<string>([
+  "/ai-administration",
   "/scan-kiosk",
   "/incoming-stock",
   "/reorder-stockout",

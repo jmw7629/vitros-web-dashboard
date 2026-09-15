@@ -153,6 +153,7 @@ export function AppSidebar({ isOpen = true, onClose = () => {} }: AppSidebarProp
 
           {/* Settings */}
           {renderRow(settingsItem)}
+          {role === "superuser" && renderRow({label:"AI Administration",icon:"💻",path:"/ai-administration",iconBg:"from-indigo-500 to-indigo-700",visible:true,order:0})}
 
           {/* Theme picker */}
           <button

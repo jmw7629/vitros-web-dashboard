@@ -10,16 +10,10 @@ const forbid = (pattern, message) => {
   if (pattern.test(source)) failures.push(message);
 };
 
-const non2xx = source.match(/if \(!res\.ok\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
-if (!non2xx) failures.push("OpenAI non-2xx branch must exist");
-if (/res\.(?:json|text|arrayBuffer|blob)\s*\(/.test(non2xx)) {
-  failures.push("OpenAI non-2xx branch must never read provider response bodies");
-}
-
-requireMatch(/throw new Error\(`OpenAI request failed with status \$\{res\.status\}`\)/,
-  "OpenAI non-2xx failures must be status-only");
-requireMatch(/function safeOpenAIError\([\s\S]*OpenAI request failed[\s\S]*OpenAI request timed out[\s\S]*OpenAI returned an invalid response/s,
-  "browser-visible OCR errors must use an allowlisted sanitizer");
+const runtime = fs.readFileSync("convex/zenRuntime.ts", "utf8");
+if (!runtime.includes('if(!response.ok)') || !runtime.includes('e instanceof ZenError?e:new ZenError')) failures.push("Zen provider failures must use the safe error boundary");
+if (!runtime.includes('process.env.OPENCODE_ZEN_API_KEY') || /api\\.openai\\.com|process\\.env\\.(OPENAI|OPENCODE_GO)/.test(runtime)) failures.push("Only the dedicated server Zen credential and endpoint may be used");
+if (!source.includes('runZen(ctx,') || source.includes('fetch(')) failures.push("OCR must delegate to the controlled gateway");
 requireMatch(/const MAX_REFERENCE_PARTS = \d+;/,
   "reference part count must be bounded");
 requireMatch(/const MAX_PART_NUMBER_LENGTH = \d+;/,

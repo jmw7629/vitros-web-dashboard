@@ -8,6 +8,10 @@
  * @module
  */
 
+import type * as aiAdminActions from "../aiAdminActions.js";
+import type * as zenRuntime from "../zenRuntime.js";
+import type * as aiControl from "../aiControl.js";
+import type * as aiContract from "../aiContract.js";
 import type * as ViktorSpacesEmail from "../ViktorSpacesEmail.js";
 import type * as adminSettingsActions from "../adminSettingsActions.js";
 import type * as aiGateway from "../aiGateway.js";
@@ -72,6 +76,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  aiAdminActions: typeof aiAdminActions;
+  zenRuntime: typeof zenRuntime;
+  aiControl: typeof aiControl;
+  aiContract: typeof aiContract;
   ViktorSpacesEmail: typeof ViktorSpacesEmail;
   adminSettingsActions: typeof adminSettingsActions;
   aiGateway: typeof aiGateway;

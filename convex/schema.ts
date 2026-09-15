@@ -1,6 +1,7 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {aiSettingsValidator,aiModelValidator,aiPurposeValidator} from "./aiContract";
 
 const users = defineTable({
   employeeId: v.optional(v.string()),
@@ -54,6 +55,13 @@ export default defineSchema({
     version: v.number(),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+
+  // AI controls and usage metadata only; API keys and document/prompt content are never stored here.
+  aiSettings: defineTable({key:v.literal("zen"),value:aiSettingsValidator,version:v.number(),updatedAt:v.number(),updatedBy:v.id("users")}).index("by_key",["key"]),
+  aiCatalog: defineTable({key:v.literal("zen"),models:v.array(aiModelValidator),fetchedAt:v.number()}).index("by_key",["key"]),
+  aiSettingsAudit: defineTable({version:v.number(),actor:v.id("users"),createdAt:v.number(),correlationId:v.string(),request:v.string(),reason:v.string(),previous:aiSettingsValidator,value:aiSettingsValidator}).index("by_correlationId",["correlationId"]).index("by_createdAt",["createdAt"]),
+  aiUsageDaily: defineTable({day:v.string(),requests:v.number(),succeeded:v.number(),failed:v.number(),inputTokens:v.number(),outputTokens:v.number()}).index("by_day",["day"]),
+  aiRequests: defineTable({actor:v.id("users"),purpose:aiPurposeValidator,model:v.string(),settingsVersion:v.number(),status:v.union(v.literal("running"),v.literal("succeeded"),v.literal("failed")),startedAt:v.number(),finishedAt:v.optional(v.number()),day:v.string(),inputTokens:v.optional(v.number()),outputTokens:v.optional(v.number()),errorCode:v.optional(v.string())}).index("by_startedAt",["startedAt"]),
 
   // ============ INVENTORY MODULE ============
   // NOTE: Production data is now in Supabase. This schema is kept for

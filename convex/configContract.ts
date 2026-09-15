@@ -40,7 +40,7 @@ import {
 
 /** Pure Engineer presentation contract. No role permissions are changed here. */
 export const ENGINEER_METRICS = ["skus", "health", "stockOuts", "reorder", "lowStock", "onPlan", "activity", "kits", "today"] as const;
-export const ENGINEER_EXCLUDED_ROUTES = ["/sap-staging", "/sap-analytics", "/enterprise-dashboard", "/settings"] as const;
+export const ENGINEER_EXCLUDED_ROUTES = ["/sap-staging", "/sap-analytics", "/enterprise-dashboard", "/settings", "/ai-administration"] as const;
 
 // ─── Capability model (immutable ceilings) ───────────────────────────────
 
@@ -158,6 +158,7 @@ export const KNOWN_ROUTES = [
   "/report-preview",
   "/upload-refresh",
   "/settings",
+  "/ai-administration",
   "/rem/dashboard",
   "/rem/morning-snapshot",
   "/rem/kanban",

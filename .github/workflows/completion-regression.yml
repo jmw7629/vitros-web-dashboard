@@ -86,10 +86,14 @@ jobs:
           node scripts/dhr-delete-action-check.mjs
           node scripts/dhr-delete-ui-check.mjs
           node scripts/runtime-env-sync-behavior.mjs
+      - name: Zen AI administration and provider boundaries
+        run: node scripts/zen-ai-admin-behavior-check.mjs
       - name: Cycle Count durable session and UI behavior
         run: |
           node scripts/cycle-count-behavior-check.mjs
           node scripts/cycle-count-action-check.mjs
+      - name: Zen AI administration desktop and mobile browser behavior
+        run: node scripts/zen-ai-admin-browser-check.mjs
       - name: Cycle Count desktop and mobile browser behavior
         run: node scripts/cycle-count-browser-check.mjs
       - name: Config editor actual component behavior

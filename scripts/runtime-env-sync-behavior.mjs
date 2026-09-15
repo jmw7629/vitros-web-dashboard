@@ -38,3 +38,12 @@ const failed = run(base, { status: 2, stdout: "synthetic-sensitive-output", stde
 assert.equal(failed.exit, 1); assert.equal(failed.calls.length, 1);
 assert.equal(failed.logs.includes("synthetic-"), false);
 console.log("Runtime environment sync: production-only allowlist, fail-closed configuration, private stdin, and Convex credential ownership PASS");
+
+const zen = run({ ...base, OPENCODE_ZEN_API_KEY: "synthetic-zen", OPENCODE_GO_API_KEY: "synthetic-go" });
+assert.deepEqual(zen.calls.map(c => c[1].at(-1)), ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENCODE_ZEN_API_KEY"]);
+assert.equal(zen.calls.at(-1)[2].input.trim(), "synthetic-zen");
+assert.equal(zen.logs.includes("synthetic-"), false);
+assert.equal(JSON.stringify(zen.calls.map(c => c.slice(0, 2))).includes("synthetic-zen"), false);
+const goOnly = run({ ...base, OPENCODE_GO_API_KEY: "synthetic-go" });
+assert.equal(goOnly.calls.length, 2);
+console.log("Dedicated Zen key sync and Go/OpenAI non-fallback PASS");
