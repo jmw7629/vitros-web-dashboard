@@ -126,6 +126,7 @@ export function useConvexData() {
 // Mock hook for useConfig
 const mockUseConfig = `
 import { useMemo } from "react";
+import { getConfigDefault } from "${normalizePath(path.join(root, "convex/configContract.ts"))}";
 
 export function useConfig() {
   const getNavItems = useMemo(() => {
@@ -153,7 +154,16 @@ export function useConfig() {
   }, []);
 
   return {
-    get: () => undefined,
+    get: key => {
+      const value = structuredClone(getConfigDefault(key));
+      if (key === "engineer.view" && new URLSearchParams(location.search).has("custom")) {
+        value.title = "Bench operations"; value.cards.forEach((row, i) => row.visible = i === 0);
+        value.cards[0].title = "Bench parts"; value.cards[0].size = "full";
+        value.quickActions.forEach(row => { row.visible = row.path === "/dhr-scanner"; if (row.visible) row.label = "Open bench DHR"; });
+        value.inventoryStatus.visible = false; value.recentTransactions.limit = 1;
+      }
+      return value;
+    },
     publishedValues: new Map(),
     isLoading: false,
     getNavItems,
@@ -348,6 +358,18 @@ try {
         }
 
         await page.screenshot({ path: path.join(artifacts, `${view}-${viewport.width}.png`), fullPage: true });
+        if (view === "engineer") {
+          await page.goto(`${base}/?view=engineer&custom=1`); await page.waitForLoadState("networkidle");
+          assert.equal(await page.getByRole("heading", { name: "Bench operations" }).count(), 1);
+          assert.equal(await page.getByText("Bench parts", { exact: true }).count(), 1);
+          assert.equal(await page.getByText("Health %", { exact: true }).count(), 0);
+          assert.equal(await page.getByRole("heading", { name: "Inventory Status" }).count(), 0);
+          assert.equal(await page.getByRole("button", { name: /Open bench DHR/ }).count(), 1);
+          assert.equal(await page.getByText("J102", { exact: true }).count(), 0);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+          await page.screenshot({ path: path.join(artifacts, `engineer-custom-${viewport.width}.png`), fullPage: true });
+          report.checks.push({ view: "engineer-custom", viewport: viewport.width, documentOverflow: false, elementsPresent: true });
+        }
       } finally {
         await context.close();
       }

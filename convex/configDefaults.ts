@@ -9,6 +9,7 @@
  */
 
 import type {
+  EngineerViewConfig,
   NavItemConfig,
   DashboardModuleConfig,
   StockSummaryColumnConfig,
@@ -251,4 +252,30 @@ export const ROLE_POLICY_DEFAULT: RolePolicy = {
   ],
   engineer: ["inventory.read", "inventory.write", "ai.ocr", "rem.read", "rem.write"],
   viewer: ["inventory.read", "rem.read"],
+};
+
+// Engineer defaults preserve the existing operational dashboard. Custom menus
+// are opt-in so existing shared, published navigation continues to apply.
+export const ENGINEER_VIEW_DEFAULT: EngineerViewConfig = {
+  title: "Engineer Dashboard",
+  subtitle: "Operational overview — scan, receive, and track inventory",
+  cards: ["skus", "health", "stockOuts", "reorder", "lowStock", "activity", "today", "onPlan", "kits"].map((metric, order) => ({
+    ...DASHBOARD_DEFAULTS.modules.find(row => row.config.metric === metric)!,
+    title: ({ skus: "Total Parts", health: "Health %", reorder: "Reorder Needed", today: "Today's Scans" } as Record<string, string>)[metric] ?? DASHBOARD_DEFAULTS.modules.find(row => row.config.metric === metric)!.title,
+    visible: order < 7, order,
+  })),
+  quickActions: ["/scan-kiosk", "/incoming-stock", "/transaction-search", "/reorder-stockout", "/dhr-scanner", "/stock-summary", "/cycle-count", "/rem/kiosk", "/rem/analyzers", "/rem/reports"].map((path, order) => ({
+    ...[...NAV_DEFAULTS.inventoryItems, ...NAV_DEFAULTS.remItems].find(row => row.path === path)!,
+    label: path === "/incoming-stock" ? "Incoming Stock" : [...NAV_DEFAULTS.inventoryItems, ...NAV_DEFAULTS.remItems].find(row => row.path === path)!.label,
+    visible: order < 4, order,
+  })),
+  inventoryStatus: { title: "Inventory Status", visible: true },
+  recentTransactions: { title: "Recent Transactions", visible: true, limit: 10 },
+  useCustomNavigation: false,
+  inventoryMenu: [
+    { label: "Engineer Dashboard", icon: "👥", path: "/engineer-dashboard", iconBg: "from-violet-500 to-violet-700", visible: true, order: 0 },
+    ...NAV_DEFAULTS.inventoryItems.filter(row => !row.path.startsWith("/sap-")).map((row, index) => ({ ...row, order: index + 1 })),
+  ],
+  remMenu: NAV_DEFAULTS.remItems.map(row => ({ ...row })),
+  reportsMenu: NAV_DEFAULTS.inventoryReports.map(row => ({ ...row })),
 };

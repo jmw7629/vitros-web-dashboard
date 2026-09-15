@@ -381,3 +381,8 @@ User requests ability to delete active DHRs. Existing DhrScanner has active/comp
 Verification: actual action7 and actual Scanner/dialog5 behavior groups PASS; true frontend/Convex typecheck and production-configured build PASS. Disposable PostgreSQL reached migration application successfully but test fixture ID collision was corrected; a later local Docker permission failure prevented completion. CI Postgres17 will run the corrected transaction suite; no DB-pass claim yet. Original active DHR untouched. React review: separate dialog component, stable retry identity, pending double-submit guard, accessible Radix focus handling, functional snapshot removal, role visibility plus server authority.
 
 CI Postgres17 proved deletion, audit, replay, stale revision, archived rejection and reopen prevention. The negative scanner test expected SQLSTATE55000 but the existing scanner intentionally uses defaultP0001; corrected the test to assert its exact rejection message. No production function behavior changed.
+
+## 2026-09-15 Engineer view customization
+User requested Superuser control over the Engineer view. Investigation found EngineerDashboard ignores the shared module configuration. Implementing role-specific validated settings using existing draft, preview, publication, and rollback infrastructure; preserve defaults and server permissions.
+
+Engineer customization verification: full frontend/Convex typecheck and production frontend build pass; 18 actual React component groups, 16 actual config handler groups, and 8 native Chromium desktop/mobile views pass. Synthetic transports/data are explicitly separated from live acceptance. No production settings or inventory data changed during implementation.

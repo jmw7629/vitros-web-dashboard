@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { useRole } from "../hooks/useRole";
 import { useTheme, THEME_PALETTES } from "../contexts/ThemeContext";
 import { useConfig } from "../hooks/useConfig";
-import type { NavItemConfig } from "../lib/configRegistry";
+import type { EngineerViewConfig, NavItemConfig } from "../lib/configRegistry";
 import type { ThemeMode } from "../../convex/configContract";
 import { theme } from "./vitros/SharedComponents";
 import { filterNavItemsForRole, type RoleName } from "../lib/dashboardRoutes";
@@ -29,7 +29,15 @@ export function AppSidebar({ isOpen = true, onClose = () => {} }: AppSidebarProp
   const sidebarTitle = get<string>("brand.sidebarTitle");
   const sidebarSubtitle = get<string>("brand.sidebarSubtitle");
   let items = isRem ? getNavItems("rem") : getNavItems("inventory");
-  const reports = isRem ? [] : getNavItems("reports");
+  let reports = isRem ? [] : getNavItems("reports");
+  if (role === "engineer") {
+    const view = get<EngineerViewConfig>("engineer.view");
+    if (view.useCustomNavigation) {
+      const visible = (rows: NavItemConfig[]) => rows.filter(row => row.visible).sort((a, b) => a.order - b.order);
+      items = visible(isRem ? view.remMenu : view.inventoryMenu);
+      reports = isRem ? [] : visible(view.reportsMenu);
+    }
+  }
 
   // Filter navigation items based on role capabilities
   if (role) {
