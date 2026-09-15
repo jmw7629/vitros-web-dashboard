@@ -87,7 +87,11 @@ jobs:
           node scripts/dhr-delete-ui-check.mjs
           node scripts/runtime-env-sync-behavior.mjs
       - name: Cycle Count durable session and UI behavior
-        run: node scripts/cycle-count-behavior-check.mjs
+        run: |
+          node scripts/cycle-count-behavior-check.mjs
+          node scripts/cycle-count-action-check.mjs
+      - name: Cycle Count desktop and mobile browser behavior
+        run: node scripts/cycle-count-browser-check.mjs
       - name: Config editor actual component behavior
         run: node scripts/config-editor-behavior-check.mjs
       - name: Customization server handlers and dashboard reporting

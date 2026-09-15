@@ -16,14 +16,15 @@ declare
  retry_request jsonb; failed boolean; rev integer; token text; before_token text;
 begin
  insert into public.stock(part_number,description,qty_on_hand,type) values
- ('CY-R10','Cycle fixture required',7,'Required'),('CY-R2','Cycle fixture required two',10,'Required'),
+ ('CY-R10','Cycle fixture required',9,'Required'),('CY-R2','Cycle fixture required two',10,'Required'),
  ('CY-A1','Cycle fixture optional',2,'Optional'),('CY-C1','Cycle fixture consumable',3,'Consumable'),
  ('CY-U1','Cycle fixture unclassified',0,'Unclassified'),('CY-N1','Cycle fixture not on BOM',0,'Not on BOM');
  select id into stock_id from public.stock where part_number='CY-R10';
  insert into public.dhr_scan_sessions(id,instrument_sn,wo_number,analyzer_model,status)
  values(dhr_id,'CYCLE-ACTIVE','CYCLE-FIXTURE','5600','in_progress');
+ perform public.apply_dhr_scan_transition(dhr_id,'C1','CY-R10',4,2,'required','Cycle fixture required','fixture-admin','cycle-fixture-initial',0,'CYCLE-ACTIVE');
  insert into public.dhr_scan_results(session_id,section_id,part_number,scanned_qty,stock_id)
- values(dhr_id,'C1','DISPLAY-ALIAS',2,stock_id),(dhr_id,'C2','CY-R10',1,stock_id);
+ values(dhr_id,'C2','DISPLAY-ALIAS',1,stock_id);
  snapshot:=public.read_cycle_count_wip();
  perform pg_temp.assert_cycle((snapshot->'serials')?'CYCLE-ACTIVE','active DHR serial is automatic');
  perform pg_temp.assert_cycle((select (p->'wipEntries'->>'CYCLE-ACTIVE')::integer=3 from jsonb_array_elements(snapshot->'parts') p where p->>'partNumber'='CY-R10'),'WIP aggregates sections by canonical stock_id');
@@ -91,7 +92,7 @@ begin
  perform pg_temp.assert_cycle((select count(*)=before_audit from public.audit_log) and (select count(*)=before_sap from public.sap_staging) and (select count(*)=before_results from public.cycle_results),'no partial ledger, SAP or result on conflict');
  perform pg_temp.assert_cycle((select status='active' and revision=0 from public.cycle_count_sessions where id=second_session),'failed confirm remains active');
  -- A DHR update after review changes the WIP fingerprint.
- update public.dhr_scan_results set scanned_qty=4 where session_id=dhr_id and section_id='C1';
+ perform public.apply_dhr_scan_transition(dhr_id,'C1','CY-R10',4,4,'required','Cycle fixture required','fixture-admin','cycle-fixture-update',1,'CYCLE-ACTIVE');
  failed:=false;begin perform public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());exception when others then failed:=sqlerrm like 'DHR WIP changed%';end;
  perform pg_temp.assert_cycle(failed,'WIP update requires a new review');
  snapshot:=public.read_cycle_count_wip();

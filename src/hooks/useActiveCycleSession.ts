@@ -39,7 +39,7 @@ export function useActiveCycleSession(wip:CycleWip,onWip:(wip:CycleWip)=>void) {
  function save(kind:SaveKind,review?:CountReview):Promise<boolean> {
   if(!latest.current.session)return Promise.resolve(false);
   if(busy.current)return kind==="save"?busy.current:busy.current.then(ok=>ok?save(kind,review):false);
-  if(pending.current?.operation==="confirm"&&kind!=="confirm")return Promise.resolve(false);
+  if(pending.current&&pending.current.operation!=="save"&&kind!==pending.current.operation)return Promise.resolve(false);
   const work=async()=>{
    setSaving(true);setError(null);
    try{
@@ -86,7 +86,7 @@ export function useActiveCycleSession(wip:CycleWip,onWip:(wip:CycleWip)=>void) {
   return()=>clearInterval(timer);
  },[session?.id,session?.status]);
  function update(partNumber:string,field:string,value:string) {
-  if(pending.current?.operation==="confirm"){setError("Retry the pending confirmation before changing counts.");return;}
+  if(pending.current&&pending.current.operation!=="save"){setError("Retry the pending "+(pending.current.operation==="pause"?"Save and Exit":"confirmation")+" before changing counts.");return;}
   try{
    const number=parseCount(value),stock=latest.current.wip.parts.find(p=>p.partNumber===partNumber);
    const rows=latest.current.inputs;

@@ -82,7 +82,7 @@ declare
 begin
  if p_actor is null or length(btrim(p_actor)) not between 1 and 200 then raise exception 'Cycle count actor is required'; end if;
  if p_correlation_id is null then raise exception 'Cycle count operation ID is required'; end if;
- if jsonb_typeof(p_payload) <> 'object' then raise exception 'Invalid cycle count request'; end if;
+ if jsonb_typeof(p_payload) is distinct from 'object' then raise exception 'Invalid cycle count request'; end if;
  v_request:=jsonb_build_object('operation',p_operation,'payload',p_payload);
  perform pg_advisory_xact_lock(hashtextextended('cycle-operation|'||p_correlation_id::text,0));
  select * into v_event from public.cycle_count_events where correlation_id=p_correlation_id;
@@ -180,6 +180,7 @@ begin
      v_qty:=(v_line->>'countedQty')::integer;
      if p_payload->>'adjustmentBasis'='counted_wip_incoming' then
       if v_line->>'incomingQty' is null then raise exception 'Counts must include Incoming (zero if none) for combined adjustment'; end if;
+      if v_qty::bigint+v_wip::bigint+v_incoming::bigint>2147483647 then raise exception 'Counts must total no more than 2147483647'; end if;
       v_qty:=v_qty+v_wip+v_incoming;
      end if;
      if v_qty<>v_stock.qty_on_hand then

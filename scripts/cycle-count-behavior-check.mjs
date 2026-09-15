@@ -73,6 +73,8 @@ await test("A failed Save and Exit preserves entries and retries the exact reque
  const f=await hook();await f.start();await f.update("R10","counted","4");f.save=async()=>{throw new Error("Network unavailable");};
  await act(async()=>{assert.equal(await f.hook.save("pause"),false);});const first=f.calls.at(-1).args;
  assert(f.hook.session);assert.equal(f.hook.inputs[0].countedQty,4);
+ const calls=f.calls.length;await f.tick();assert.equal(f.calls.length,calls,"autosave cannot silently retry Save and Exit");
+ await f.update("R10","counted","9");assert.equal(f.hook.inputs[0].countedQty,4,"uncertain pause retains the exact saved intent");
  f.save=async()=>({sessionId:f.session.id,revision:1,status:"paused",savedAt:new Date().toISOString()});
  await act(async()=>{assert.equal(await f.hook.save("pause"),true);});
  assert.deepEqual(f.calls.at(-1).args,first);assert.equal(f.hook.session,null);await f.close();
@@ -112,5 +114,29 @@ await test("Actual Cycle Count page starts W2W, shows read-only DHR WIP and Save
  const save=renderer.root.findAllByType("button").find(x=>text(x).includes("Save & Exit"));await act(async()=>save.props.onClick());
  assert.equal(f.calls.at(-1).args.operation,"pause");assert.equal(renderer.root.findAllByProps({"aria-label":"Counted R10"}).length,0);
  await act(async()=>renderer.unmount());
+});
+await test("Actual confirmation requires a chosen basis and freezes the reviewed request",async()=>{
+ const f=fixture(),{CycleCount}=f.load("src/pages/inventory/CycleCount.tsx");let r;
+ await act(async()=>{r=create(React.createElement(CycleCount));});
+ const button=label=>r.root.findAllByType("button").find(x=>text(x).includes(label));
+ await act(async()=>button("▶").props.onClick());
+ await act(async()=>r.root.findByProps({"aria-label":"Counted R10"}).props.onChange({target:{value:"4"}}));
+ await act(async()=>button("Confirm & Close").props.onClick());
+ assert.equal(button("Apply adjustments and close").props.disabled,true);
+ await act(async()=>r.root.findByProps({"aria-label":"Stock adjustment basis"}).props.onChange({target:{value:"counted_wip_incoming"}}));
+ assert.equal(button("Apply adjustments and close").props.disabled,true,"combined requires explicit Incoming");
+ await act(async()=>r.root.findByProps({"aria-label":"Stock adjustment basis"}).props.onChange({target:{value:"counted"}}));
+ assert.equal(button("Apply adjustments and close").props.disabled,false);
+ await act(async()=>button("Apply adjustments and close").props.onClick());
+ const request=f.calls.at(-1).args;assert.equal(request.operation,"confirm");assert.equal(request.adjustmentBasis,"counted");assert.equal(request.wipFingerprint,"wip-1");assert.equal(request.lines[0].countedQty,4);
+ assert.equal(r.root.findAllByProps({"aria-label":"Counted R10"}).length,0);await act(async()=>r.unmount());
+});
+await test("Engineer can save a count but cannot confirm a stock adjustment",async()=>{
+ const f=fixture();f.role="engineer";const{CycleCount}=f.load("src/pages/inventory/CycleCount.tsx");let r;
+ await act(async()=>{r=create(React.createElement(CycleCount));});
+ await act(async()=>r.root.findAllByType("button").find(x=>text(x).includes("▶")).props.onClick());
+ assert.equal(r.root.findAllByType("button").find(x=>text(x).includes("Confirm & Close")).props.disabled,true);
+ assert.equal(r.root.findAllByType("button").find(x=>text(x).includes("Save & Exit")).props.disabled,false);
+ await act(async()=>r.unmount());
 });
 console.log("CYCLE_COUNT_BEHAVIOR="+passed+" passed (actual modules; synthetic transport and virtual timers)");

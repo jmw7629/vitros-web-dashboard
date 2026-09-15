@@ -257,7 +257,7 @@ export function CycleCount() {
 
       {/* ═══════════════════ HISTORY TAB ═══════════════════ */}
       {activeTab === "history" && (
-        <HistoryTab results={results} schedules={schedules} onDeleteResult={async (id: string) => {
+        <HistoryTab moreHistory={cycle.moreHistory} results={results} schedules={schedules} onDeleteResult={async (id: string) => {
             try {
               await cycleMutation("cycleCount:deleteResult", { id });
               await cycle.refresh();
@@ -416,7 +416,7 @@ function SchedulesTab({
               </div>
               <h3 className="text-lg font-bold" style={{ color: theme.textPrimary }}>Are you sure?</h3>
               <p className="text-sm" style={{ color: theme.textSecondary }}>
-                This will permanently delete schedule{confirmDeleteSchedule ? ` "${confirmDeleteSchedule.name}"` : ""}.
+                This will remove schedule{confirmDeleteSchedule ? ` "${confirmDeleteSchedule.name}"` : ""}.
               </p>
             </div>
             <div className="flex gap-2 p-4 border-t" style={{ borderColor: theme.cardBorder }}>
@@ -1107,6 +1107,7 @@ function ActiveCountView({
                       }}
                       aria-label={`Counted ${line.partNumber}`} aria-invalid={line.stockChanged} title={line.stockChanged ? "Recount: stock changed since this count" : undefined} min={0} step={1} placeholder="—" value={line.countedQty}
                       onChange={e => onUpdateLine(line.partNumber, "counted", e.target.value)} />
+                    {line.stockChanged && <span className="text-xs font-bold text-red-400">Recount: stock changed</span>}
                   </div>
                   {/* Dynamic WIP Columns */}
                   {wipSerials.map(sn => {
@@ -1180,7 +1181,7 @@ function ActiveCountView({
 // ═══════════════════════════════════════════════════════════════
 // HISTORY & VARIANCE TAB
 // ═══════════════════════════════════════════════════════════════
-function HistoryTab({ results, schedules, onDeleteResult }: { results: CycleResult[]; schedules: CycleSchedule[]; onDeleteResult: (id: string) => void }) {
+function HistoryTab({ results, schedules, onDeleteResult, moreHistory }: { moreHistory: boolean; results: CycleResult[]; schedules: CycleSchedule[]; onDeleteResult: (id: string) => void }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -1220,6 +1221,7 @@ function HistoryTab({ results, schedules, onDeleteResult }: { results: CycleResu
       <WebCard className="overflow-hidden">
         <div className="px-4 py-3 border-b" style={{ borderColor: theme.cardBorder }}>
           <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Count History</h3>
+          {moreHistory && <p className="text-xs">Showing the 50 most recent counts. Older records remain in the audit archive.</p>}
         </div>
         <div className="divide-y" style={{ borderColor: theme.cardBorder }}>
           {sorted.map(r => {
@@ -1304,7 +1306,7 @@ function HistoryTab({ results, schedules, onDeleteResult }: { results: CycleResu
               </div>
               <h3 className="text-lg font-bold" style={{ color: theme.textPrimary }}>Are you sure?</h3>
               <p className="text-sm" style={{ color: theme.textSecondary }}>
-                This will permanently delete this count record from the archive.
+                This will hide this count from the history list. Its audit records and inventory adjustments are retained.
               </p>
             </div>
             <div className="flex gap-2 p-4 border-t" style={{ borderColor: theme.cardBorder }}>
