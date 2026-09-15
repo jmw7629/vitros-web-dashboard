@@ -366,6 +366,13 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const directoryUser = useQuery(api.auth.currentUser);
   const employeeReadGeneration = useRef(0);
+  const identityKey = directoryUser?._id ? `${directoryUser._id}:${directoryUser.role}` : null;
+  const readIdentity = useRef({ key: identityKey });
+  // Invalidate pending work during render, before an old response can publish
+  // between the identity update and its clearing effect.
+  if (readIdentity.current.key !== identityKey) {
+    readIdentity.current = { key: identityKey };
+  }
   const [employeesError, setEmployeesError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSetting[]>([]);
   const [analyzers, setAnalyzers] = useState<REMAnalyzer[]>([]);
@@ -426,7 +433,9 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
   }, [loadEmployeeDirectory]);
 
   const performLoadAll = useCallback(async () => {
-    if (!mountedRef.current) return;
+    const identity = readIdentity.current;
+    const isCurrentRead = () => mountedRef.current && readIdentity.current === identity;
+    if (!isCurrentRead() || !identity.key) return;
     if (!hasLoadedOnce.current) setIsLoading(true);
     setError(null);
     void loadEmployeeDirectory();
@@ -447,6 +456,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
           convexListSettings(),
         ]);
       } catch {
+        if (!isCurrentRead()) return;
         // Stock is critical and intentionally fails closed. Noncritical browser-safe reads may degrade independently.
         [stockRows, auditRows, sapRows, settingsRows] = await Promise.all([
           browserSafeRead<any>("stock"),
@@ -456,6 +466,8 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         ]);
       }
 
+      if (!isCurrentRead()) return;
+
       // Kits are business configuration and must also stay behind authenticated server authority.
       // There is deliberately no anonymous browser fallback for this read.
       try {
@@ -464,7 +476,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         kitRows = [];
       }
 
-      if (!mountedRef.current) return;
+      if (!isCurrentRead()) return;
 
       const mappedParts = stockRows.map(mapStockToPart);
       const mappedTx = auditRows.map(mapAuditToTransaction);
@@ -507,7 +519,7 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         remListPlanning(),
       ]);
 
-      if (!mountedRef.current) return;
+      if (!isCurrentRead()) return;
       setAnalyzers(coreResult.analyzers);
       setLvccItems(coreResult.lvccItems);
       setWeeklyNotes(coreResult.weeklyNotes);
@@ -521,13 +533,13 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
         safeConvexQuery<CycleResult[]>(CYCLE_CONVEX_URL, "cycleCount:listResults", []),
       ]);
 
-      if (!mountedRef.current) return;
+      if (!isCurrentRead()) return;
       setCycleSchedules(cs); setCycleResults(cr);
 
       hasLoadedOnce.current = true;
       setIsLoading(false);
     } catch (e) {
-      if (!mountedRef.current) return;
+      if (!isCurrentRead()) return;
       setError(e instanceof Error ? e.message : "Failed to load data");
       hasLoadedOnce.current = true;
       setIsLoading(false);
@@ -573,6 +585,32 @@ export function ConvexDataProvider({ children }: { children: ReactNode }) {
       }
     };
   }, [loadAll]);
+
+  useEffect(() => {
+    hasLoadedOnce.current = false;
+    setError(null);
+    setIsLoading(Boolean(identityKey));
+    setParts([]);
+    setTransactions([]);
+    setKits([]);
+    setSapRecords([]);
+    setCycleSchedules([]);
+    setCycleResults([]);
+    setBatches([]);
+    setStockLog([]);
+    setEmployees([]);
+    setEmployeesError(null);
+    setSettings([]);
+    setAnalyzers([]);
+    setLvccItems([]);
+    setAnnualTargets([]);
+    setStaffMembers([]);
+    setWeeklyNotes([]);
+    setWeeklyBuildPlan([]);
+    setTrackerWeekly([]);
+    // Authentication readiness must not wait for the next polling interval.
+    if (identityKey) void loadAll();
+  }, [identityKey, loadAll]);
 
   const totalSKUs = parts.length;
   const totalQOH = parts.reduce((s, p) => s + p.qoh, 0);

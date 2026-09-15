@@ -82,6 +82,7 @@ jobs:
         run: |
           node scripts/role-login-behavior-check.mjs
           node scripts/role-access-behavior-check.mjs
+          node scripts/data-auth-readiness-check.mjs
           node scripts/runtime-env-sync-behavior.mjs
       - name: Config editor actual component behavior
         run: node scripts/config-editor-behavior-check.mjs
