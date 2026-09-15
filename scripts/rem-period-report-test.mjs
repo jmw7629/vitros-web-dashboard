@@ -1,391 +1,100 @@
-import { strict as assert } from "node:assert";
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
 
-// Import actual modules (not copied)
-import { parseReportingDate, getISOWeek, isInPeriod, createPeriodRange } from "../src/lib/periodHelper.ts";
-
-// Inline type stubs matching actual hook types
-
-function makeAnalyzer(startDate, isComplete = false) {
-  return {
-    _id: `a-${Math.random().toString(36).slice(2, 8)}`,
-    serialNumber: `SN-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-    analyzerType: "VITROS 5600", currentStage: isComplete ? "RELEASED" : "SERVICE",
-    startDate, procurementPct: 100, cleaningPct: 100, servicePct: isComplete ? 100 : 50,
-    finalLinePct: isComplete ? 100 : 0, packagingPct: isComplete ? 100 : 0,
-    releaseTestingPct: isComplete ? 100 : 0, qaReleasePct: isComplete ? 100 : 0,
-    sapReleasePct: isComplete ? 100 : 0, currentPct: isComplete ? 100 : 50,
-    overallPct: isComplete ? 100 : 50, isComplete, daysInStage: isComplete ? 0 : 14, slaDays: 30,
-  };
+const cache = new Map();
+function load(name) {
+  if (cache.has(name)) return cache.get(name).exports;
+  const filename = new URL(`../src/lib/${name}.ts`, import.meta.url);
+  const module = { exports: {} }; cache.set(name, module);
+  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  vm.runInNewContext(source, { module, exports: module.exports, require: dependency => {
+    assert.equal(dependency, './periodHelper', 'Only the actual reporting helper dependency is expected');
+    return load('periodHelper');
+  }, Date, Map, Set, Intl, console }, { filename: filename.pathname });
+  return module.exports;
 }
-
-function makeLvcc(endDate, startDate) {
-  return {
-    _id: `lvcc-${Math.random().toString(36).slice(2, 8)}`,
-    serialNumber: `LVCC-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-    batchNumber: "BATCH-001", itemType: "ELECTROMETER", currentStage: "BUILD",
-    startDate: startDate ?? "2026-09-01", endDate, isComplete: false,
-    buildPct: 80, testPct: 50, packagingPct: 0, qaReleasePct: 0, sapReleasePct: 0,
-  };
-}
-
-function makeTrackerWeek(year, weekNumber, product, quarter, plan, actual, weeklyForecast) {
-  return { _id: `tw-${year}-${weekNumber}-${product}`, year, product, quarter, weekNumber, weekStart: `${year}-01-04`, plan, actual, weeklyForecast };
-}
-
-function makeBuildPlanWeek(year, weekNumber, quarter, deliveryTotal, capacityTotal) {
-  return {
-    _id: `bp-${year}-${weekNumber}`, year, quarter, weekNumber, weekStart: `${year}-01-04`,
-    delivery: { analyzer3600: 2, analyzer5600: 1, analyzer7600: 0, vision: 0, electrometer: 0, irWash: 0, total: deliveryTotal },
-    capacity: { meets: 0, exceeds: 0, capacity: capacityTotal, delta: 0, headCount: 5, onboarding: 0, inTraining: 0, holidays: 0, ptoDays: 0 },
-    actuals: { analyzer3600: 1, analyzer5600: 0, analyzer7600: 0, vitrosVsPlan: -1, vision: 0, electrometer: 0, irWash: 0 },
-  };
-}
-
-function getWeekYearForMonthly(weekNumber, year) {
-  const jan4 = new Date(year, 0, 4);
-  const startOfJan4Week = new Date(jan4);
-  startOfJan4Week.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
-  const thursdayOfTargetWeek = new Date(startOfJan4Week);
-  thursdayOfTargetWeek.setDate(startOfJan4Week.getDate() + (weekNumber - 1) * 7 + 3);
-  return { month: thursdayOfTargetWeek.getMonth(), year: thursdayOfTargetWeek.getFullYear() };
-}
-
-function quarterLabelToNumber(quarter) {
-  const match = /^Q([1-4])$/i.exec(quarter.trim());
-  return match ? Number(match[1]) : null;
-}
-
-function filterTrackerByPeriod(rows, period) {
-  return rows.filter((row) => {
-    if (!row.year || !row.weekNumber || row.weekNumber < 1 || row.weekNumber > 53) return false;
-    switch (period.type) {
-      case "weekly": {
-        const targetWeek = getISOWeek(period.start);
-        return row.year === period.year && row.weekNumber === targetWeek;
-      }
-      case "monthly": {
-        const { month, year } = getWeekYearForMonthly(row.weekNumber, row.year);
-        return year === period.year && month === period.start.getMonth();
-      }
-      case "quarterly": {
-        const rowQuarterNum = quarterLabelToNumber(row.quarter);
-        if (rowQuarterNum === null) return false;
-        const targetQuarter = Math.floor(period.start.getMonth() / 3) + 1;
-        return row.year === period.year && rowQuarterNum === targetQuarter;
-      }
-      case "annual": {
-        return row.year === period.year;
-      }
-      default:
-        return false;
-    }
-  });
-}
-
-function filterBuildPlanByPeriod(rows, period) {
-  return rows.filter((row) => {
-    if (!row.year || !row.weekNumber || row.weekNumber < 1 || row.weekNumber > 53) return false;
-    switch (period.type) {
-      case "weekly": {
-        const targetWeek = getISOWeek(period.start);
-        return row.year === period.year && row.weekNumber === targetWeek;
-      }
-      case "monthly": {
-        const { month, year } = getWeekYearForMonthly(row.weekNumber, row.year);
-        return year === period.year && month === period.start.getMonth();
-      }
-      case "quarterly": {
-        const rowQuarterNum = quarterLabelToNumber(row.quarter);
-        if (rowQuarterNum === null) return false;
-        const targetQuarter = Math.floor(period.start.getMonth() / 3) + 1;
-        return row.year === period.year && rowQuarterNum === targetQuarter;
-      }
-      case "annual": {
-        return row.year === period.year;
-      }
-      default:
-        return false;
-    }
-  });
-}
-
-function getAnalyzerTimestamp(a) {
-  if (a.startDate) return parseReportingDate(a.startDate);
-  return null;
-}
-
-function getLvccTimestamp(i) {
-  const dateStr = i.endDate ?? i.startDate;
-  if (dateStr) return parseReportingDate(dateStr);
-  return null;
-}
-
-function computeRemPeriodActivity(analyzers, lvccItems, period) {
-  return {
-    analyzers: analyzers.filter((a) => { const ts = getAnalyzerTimestamp(a); return ts !== null && isInPeriod(ts, period); }),
-    lvccItems: lvccItems.filter((i) => { const ts = getLvccTimestamp(i); return ts !== null && isInPeriod(ts, period); }),
-    analyzerUnknownDates: analyzers.filter((a) => getAnalyzerTimestamp(a) === null).length,
-    lvccUnknownDates: lvccItems.filter((i) => getLvccTimestamp(i) === null).length,
-  };
-}
-
+const period = load('periodHelper'), report = load('remReportData');
+const range = (type, date) => period.createPeriodRange(type, new Date(date));
+const row = (weekNumber, quarter = 'Q3', actual = 0, product = 'VITROS', year = 2026) => ({
+  _id: `${year}-${weekNumber}-${product}`, year, product, quarter, weekNumber, plan: 10,
+  actual, weeklyForecast: 8, accumulatedForecast: weekNumber * 8,
+});
+const select = (rows, p) => report.computeRemPlanningPeriod(rows, [], [], p);
+const plain = value => JSON.parse(JSON.stringify(value));
 let passed = 0;
-let failed = 0;
+function test(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
 
-function test(name, fn) {
-  try {
-    fn();
-    console.log(`  ✓ ${name}`);
-    passed++;
-  } catch (err) {
-    console.log(`  ✗ ${name}`);
-    console.log(`    ${err.message}`);
-    failed++;
-  }
-}
-
-console.log("\n=== REM Report Synthetic Tests ===\n");
-
-console.log("Module imports:");
-test("parseReportingDate is imported from periodHelper", () => {
-  assert.equal(typeof parseReportingDate, "function");
+test('Weekly selection uses the ISO week and explicit plan year', () => {
+  const result = select([row(37), row(38), row(38, 'Q3', 0, 'VISION', 2025)], range('weekly', '2026-09-15T12:00:00'));
+  assert.deepEqual(plain(result.trackerRows.map(r => r._id)), ['2026-38-VITROS']);
 });
-test("getISOWeek is imported from periodHelper", () => {
-  assert.equal(typeof getISOWeek, "function");
+test('January 1 selects the preceding ISO year when applicable', () => {
+  const result = select([row(53, 'Q4'), row(1, 'Q1', 0, 'VITROS', 2027)], range('weekly', '2027-01-01T12:00:00'));
+  assert.deepEqual(plain(result.trackerRows.map(r => r.weekNumber)), [53]);
 });
-test("isInPeriod is imported from periodHelper", () => {
-  assert.equal(typeof isInPeriod, "function");
+test('September includes only whole weeks whose Thursday is in September', () => {
+  const result = select([35, 36, 37, 38, 39, 40].map(w => row(w)), range('monthly', '2026-09-15T12:00:00'));
+  assert.deepEqual(plain(result.trackerRows.map(r => r.weekNumber)), [36, 37, 38, 39]);
 });
-test("createPeriodRange is imported from periodHelper", () => {
-  assert.equal(typeof createPeriodRange, "function");
+test('Quarter selection honors a week 14 source Q1 rather than inferring Q2', () => {
+  const result = select([row(14, 'Q1'), row(13, 'Q2')], range('quarterly', '2026-02-01T12:00:00'));
+  assert.deepEqual(plain(result.trackerRows.map(r => r.weekNumber)), [14]);
 });
-
-console.log("\nparseReportingDate:");
-test("parses YYYY-MM-DD string", () => {
-  const ts = parseReportingDate("2026-09-15");
-  assert.ok(ts !== null);
-  const d = new Date(ts);
-  assert.equal(d.getFullYear(), 2026);
-  assert.equal(d.getMonth(), 8);
-  assert.equal(d.getDate(), 15);
+test('Q4 includes source week 53 and excludes a different plan year', () => {
+  const result = select([row(53, 'Q4'), row(53, 'Q4', 0, 'VISION', 2025)], range('quarterly', '2026-12-01T12:00:00'));
+  assert.equal(result.trackerRows.length, 1); assert.equal(result.trackerRows[0].year, 2026);
 });
-test("parses ISO datetime string", () => {
-  const ts = parseReportingDate("2026-09-15T10:30:00.000Z");
-  assert.ok(ts !== null);
+test('Annual selection includes all 53 weeks exactly once for each product', () => {
+  const rows = Array.from({ length: 53 }, (_, i) => row(i + 1));
+  const result = select([...rows, row(1, 'Q1', 0, 'VISION', 2025)], range('annual', '2026-05-01T12:00:00'));
+  assert.equal(result.trackerRows.length, 53); assert.equal(result.trackerRows.reduce((s, r) => s + r.plan, 0), 530);
 });
-test("returns null for empty/undefined/non-date", () => {
-  assert.equal(parseReportingDate(""), null);
-  assert.equal(parseReportingDate(undefined), null);
-  assert.equal(parseReportingDate("not-a-date"), null);
-  assert.equal(parseReportingDate("2026-13-45"), null);
+test('Build plan uses its source quarter as well', () => {
+  const build = { _id: 'build', year: 2026, quarter: 'Q1', weekNumber: 14, delivery: {}, capacity: {}, actuals: {} };
+  const result = report.computeRemPlanningPeriod([], [build], [], range('quarterly', '2026-01-01T12:00:00'));
+  assert.equal(result.buildPlanRows.length, 1);
 });
-test("returns number for numeric timestamp", () => {
-  assert.equal(parseReportingDate(1726368000000), 1726368000000);
+test('Analyzer import timestamps are not substituted for missing start dates', () => {
+  const p = range('monthly', '2026-09-15T12:00:00');
+  const activity = report.computeRemPeriodActivity([{ _id: 'unknown', createdAt: p.start.getTime() }, { _id: 'known', startDate: '2026-09-02' }, { _id: 'outside', startDate: '2026-08-31' }], [], p);
+  assert.equal(activity.analyzerUnknownDates, 1); assert.deepEqual(plain(activity.analyzers.map(r => r._id)), ['known']);
 });
-test("returns null for NaN", () => {
-  assert.equal(parseReportingDate(NaN), null);
+test('LVCC uses recorded end/start dates and counts unavailable dates separately', () => {
+  const activity = report.computeRemPeriodActivity([], [{ _id: 'ended', startDate: '2026-08-01', endDate: '2026-09-03' }, { _id: 'started', startDate: '2026-09-01' }, { _id: 'unknown' }], range('monthly', '2026-09-15T12:00:00'));
+  assert.equal(activity.lvccUnknownDates, 1); assert.equal(activity.lvccItems.length, 2);
 });
-
-console.log("\nSource quarter via row.quarter (not week/13):");
-test("week53 Q4 matches quarterly filter for Q4", () => {
-  const rows = [
-    makeTrackerWeek(2025, 53, "VITROS", "Q4", 10, 8, 9),
-    makeTrackerWeek(2025, 14, "VITROS", "Q2", 10, 7, 8),
-  ];
-  const period = createPeriodRange("quarterly", new Date(2025, 9, 15));
-  const filtered = filterTrackerByPeriod(rows, period);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0].weekNumber, 53);
-  assert.equal(filtered[0].quarter, "Q4");
+test('Current analyzer snapshot does not change with selected reporting dates', () => {
+  const result = report.computeRemReport([{ isComplete: true }, { isComplete: false }], [], [], [], [], range('annual', '2024-01-01T12:00:00'));
+  assert.deepEqual(plain(result.snapshot), { total: 2, active: 1, completed: 1 });
+  assert.equal(result.periodActivity.analyzers.length, 0);
 });
-test("week10 Q1 matches quarterly filter for Q1", () => {
-  const rows = [
-    makeTrackerWeek(2026, 14, "VITROS", "Q2", 10, 7, 8),
-    makeTrackerWeek(2026, 10, "VITROS", "Q1", 10, 8, 9),
-  ];
-  const period = createPeriodRange("quarterly", new Date(2026, 2, 15));
-  const filtered = filterTrackerByPeriod(rows, period);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0].weekNumber, 10);
-  assert.equal(filtered[0].quarter, "Q1");
+test('Recorded zero and missing actual remain distinguishable in exports', () => {
+  const missing = row(39); delete missing.actual;
+  const exported = report.buildTrackerExportRows([row(38), missing], range('monthly', '2026-09-15T12:00:00'));
+  assert.equal(exported[0].recordedActual, '0'); assert.equal(exported[0].missingActuals, 'no');
+  assert.equal(exported[1].recordedActual, ''); assert.equal(exported[1].missingActuals, 'yes');
 });
-test("row with empty quarter is excluded from quarterly", () => {
-  const rows = [
-    { _id: "tw-1", year: 2025, product: "VITROS", quarter: "", weekNumber: 53, plan: 10, actual: 8 },
-  ];
-  const period = createPeriodRange("quarterly", new Date(2025, 9, 15));
-  const filtered = filterTrackerByPeriod(rows, period);
-  assert.equal(filtered.length, 0);
+test('Cumulative forecasts are retained per row, not summed into a false forecast', () => {
+  const exported = report.buildTrackerExportRows([row(38), row(39)], range('monthly', '2026-09-15T12:00:00'));
+  assert.deepEqual(plain(exported.map(r => r.accumulatedForecast)), ['304', '312']);
 });
-
-console.log("\nWeekly tracker filtering:");
-test("weekly filter matches correct ISO week", () => {
-  const rows = [
-    makeTrackerWeek(2026, 38, "VITROS", "Q3", 10, 8, 9),
-    makeTrackerWeek(2026, 39, "VITROS", "Q3", 10, 10, 10),
-  ];
-  const period = createPeriodRange("weekly", new Date(2026, 8, 15));
-  const filtered = filterTrackerByPeriod(rows, period);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0].weekNumber, 38);
+test('CSV neutralizes dangerous text and escapes quotes, commas and newlines', () => {
+  const exported = report.buildTrackerExportRows([row(38, 'Q3', 0, '=1+1'), row(39, 'Q3', 0, 'A,"B"\nC')], range('annual', '2026-01-01T12:00:00'));
+  const csv = report.generateTrackerCsv(exported);
+  assert.ok(csv.includes("'=1+1")); assert.ok(csv.includes('"A,""B""\nC"'));
 });
-
-console.log("\nMonthly allocation by Thursday month:");
-test("week 37 (Sep 14-20) allocates to September", () => {
-  const { month, year } = getWeekYearForMonthly(37, 2026);
-  assert.equal(month, 8);
-  assert.equal(year, 2026);
+test('Metadata uses local calendar bounds, all LVCC rows, unique weeks and missing counts', () => {
+  const p = range('monthly', '2026-09-15T12:00:00'); const missing = row(38, 'Q3', 0, 'VISION'); delete missing.actual;
+  const planning = select([row(38), missing], p);
+  const activity = report.computeRemPeriodActivity([], [{ startDate: '2026-08-01' }], p);
+  const metadata = report.buildExportMetadata(p, { total: 0, active: 0, completed: 0 }, activity, planning, 1);
+  assert.equal(metadata.periodStartLocal, p.start.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' }));
+  assert.equal(metadata.periodEndLocal, p.end.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' }));
+  assert.equal(metadata.totalLvcc, 1); assert.equal(metadata.lvccInPeriod, 0); assert.equal(metadata.trackerUniqueWeeksInPeriod, 1);
+  assert.equal(metadata.trackerMissingActuals, 1);
 });
-test("week 38 (Sep 21-27) allocates to September", () => {
-  const { month, year } = getWeekYearForMonthly(38, 2026);
-  assert.equal(month, 8);
-  assert.equal(year, 2026);
-});
-test("week 40 (Oct 5-11) allocates to October", () => {
-  const { month, year } = getWeekYearForMonthly(40, 2026);
-  assert.equal(month, 9);
-  assert.equal(year, 2026);
-});
-
-console.log("\nNY local export dates:");
-test("formatLocalDate produces local date string", () => {
-  function formatLocalDate(date) {
-    return date.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
-  }
-  const d = new Date(2026, 8, 15);
-  const str = formatLocalDate(d);
-  assert.ok(str.includes("2026"), `should contain 2026, got: ${str}`);
-  assert.ok(str.includes("09") || str.includes("9"), `should contain September, got: ${str}`);
-});
-test("periodStartLocal uses local date not toISOString", () => {
-  const period = createPeriodRange("monthly", new Date(2026, 8, 15));
-  const localStr = period.start.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
-  const isoStr = period.start.toISOString().split("T")[0];
-  assert.ok(localStr.length > 0, "local date should be non-empty");
-  assert.ok(isoStr.length > 0, "iso date should be non-empty");
-});
-
-console.log("\nMissing actuals vs zeros:");
-test("actual=0 is distinct from actual=undefined", () => {
-  const rows = [
-    makeTrackerWeek(2026, 38, "VITROS", "Q3", 10, 0, 5),
-    makeTrackerWeek(2026, 38, "VISION", "Q3", 10, undefined, 5),
-  ];
-  const zeros = rows.filter((r) => r.actual === 0).length;
-  const missing = rows.filter((r) => r.actual === undefined || r.actual === null).length;
-  const sum = rows.filter((r) => r.actual !== undefined && r.actual !== null).reduce((s, r) => s + (r.actual ?? 0), 0);
-  assert.equal(zeros, 1, "one row has actual=0");
-  assert.equal(missing, 1, "one row has missing actual");
-  assert.equal(sum, 0, "sum of recorded actuals is 0 (only the zero is recorded)");
-});
-
-console.log("\nCSV formula neutralization:");
-test("dangerous strings get apostrophe prefix", () => {
-  function neutralizeFormula(value) {
-    if (!value) return value;
-    if (value.startsWith("=") || value.startsWith("+") || value.startsWith("-") || value.startsWith("@")) {
-      return `'${value}`;
-    }
-    return value;
-  }
-  assert.equal(neutralizeFormula("=SUM(A1)"), "'=SUM(A1)");
-  assert.equal(neutralizeFormula("+5"), "'+5");
-  assert.equal(neutralizeFormula("-10"), "'-10");
-  assert.equal(neutralizeFormula("@SUM"), "'@SUM");
-  assert.equal(neutralizeFormula("normal"), "normal");
-  assert.equal(neutralizeFormula(""), "");
-});
-
-test("after neutralization, string no longer starts with formula prefix", () => {
-  function neutralizeFormula(value) {
-    if (!value) return value;
-    if (value.startsWith("=") || value.startsWith("+") || value.startsWith("-") || value.startsWith("@")) {
-      return `'${value}`;
-    }
-    return value;
-  }
-  function escapeCsvValue(value) {
-    if (value === null || value === undefined) return "";
-    const str = String(value);
-    if (/[",\n\r]/.test(str) || str.startsWith("=") || str.startsWith("+") || str.startsWith("-") || str.startsWith("@")) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  }
-  const neutralized = neutralizeFormula("=SUM(A1)");
-  assert.equal(neutralized, "'=SUM(A1)");
-  const escaped = escapeCsvValue(neutralized);
-  // After neutralization, starts with apostrophe not formula char, so no CSV quoting
-  assert.equal(escaped, "'=SUM(A1)");
-  assert.ok(!escaped.startsWith("="), "escaped should not start with =");
-  assert.ok(!escaped.startsWith("+"), "escaped should not start with +");
-  assert.ok(!escaped.startsWith("-"), "escaped should not start with -");
-  assert.ok(!escaped.startsWith("@"), "escaped should not start with @");
-});
-
-console.log("\nAnalyzer/LVCC date filtering:");
-test("analyzer with known date in period is included", () => {
-  const analyzer = makeAnalyzer("2026-09-15");
-  const period = createPeriodRange("monthly", new Date(2026, 8, 15));
-  const ts = getAnalyzerTimestamp(analyzer);
-  assert.ok(ts !== null);
-  assert.ok(isInPeriod(ts, period));
-});
-test("analyzer with unknown date is excluded", () => {
-  const analyzer = makeAnalyzer(undefined);
-  const ts = getAnalyzerTimestamp(analyzer);
-  assert.equal(ts, null);
-});
-test("lvcc with endDate in period is included", () => {
-  const item = makeLvcc("2026-09-20");
-  const period = createPeriodRange("monthly", new Date(2026, 8, 15));
-  const ts = getLvccTimestamp(item);
-  assert.ok(ts !== null);
-  assert.ok(isInPeriod(ts, period));
-});
-test("totalLvcc counts all items regardless of period", () => {
-  const items = [makeLvcc("2026-09-15"), makeLvcc(undefined), makeLvcc("2026-08-01")];
-  const period = createPeriodRange("monthly", new Date(2026, 8, 15));
-  const activity = computeRemPeriodActivity([], items, period);
-  // Item 1: endDate=Sep15, startDate=Sep1 → uses endDate → Sep15 → in period
-  // Item 2: endDate=undefined, startDate=Sep1 → uses startDate → Sep1 → in period
-  // Item 3: endDate=Aug1 → uses endDate → Aug1 → not in period
-  assert.equal(activity.lvccItems.length, 2, "two in period (Sep15 and Sep1)");
-  assert.equal(activity.lvccUnknownDates, 0, "none have unknown dates");
-  const totalLvcc = items.length;
-  assert.equal(totalLvcc, 3, "total counts ALL rows");
-});
-
-console.log("\nQuarterly filtering uses source year:");
-test("quarterly filter matches source year, not current year", () => {
-  const rows = [
-    makeTrackerWeek(2025, 40, "VITROS", "Q4", 10, 8, 9),
-    makeTrackerWeek(2026, 40, "VITROS", "Q4", 10, 10, 10),
-  ];
-  const period = createPeriodRange("quarterly", new Date(2025, 9, 15));
-  const filtered = filterTrackerByPeriod(rows, period);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0].year, 2025);
-});
-
-console.log("\nBuild plan quarterly uses source quarter:");
-test("build plan Q1 row matches Q1 quarterly period", () => {
-  const rows = [
-    makeBuildPlanWeek(2026, 10, "Q1", 3, 5),
-    makeBuildPlanWeek(2026, 40, "Q4", 2, 4),
-  ];
-  const period = createPeriodRange("quarterly", new Date(2026, 2, 15));
-  const filtered = filterBuildPlanByPeriod(rows, period);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0].quarter, "Q1");
-});
-
-console.log("\nWeekly filtering uses getISOWeek from periodHelper:");
-test("getISOWeek matches imported function result", () => {
-  const d = new Date(2026, 8, 15);
-  const week = getISOWeek(d);
-  assert.equal(week, 38);
-});
-
-console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);
-process.exit(failed > 0 ? 1 : 0);
+console.log(`Actual REM report module checks: ${passed} PASS`);
