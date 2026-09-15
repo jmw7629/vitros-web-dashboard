@@ -128,6 +128,7 @@ export function useServerActions() {
   const loadDhrSessionResultsAction = useAction(api.dhrInventoryActions.loadSessionResults);
   const createDhrScannerSessionAction = useAction(api.dhrInventoryActions.createScannerSession);
   const setDhrScannerSessionLifecycleAction = useAction(api.dhrInventoryActions.setScannerSessionLifecycle);
+  const deleteDhrScannerSession = useAction(api.dhrInventoryActions.deleteScannerSession);
   const ocrDhrPageAction = useAction(api.aiGateway.ocrDhrPage);
   const listEditableSettingsAction = useAction(api.adminSettingsActions.listEditableSettings);
   const updateEditableSettingAction = useAction(api.adminSettingsActions.updateEditableSetting);
@@ -318,6 +319,7 @@ export function useServerActions() {
     loadDhrSessionResults,
     createDhrScannerSession,
     setDhrScannerSessionLifecycle,
+    deleteDhrScannerSession,
     applyDhrScanTransition,
     applyDhrChecklistChange,
     ocrDhrPage,

@@ -24,6 +24,8 @@ import { saveAs } from "file-saver";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
 import { useServerActions, type DhrTransitionReceipt } from "../../hooks/useServerActions";
+import { useRole } from "../../hooks/useRole";
+import { DhrDeleteDialog } from "../../components/vitros/DhrDeleteDialog";
 import { api } from "../../../convex/_generated/api";
 
 interface DhrSection {
@@ -51,6 +53,7 @@ interface DhrExpectedPart {
 
 interface DhrSession {
   id: string;
+  revision: number;
   instrument_sn: string;
   wo_number: string | null;
   analyzer_model: string;
@@ -173,6 +176,8 @@ function parseOcrPayload(raw: string): unknown[] {
 
 export function DhrScanner() {
   const data = useConvexData();
+  const { role } = useRole();
+  const [deleteTarget, setDeleteTarget] = useState<DhrSession | null>(null);
   const { isAuthenticated } = useConvexAuth();
   const realtimeSignal = useQuery(api.realtimePulse.watch, isAuthenticated ? {} : "skip");
   const {
@@ -180,6 +185,7 @@ export function DhrScanner() {
     loadDhrSessionResults,
     createDhrScannerSession,
     setDhrScannerSessionLifecycle,
+    deleteDhrScannerSession,
     applyDhrChecklistChange,
     ocrDhrPage,
   } = useServerActions();
@@ -390,7 +396,7 @@ export function DhrScanner() {
 
   const filteredSessions = useMemo(() => sessions.filter((session) => {
     const archived = session.status === "completed";
-    return sessionFilter === "archived" ? archived : !archived;
+    return sessionFilter === "archived" ? archived : session.status === "in_progress";
   }), [sessions, sessionFilter]);
 
   const progress = useMemo(() => {
@@ -449,6 +455,21 @@ export function DhrScanner() {
       setLifecycleBusy(false);
     }
   };
+
+  const deleteSession = async (args: { sessionId: string; expectedRevision: number; reason: string; correlationId: string }) => {
+    await deleteDhrScannerSession(args);
+    setSessions((current) => current.filter((session) => session.id !== args.sessionId));
+    if (activeSessionId === args.sessionId) {
+      sessionRefreshSequence.current += 1;
+      setActiveSessionId(null);
+      setScanResults([]);
+      setView("sessions");
+    }
+    showToast("DHR deleted. Audit history retained; inventory quantities unchanged.");
+  };
+  const deleteDialog = deleteTarget && role === "superuser" ? (
+    <DhrDeleteDialog key={deleteTarget.id} session={deleteTarget} onDelete={deleteSession} onClose={() => setDeleteTarget(null)} />
+  ) : null;
 
   const applyQuantity = useCallback(async (
     sectionId: string,
@@ -690,7 +711,7 @@ export function DhrScanner() {
         <div className="grid gap-3 sm:grid-cols-3">
           <WebCard className="p-4">
             <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: theme.textMuted }}>Active DHRs</div>
-            <div className="mt-1 text-2xl font-bold" style={{ color: theme.textPrimary }}>{sessions.filter((session) => session.status !== "completed").length}</div>
+            <div className="mt-1 text-2xl font-bold" style={{ color: theme.textPrimary }}>{sessions.filter((session) => session.status === "in_progress").length}</div>
           </WebCard>
           <WebCard className="p-4">
             <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: theme.textMuted }}>Archived</div>
@@ -728,8 +749,8 @@ export function DhrScanner() {
           ) : (
             <div className="divide-y" style={{ borderColor: theme.cardBorder }}>
               {filteredSessions.map((session) => (
-                <button
-                  key={session.id}
+                <div key={session.id} className="flex items-center">
+                  <button
                   onClick={() => {
                     setActiveSessionId(session.id);
                     setView("checklist");
@@ -746,7 +767,16 @@ export function DhrScanner() {
                   <div className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase" style={{ backgroundColor: session.status === "completed" ? "#64748b20" : "#12a57320", color: session.status === "completed" ? "#94a3b8" : "#12a573" }}>
                     {session.status === "completed" ? "Archived" : "In progress"}
                   </div>
-                </button>
+                  </button>
+                {role === "superuser" && session.status === "in_progress" && (
+                  <button aria-label={`Delete DHR ${session.instrument_sn}`}
+                    disabled={lifecycleBusy || !Number.isInteger(session.revision)}
+                    onClick={() => setDeleteTarget(session)}
+                    className="mr-3 rounded-lg p-2 text-red-500 hover:bg-red-500/10 disabled:opacity-50">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+                </div>
               ))}
             </div>
           )}
@@ -788,6 +818,7 @@ export function DhrScanner() {
           </div>
         )}
 
+        {deleteDialog}
         {toast && <Toast message={toast} />}
       </div>
     );
@@ -831,6 +862,13 @@ export function DhrScanner() {
           <button onClick={exportDhr} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold" style={{ backgroundColor: theme.inputBg, color: theme.textSecondary, border: `1px solid ${theme.cardBorder}` }}>
             <Download className="h-3.5 w-3.5" /> Export
           </button>
+          {role === "superuser" && activeSession.status === "in_progress" && (
+            <button disabled={lifecycleBusy || savingKey !== null || !Number.isInteger(activeSession.revision)}
+              onClick={() => setDeleteTarget(activeSession)}
+              className="flex items-center gap-2 rounded-lg border border-red-500/30 px-3 py-2 text-xs font-bold text-red-500 disabled:opacity-50">
+              <Trash2 className="h-3.5 w-3.5" /> Delete DHR
+            </button>
+          )}
           {completed ? (
             <button disabled={lifecycleBusy} onClick={() => void setLifecycle("in_progress")} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-60" style={{ backgroundColor: "#f59e0f18", color: "#f59e0b", border: "1px solid #f59e0f35" }}>
               <RotateCcw className="h-3.5 w-3.5" /> Reopen
@@ -998,6 +1036,7 @@ export function DhrScanner() {
         )}
       </WebCard>
 
+      {deleteDialog}
       {toast && <Toast message={toast} />}
     </div>
   );
