@@ -86,6 +86,12 @@ const {
   ROLE_ROUTE_KEYS,
 } = mod;
 
+test("AI administration is restricted to Superuser", () => {
+  assert.equal(isRouteAccessibleByRole("/ai-administration", "superuser"), true);
+  assert.equal(isRouteAccessibleByRole("/ai-administration", "engineer"), false);
+  assert.equal(isRouteAccessibleByRole("/ai-administration", "viewer"), false);
+});
+
 // ─── 1. configDefaults ROLE_ROUTE_DEFAULTS ─────────────────────────────
 
 console.log("\n[1] ROLE_ROUTE_DEFAULTS values");

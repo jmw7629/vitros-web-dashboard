@@ -1,9 +1,10 @@
 // Server-side AI/OCR gateway.
-// All OpenAI calls happen here in Convex actions (server-side only).
+// All model calls use the server-controlled OpenCode Zen free gateway.
 // No client-side secrets or API keys.
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
+import {runZen} from "./zenRuntime";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -12,12 +13,6 @@ const MAX_PROMPT_LENGTH = 10000;
 const MAX_REFERENCE_PARTS = 1000;
 const MAX_PART_NUMBER_LENGTH = 128;
 const MAX_REFERENCE_PART_CHARS = 50000;
-
-function getOpenAIKey(): string {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY not configured server-side");
-  return key;
-}
 
 function normalizeReferenceParts(partList?: string[]): string[] | undefined {
   if (!partList?.length) return undefined;
@@ -40,44 +35,6 @@ function normalizeReferenceParts(partList?: string[]): string[] | undefined {
   });
 }
 
-function safeOpenAIError(err: unknown): string {
-  if (!(err instanceof Error)) return "OpenAI request failed";
-  if (err.message === "OpenAI request timed out") return err.message;
-  if (err.message === "OpenAI returned an invalid response") return err.message;
-  if (/^OpenAI request failed with status [1-5]\d\d$/.test(err.message)) return err.message;
-  return "OpenAI request failed";
-}
-
-async function callOpenAI(
-  apiKey: string,
-  body: Record<string, unknown>,
-  timeoutMs = 90_000,
-): Promise<any> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`OpenAI request failed with status ${res.status}`);
-    }
-    try {
-      return await res.json();
-    } catch {
-      throw new Error("OpenAI returned an invalid response");
-    }
-  } catch (e: any) {
-    if (e?.name === "AbortError") throw new Error("OpenAI request timed out");
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export const ocrPackingList = action({
   args: {
     imageBase64: v.string(),
@@ -86,11 +43,10 @@ export const ocrPackingList = action({
   },
   returns: v.string(),
   handler: async (ctx, { imageBase64, prompt, partList }) => {
-    await requireCapability(ctx, "ai.ocr");
+    const actor = await requireCapability(ctx, "ai.ocr");
     if (imageBase64.length > MAX_IMAGE_SIZE_BYTES * 1.37) throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
     if (prompt.length > MAX_PROMPT_LENGTH) throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
 
-    const apiKey = getOpenAIKey();
     const referenceParts = normalizeReferenceParts(partList);
     const knownParts = referenceParts?.length
       ? `Known inventory part numbers (reference only; never invent a match): ${referenceParts.join(", ")}`
@@ -125,30 +81,7 @@ Rules:
 - Confidence must be 0 through 1. Use null for a field that is not actually visible instead of guessing.
 - Never return prose or markdown fences.`;
 
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const result = await callOpenAI(apiKey, {
-          model: "gpt-4o",
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-              ],
-            },
-          ],
-          max_tokens: 3000,
-        });
-        return result.choices?.[0]?.message?.content || "[]";
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error("Unknown error");
-        if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-      }
-    }
-    throw new Error(`OCR failed after 3 attempts: ${safeOpenAIError(lastError)}`);
+    return (await runZen(ctx, {actor, purpose:"receiving", system:systemPrompt, prompt, attachment:{image:`data:image/jpeg;base64,${imageBase64}`}})).text;
   },
 });
 
@@ -161,40 +94,16 @@ export const ocrDhrPage = action({
   },
   returns: v.string(),
   handler: async (ctx, { imageUrl, imageBase64, prompt, partList }) => {
-    await requireCapability(ctx, "ai.ocr");
+    const actor = await requireCapability(ctx, "ai.ocr");
     if (prompt.length > MAX_PROMPT_LENGTH) throw new Error(`Prompt too long (max ${MAX_PROMPT_LENGTH} chars)`);
     if (!!imageUrl === !!imageBase64) throw new Error("Provide exactly one DHR image source");
     if (imageBase64 && imageBase64.length > MAX_IMAGE_SIZE_BYTES * 1.37) throw new Error(`Image too large (max ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024}MB)`);
     if (imageUrl && (!/^https:\/\//i.test(imageUrl) || imageUrl.length > 2048)) throw new Error("Invalid DHR image URL");
 
-    const apiKey = getOpenAIKey();
     const referenceParts = normalizeReferenceParts(partList);
     const systemPrompt = `You are an OCR assistant for DHR (Device History Record) page analysis. Extract structured data from the document image. ${referenceParts?.length ? `Valid part numbers: ${referenceParts.join(", ")}` : ""} Return results as JSON.`;
     const source = imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : imageUrl!;
 
-    let lastError: Error | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const result = await callOpenAI(apiKey, {
-          model: "gpt-4o",
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: prompt },
-                { type: "image_url", image_url: { url: source } },
-              ],
-            },
-          ],
-          max_tokens: 2000,
-        });
-        return result.choices?.[0]?.message?.content || "{}";
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error("Unknown error");
-        if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-      }
-    }
-    throw new Error(`OCR failed after 3 attempts: ${safeOpenAIError(lastError)}`);
+    return (await runZen(ctx, {actor, purpose:"dhr", system:systemPrompt, prompt, attachment:{image:source}})).text;
   },
 });

@@ -39,6 +39,7 @@ import { ReportPreview } from "./pages/reports/ReportPreview";
 import { UploadRefresh } from "./pages/reports/UploadRefresh";
 import { InventoryReports } from "./pages/reports/InventoryReports";
 import { RemReports } from "./pages/rem/RemReports";
+import { AiAdministration } from "./pages/AiAdministration";
 import { Settings } from "./pages/Settings";
 import { EConnectivity } from "./pages/EConnectivity";
 import { useRole } from "./hooks/useRole";
@@ -189,6 +190,7 @@ function App() {
           <Route path="/report-preview" element={<ReportPreview />} />
           <Route path="/upload-refresh" element={<UploadRefresh />} />
           <Route path="/inventory-reports" element={<InventoryReports />} />
+          <Route path="/ai-administration" element={<RoleGuard route="/ai-administration" role={typedRole} fallback={roleDefaultRoute}><AiAdministration /></RoleGuard>} />
           {/* Settings */}
           <Route path="/settings" element={<Settings />} />
         </Route>

@@ -20,20 +20,17 @@ function forbidTokens(source, label, tokens) {
 
 requireTokens(server, "Incoming Stock PDF server OCR", [
   'requireCapability(ctx, "ai.ocr")',
-  'process.env.OPENAI_API_KEY',
-  'https://api.openai.com/v1/responses',
-  'type: "input_file"',
-  'data:application/pdf;base64,${pdfBase64}',
   'MAX_PDF_SIZE_BYTES',
   'MAX_PROMPT_LENGTH',
   'MAX_REFERENCE_PARTS',
   'safePdfFilename',
+  'runZen(ctx,',
+  'purpose:"pdf"',
   'Receiving quantity is SHIP QTY / SHIPPED QTY',
   'Do not collapse repeated part lines',
   'Description is informational and must never be used to invent or fuzzy-match',
   'Read every page of the PDF',
   'Do not treat line numbers, page numbers',
-  'sanitizeError',
 ]);
 forbidTokens(server, "Incoming Stock PDF server OCR", [
   'VITE_OPENAI_KEY',
@@ -43,6 +40,9 @@ forbidTokens(server, "Incoming Stock PDF server OCR", [
   'apply_inventory_transition',
 ]);
 
+const runtime = fs.readFileSync("convex/zenRuntime.ts", "utf8");
+requireTokens(runtime, "Zen PDF transport", ['process.env.OPENCODE_ZEN_API_KEY', 'https://opencode.ai/zen/v1', 'type:"input_file"', 'data:application/pdf;base64,', 'ZenError']);
+forbidTokens(runtime, "Zen provider boundary", ['api.openai.com', 'process.env.OPENAI_API_KEY', 'process.env.OPENCODE_GO_API_KEY']);
 requireTokens(review, "Incoming Stock reviewed receive boundary", [
   'requireCapability(ctx, "inventory.write")',
   'canonical_part_number_only',

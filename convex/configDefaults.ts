@@ -110,6 +110,7 @@ export const NAV_DEFAULTS = {
     "/rem/reports": "REM Reports",
     "/rem/import": "REM Bulk Import",
     "/settings": "Settings",
+    "/ai-administration": "AI Administration",
     "/executive-report": "Executive Report",
     "/mobile-quick-view": "Mobile Quick View",
     "/report-preview": "Report Preview",

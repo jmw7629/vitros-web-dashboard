@@ -343,10 +343,12 @@ console.log("\nFIXTURE 13: Human confirmation required");
 console.log("\nFIXTURE 14: Server OCR secret boundary");
 {
   const ocrSource = fs.readFileSync("convex/incomingStockPdfOcr.ts", "utf8");
-  assert(ocrSource.includes("process.env.OPENAI_API_KEY"), "OCR uses server-side OPENAI_API_KEY");
+  const runtime = fs.readFileSync("convex/zenRuntime.ts", "utf8");
+  assert(runtime.includes("process.env.OPENCODE_ZEN_API_KEY"), "OCR uses dedicated server Zen key");
+  assert(ocrSource.includes("runZen(ctx,"), "PDF uses shared controlled gateway");
   assert(!ocrSource.includes("VITE_OPENAI_KEY"), "no client-side OPENAI key");
   assert(!ocrSource.includes("SUPABASE_SERVICE_ROLE_KEY"), "no Supabase service key in OCR");
-  assert(ocrSource.includes("sanitizeError"), "error sanitization present");
+  assert(runtime.includes("e instanceof ZenError?e:new ZenError"), "error sanitization present");
   console.log("  PASS: Server OCR secret boundary enforced");
 }
 

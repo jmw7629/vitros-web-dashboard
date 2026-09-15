@@ -14,9 +14,9 @@ const requiredNames = [
 ];
 // Authentication secrets are managed directly in Convex. A stale build-time
 // copy must never overwrite a password/PIN rotation in the auth runtime.
-// AI credentials are also managed in the runtime with their provider endpoint.
-// A build-time key may belong to a different provider and must not silently
-// replace the OpenAI credential. Dashboard deployments synchronize only storage.
+// Only the explicitly named Zen credential can be synchronized for AI.
+// OpenAI- and Go-named variables are never repurposed. Missing Zen values
+// preserve any credential already configured directly in the Convex runtime.
 
 if (!env.CONVEX_DEPLOY_KEY) {
   console.error("CONVEX_RUNTIME_ENV_SYNC=FAIL missing CONVEX_DEPLOY_KEY");
@@ -32,6 +32,7 @@ for (const name of requiredNames) {
   }
   values.set(name, value);
 }
+if (env.OPENCODE_ZEN_API_KEY?.trim()) values.set("OPENCODE_ZEN_API_KEY", env.OPENCODE_ZEN_API_KEY.trim());
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 for (const [name, value] of values) {
   const result = spawnSync(npx, ["convex", "env", "set", "--prod", name], {
