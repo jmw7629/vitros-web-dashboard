@@ -96,6 +96,8 @@ jobs:
         run: node scripts/zen-ai-admin-browser-check.mjs
       - name: Cycle Count desktop and mobile browser behavior
         run: node scripts/cycle-count-browser-check.mjs
+      - name: Stock Summary header and row column geometry
+        run: node scripts/stock-column-browser-check.mjs
       - name: Settings responsive layout and Engineer customization
         run: node scripts/settings-browser-check.mjs
       - name: Config editor actual component behavior

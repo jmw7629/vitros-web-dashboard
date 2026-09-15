@@ -11,6 +11,15 @@ import type { StockSummaryColumnConfig, PartMasterFieldConfig } from "../../lib/
 type SortCol = "partNumber" | "description" | "type" | "qoh" | "minQty" | "maxQty" | "status";
 type ViewMode = "all" | "plan";
 
+// Both header and rows use the same bounded tracks, including on narrow screens.
+const STOCK_COLUMN_WIDTHS: Record<string, number> = {
+  partNumber: 100, description: 240, type: 120, qoh: 64,
+  minQty: 56, maxQty: 56, status: 104, onPlan: 64, binLocation: 100, module: 100,
+};
+const STOCK_COLUMN_GAP = 12;
+const STOCK_ACTION_WIDTH = 72;
+
+
 /* ── Status logic matching reference ────────────────────────── */
 function computeStatus(p: any): "OK" | "LOW" | "STOCKOUT" {
   if (p.qoh === 0) return "STOCKOUT";
@@ -82,6 +91,14 @@ export function StockSummary() {
   const [viewMode, setViewMode] = useState<ViewMode>("all");
 
   const columns = useMemo(() => getStockSummaryColumns(), [getStockSummaryColumns]);
+  const tableLayout = useMemo(() => ({
+    gridTemplateColumns: [...columns.map(column => {
+      const width = STOCK_COLUMN_WIDTHS[column.key] ?? 100;
+      return column.key === "description" ? "minmax(" + width + "px, 1fr)" : width + "px";
+    }), STOCK_ACTION_WIDTH + "px"].join(" "),
+    columnGap: STOCK_COLUMN_GAP,
+    minWidth: columns.reduce((sum, column) => sum + (STOCK_COLUMN_WIDTHS[column.key] ?? 100), STOCK_ACTION_WIDTH + 32) + columns.length * STOCK_COLUMN_GAP,
+  }), [columns]);
   const partMasterFields = useMemo(() => get<PartMasterFieldConfig[]>("forms.partMasterFields") ?? [], [get]);
   const defaultPartType = useMemo(() => get<string>("defaults.partType") ?? "Required", [get]);
 
@@ -331,7 +348,7 @@ export function StockSummary() {
      MAIN STOCK SUMMARY VIEW — responsive layout
      ══════════════════════════════════════════════════════════════ */
   return (
-    <div className="space-y-4 max-w-[1200px] mx-auto">
+    <div className="min-w-0 space-y-4 max-w-[1200px] mx-auto">
 
       {/* ── HEADER ROW ─────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -487,24 +504,13 @@ export function StockSummary() {
       ) : (
         <WebCard className="overflow-hidden">
           {/* Horizontal scroll wrapper for mobile */}
-          <div className="overflow-x-auto max-h-[65vh] overflow-y-auto" style={{ position: "relative" }}>
-            <div style={{ minWidth: "720px" }}>
+          <div role="region" aria-label="Stock Summary table" tabIndex={0} className="max-w-full overflow-x-auto max-h-[65vh] overflow-y-auto" style={{ position: "relative" }}>
+            <div style={{ minWidth: tableLayout.minWidth }}>
               {/* Table Header — sticky at top */}
               <div className="grid items-center px-4 py-3 text-xs font-semibold border-b"
                 style={{
-                  gridTemplateColumns: columns.map(c => {
-                    if (c.key === "partNumber") return "80px";
-                    if (c.key === "description") return "1fr";
-                    if (c.key === "type") return "100px";
-                    if (c.key === "qoh") return "55px";
-                    if (c.key === "minQty") return "45px";
-                    if (c.key === "maxQty") return "45px";
-                    if (c.key === "status") return "80px";
-                    if (c.key === "onPlan") return "45px";
-                    if (c.key === "binLocation") return "80px";
-                    if (c.key === "module") return "80px";
-                    return "80px";
-                  }).join(" ") + " 65px",
+                  gridTemplateColumns: tableLayout.gridTemplateColumns,
+                  columnGap: tableLayout.columnGap,
                   backgroundColor: "#0f172a",
                   borderColor: theme.cardBorder,
                   color: theme.textSecondary,
@@ -513,7 +519,7 @@ export function StockSummary() {
                   zIndex: 10,
                 }}>
                 {columns.map((col) => (
-                  <div key={col.key} className={col.key === "qoh" || col.key === "minQty" || col.key === "maxQty" ? "text-right" : ""}>
+                  <div key={col.key} data-stock-column={col.key} className={"min-w-0 break-words " + (["qoh", "minQty", "maxQty"].includes(col.key) ? "text-right" : ["partNumber", "description", "type"].includes(col.key) ? "text-left" : "text-center")}>
                     {["partNumber", "description", "type", "qoh", "minQty", "maxQty"].includes(col.key) ? (
                       <TableHeader
                         label={col.label}
@@ -528,7 +534,7 @@ export function StockSummary() {
                     )}
                   </div>
                 ))}
-                <span className="text-center">Actions</span>
+                <span data-stock-column="actions" className="text-center">Actions</span>
               </div>
 
               {/* Table Body */}
@@ -542,19 +548,8 @@ export function StockSummary() {
                       key={p._id}
                       className="grid items-center px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer"
                       style={{
-                        gridTemplateColumns: columns.map(c => {
-                          if (c.key === "partNumber") return "80px";
-                          if (c.key === "description") return "1fr";
-                          if (c.key === "type") return "100px";
-                          if (c.key === "qoh") return "55px";
-                          if (c.key === "minQty") return "45px";
-                          if (c.key === "maxQty") return "45px";
-                          if (c.key === "status") return "80px";
-                          if (c.key === "onPlan") return "45px";
-                          if (c.key === "binLocation") return "80px";
-                          if (c.key === "module") return "80px";
-                          return "80px";
-                        }).join(" ") + " 65px",
+                        gridTemplateColumns: tableLayout.gridTemplateColumns,
+                        columnGap: tableLayout.columnGap,
                       }}
                       onClick={() => setSelectedPart(p)}
                     >
@@ -563,21 +558,21 @@ export function StockSummary() {
                         switch (col.key) {
                           case "partNumber":
                             return (
-                              <span key={col.key} className="text-sm font-medium" style={{ color: "#3b82f6", textAlign: alignRight ? "right" : "left" }}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm font-medium" style={{ color: "#3b82f6", textAlign: alignRight ? "right" : "left" }}>
                                 {p.partNumber}
                               </span>
                             );
                           case "description":
                             return (
-                              <span key={col.key} className="text-sm truncate pr-2" style={{ color: theme.textPrimary }}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 line-clamp-2 break-words text-sm leading-5" title={p.description} style={{ color: theme.textPrimary }}>
                                 {p.description}
                               </span>
                             );
                           case "type":
                             return (
-                              <span key={col.key}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0">
                                 <span
-                                  className="inline-block px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap"
+                                  className="inline-block max-w-full break-words px-2 py-0.5 rounded text-[11px] font-medium"
                                   style={{ backgroundColor: tStyle.bg, color: tStyle.text }}
                                 >
                                   {nType}
@@ -586,25 +581,25 @@ export function StockSummary() {
                             );
                           case "qoh":
                             return (
-                              <span key={col.key} className="text-sm font-medium text-right" style={{ color: theme.textPrimary }}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm font-medium text-right" style={{ color: theme.textPrimary }}>
                                 {p.qoh}
                               </span>
                             );
                           case "minQty":
                             return (
-                              <span key={col.key} className="text-sm text-right" style={{ color: theme.textSecondary }}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm text-right" style={{ color: theme.textSecondary }}>
                                 {p.minQty}
                               </span>
                             );
                           case "maxQty":
                             return (
-                              <span key={col.key} className="text-sm text-right" style={{ color: theme.textSecondary }}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm text-right" style={{ color: theme.textSecondary }}>
                                 {p.maxQty}
                               </span>
                             );
                           case "status":
                             return (
-                              <span key={col.key} className="text-center">
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-center">
                                 <span
                                   className="px-2 py-0.5 rounded text-[11px] font-bold inline-block"
                                   style={{
@@ -618,7 +613,7 @@ export function StockSummary() {
                             );
                           case "onPlan":
                             return (
-                              <span key={col.key} className="text-center">
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-center">
                                 {p.onPlan ? (
                                   <Check className="w-4 h-4 inline-block" style={{ color: "#22c55e" }} />
                                 ) : (
@@ -628,22 +623,22 @@ export function StockSummary() {
                             );
                           case "binLocation":
                             return (
-                              <span key={col.key} className="text-sm text-center" style={{ color: theme.textSecondary }}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm text-center" style={{ color: theme.textSecondary }}>
                                 {p.binLocation || "—"}
                               </span>
                             );
                           case "module":
                             return (
-                              <span key={col.key} className="text-sm text-center" style={{ color: theme.textSecondary }}>
+                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm text-center" style={{ color: theme.textSecondary }}>
                                 {p.module || "—"}
                               </span>
                             );
                           default:
-                            return <span key={col.key} className="text-center">—</span>;
+                            return <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-center">—</span>;
                         }
                       })}
                       {/* Actions */}
-                      <span className="flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
+                      <span data-stock-column="actions" className="flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
                         {isAdmin ? (
                           <>
                             <button onClick={() => openEdit(p)} className="p-1 rounded hover:bg-white/10 transition-colors" title="Edit">
@@ -885,12 +880,12 @@ function TableHeader({
   return (
     <button
       onClick={() => onSort(col)}
-      className={`flex items-center gap-1 ${align === "right" ? "justify-end" : ""}`}
+      className={`flex w-full min-w-0 items-center gap-1 ${align === "right" ? "justify-end" : ""}`}
     >
-      <span style={{ color: active ? "#6366f1" : undefined }}>{label}</span>
+      <span className="min-w-0 break-words" style={{ color: active ? "#6366f1" : undefined }}>{label}</span>
       {active && (sortAsc
-        ? <ChevronUp className="w-3 h-3" style={{ color: "#6366f1" }} />
-        : <ChevronDown className="w-3 h-3" style={{ color: "#6366f1" }} />
+        ? <ChevronUp className="h-3 w-3 shrink-0" style={{ color: "#6366f1" }} />
+        : <ChevronDown className="h-3 w-3 shrink-0" style={{ color: "#6366f1" }} />
       )}
     </button>
   );
