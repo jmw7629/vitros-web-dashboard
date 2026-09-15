@@ -239,7 +239,7 @@ function AdminEditor() {
   const entry = entries.find(row => row.key === selected)!;
   if (published === undefined || drafts === undefined) return <p role="status">Loading configuration…</p>;
   const matches = entries.filter(row => `${row.label} ${CATEGORY_LABELS[row.category]}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="space-y-5" style={{ color: theme.textPrimary }}><header><h2 className="text-xl font-bold">Customize VITROS</h2><p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>Edit a draft, preview the screen, and review it before publication.</p></header>
+  return <div className="space-y-5" style={{ color: theme.textPrimary }}><header><h2 className="text-xl font-bold">Customize REM Command Center</h2><p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>Edit a draft, preview the screen, and review it before publication.</p></header>
     <div className="flex flex-wrap gap-2" aria-label="Customization shortcuts">
       <Button onClick={() => { setSearch(""); setSelected("engineer.view"); }}>Customize Engineer view</Button>
       <Button onClick={() => { setSearch(""); setSelected("roles.engineerDefaultRoute"); }}>Engineer starting page</Button>

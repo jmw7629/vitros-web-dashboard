@@ -1,7 +1,7 @@
 {
-  "name": "VITROS",
-  "short_name": "VITROS",
-  "description": "VITROS inventory, receiving, DHR, SAP staging, and operational dashboard.",
+  "name": "REM Command Center",
+  "short_name": "REM Command Center",
+  "description": "REM Command Center — inventory, receiving, DHR, SAP staging, and operational dashboard.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

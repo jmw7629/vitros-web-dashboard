@@ -23,8 +23,8 @@ import type {
 } from "./configContract";
 
 export const BRAND_DEFAULTS = {
-  appTitle: "VITROS",
-  sidebarTitle: "VITROS",
+  appTitle: "REM Command Center",
+  sidebarTitle: "REM Command Center",
   sidebarSubtitle: "Dashboard & Scan Kiosk",
 } as const;
 

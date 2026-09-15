@@ -86,9 +86,9 @@ export function RoleLogin() {
               <Box className="w-10 h-10 text-white" />
             </div>
             <h1 className="text-4xl font-bold text-white tracking-tight">
-              VITROS Inventory
+              REM Command Center
             </h1>
-            <p className="text-blue-300 text-lg mt-2">Management System</p>
+            <p className="text-blue-300 text-lg mt-2">Inventory &amp; Remanufacturing</p>
             <div className="flex items-center justify-center gap-2 mt-3">
               <div className="h-px w-12 bg-gradient-to-r from-transparent to-blue-500/50" />
               <span className="text-sm text-slate-400 font-medium tracking-wide">

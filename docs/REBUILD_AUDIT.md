@@ -391,3 +391,7 @@ The first CI run exposed an older employee test loader that accepts only the exi
 
 ## 2026-09-15 Cycle Count behavior audit
 User requires saved exit, real 30-second active-session autosave, final audited stock adjustment only on confirm, Required-first alphanumeric W2W, and live active-DHR WIP. Current page posts unauthenticated to a stale Convex deployment; its autosave only updates a timestamp; Save and Exit writes stock; final stock writes loop without shared atomic close; WIP is manual. W2W grouping exists but needs coverage and all-parts verification. Inventory remains authoritative in Supabase.
+
+
+## 2026-09-15 — REM Command Center naming
+User requests dashboard rename from VITROS to REM Command Center. Current production cycle-count release 96a3baadaa13780b87a5e034082f0e32e9cc985c is healthy. Scope: user-visible application branding, login, navigation, install/browser metadata and dashboard customization heading. Preserve VITROS analyzer/product names, database identifiers, URLs and operational records. React/Vite/Convex and Vercel deployment remain unchanged. Inspect all branding consumers before edits, run existing build/checks and verify desktop/mobile live branding.
