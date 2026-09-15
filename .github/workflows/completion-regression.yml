@@ -83,6 +83,8 @@ jobs:
           node scripts/role-login-behavior-check.mjs
           node scripts/role-access-behavior-check.mjs
           node scripts/data-auth-readiness-check.mjs
+          node scripts/dhr-delete-action-check.mjs
+          node scripts/dhr-delete-ui-check.mjs
           node scripts/runtime-env-sync-behavior.mjs
       - name: Config editor actual component behavior
         run: node scripts/config-editor-behavior-check.mjs
@@ -195,3 +197,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260905191500_dhr_legacy_baseline_guard.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260913133922_dhr_document_field_bridge.sql
           psql -v ON_ERROR_STOP=1 -f database/tests/dhr_document_bridge.sql
+
+          # The synthetic bootstrap omits the legacy completed_at field.
+          psql -v ON_ERROR_STOP=1 -c 'alter table public.dhr_scan_sessions add column completed_at timestamptz'
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260904_dhr_session_lifecycle_revisions.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260906_dhr_session_event_trigger_least_privilege.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915145102_delete_active_dhr.sql
+          psql -v ON_ERROR_STOP=1 -f database/tests/dhr_delete.sql

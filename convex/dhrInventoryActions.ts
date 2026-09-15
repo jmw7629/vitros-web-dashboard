@@ -166,7 +166,7 @@ export const loadScannerData = action({
       readSupabaseRows<Record<string, unknown>>(
         serviceKey,
         url,
-        "dhr_scan_sessions?select=id,instrument_sn,wo_number,analyzer_model,started_at,completed_at,status,started_by,notes,revision&order=created_at.desc&limit=250",
+        "dhr_scan_sessions?select=id,instrument_sn,wo_number,analyzer_model,started_at,completed_at,status,started_by,notes,revision&status=in.(in_progress,completed)&order=created_at.desc&limit=250",
       ),
       readSupabaseRows<Record<string, unknown>>(
         serviceKey,
@@ -351,5 +351,40 @@ export const applyScanTransition = action({
     });
     await publishRealtimePulse(ctx);
     return result;
+  },
+});
+/** Superuser deletion retains the DHR and its immutable inventory/SAP evidence. */
+export const deleteScannerSession = action({
+  args: {
+    sessionId: v.string(), expectedRevision: v.number(),
+    reason: v.string(), correlationId: v.string(),
+  },
+  returns: v.object({
+    eventId: v.string(), sessionId: v.string(), status: v.literal("deleted"),
+    revision: v.number(), duplicate: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireCapability(ctx, "inventory.admin");
+    const sessionId = validateUuid(args.sessionId, "DHR session id");
+    const reason = args.reason.trim();
+    if (!Number.isSafeInteger(args.expectedRevision) || args.expectedRevision < 0) throw new Error("Invalid DHR revision");
+    if (!reason || reason.length > 500) throw new Error("Enter a deletion reason of 1–500 characters");
+    const correlationId = validateUuid(args.correlationId, "deletion request id");
+    const { url, serviceKey } = getSupabaseConfig();
+    const actor = await resolveAuditActor(ctx, userId, serviceKey, url);
+    const response = await fetch(`${url}/rest/v1/rpc/delete_active_dhr_session`, {
+      method: "POST", headers: supabaseHeaders(serviceKey),
+      body: JSON.stringify({
+        p_session_id: sessionId, p_expected_revision: args.expectedRevision,
+        p_actor: actor, p_reason: reason, p_correlation_id: `dhr-delete:${correlationId}`,
+      }),
+    });
+    if (!response.ok) {
+      if (response.status === 409) throw new Error("DHR changed. Refresh before deleting.");
+      throw new Error("DHR deletion failed. Refresh and verify the DHR is still active before retrying.");
+    }
+    const receipt = await response.json();
+    await publishRealtimePulse(ctx);
+    return receipt;
   },
 });
