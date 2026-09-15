@@ -38,8 +38,9 @@ import {
   ROLE_ROUTE_DEFAULTS,
 } from "./configDefaults";
 
-import { ENGINEER_METRICS, ENGINEER_EXCLUDED_ROUTES } from "./engineerView";
-export { ENGINEER_METRICS, ENGINEER_EXCLUDED_ROUTES } from "./engineerView";
+/** Pure Engineer presentation contract. No role permissions are changed here. */
+export const ENGINEER_METRICS = ["skus", "health", "stockOuts", "reorder", "lowStock", "onPlan", "activity", "kits", "today"] as const;
+export const ENGINEER_EXCLUDED_ROUTES = ["/sap-staging", "/sap-analytics", "/enterprise-dashboard", "/settings"] as const;
 
 // ─── Capability model (immutable ceilings) ───────────────────────────────
 

@@ -386,3 +386,5 @@ CI Postgres17 proved deletion, audit, replay, stale revision, archived rejection
 User requested Superuser control over the Engineer view. Investigation found EngineerDashboard ignores the shared module configuration. Implementing role-specific validated settings using existing draft, preview, publication, and rollback infrastructure; preserve defaults and server permissions.
 
 Engineer customization verification: full frontend/Convex typecheck and production frontend build pass; 18 actual React component groups, 16 actual config handler groups, and 8 native Chromium desktop/mobile views pass. Synthetic transports/data are explicitly separated from live acceptance. No production settings or inventory data changed during implementation.
+
+The first CI run exposed an older employee test loader that accepts only the existing contract dependencies. Kept the two Engineer allowlists in the existing pure contract, avoiding an unnecessary new module and preserving all existing loaders. Rechecking affected tests before merge.
