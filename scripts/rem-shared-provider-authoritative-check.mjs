@@ -25,8 +25,8 @@ for (const legacyPath of [
 }
 
 requireInvariant(
-  provider.includes('const CYCLE_CONVEX_URL = "https://accurate-newt-938.convex.cloud"'),
-  "cycle-count compatibility path changed outside this REM slice",
+  provider.includes("api.cycleCountActions.loadSummary") && !provider.includes("CYCLE_CONVEX_URL"),
+  "cycle-count summary must use the authenticated current backend",
 );
 requireInvariant(
   provider.includes("const [coreResult, planningResult] = await Promise.all(["),
@@ -36,4 +36,4 @@ requireInvariant(
 console.log("REM_SHARED_PROVIDER_AUTHORITATIVE=PASS");
 console.log("LEGACY_REM_BROWSER_QUERY_RETIRED=PASS");
 console.log("REM_SERVER_RBAC_BOUNDARY=ACTION_ONLY");
-console.log("CYCLE_COUNT_SCOPE_PRESERVED=PASS");
+console.log("CYCLE_COUNT_AUTHENTICATED_SUMMARY=PASS");

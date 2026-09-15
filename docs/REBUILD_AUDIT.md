@@ -388,3 +388,6 @@ User requested Superuser control over the Engineer view. Investigation found Eng
 Engineer customization verification: full frontend/Convex typecheck and production frontend build pass; 18 actual React component groups, 16 actual config handler groups, and 8 native Chromium desktop/mobile views pass. Synthetic transports/data are explicitly separated from live acceptance. No production settings or inventory data changed during implementation.
 
 The first CI run exposed an older employee test loader that accepts only the existing contract dependencies. Kept the two Engineer allowlists in the existing pure contract, avoiding an unnecessary new module and preserving all existing loaders. Rechecking affected tests before merge.
+
+## 2026-09-15 Cycle Count behavior audit
+User requires saved exit, real 30-second active-session autosave, final audited stock adjustment only on confirm, Required-first alphanumeric W2W, and live active-DHR WIP. Current page posts unauthenticated to a stale Convex deployment; its autosave only updates a timestamp; Save and Exit writes stock; final stock writes loop without shared atomic close; WIP is manual. W2W grouping exists but needs coverage and all-parts verification. Inventory remains authoritative in Supabase.
