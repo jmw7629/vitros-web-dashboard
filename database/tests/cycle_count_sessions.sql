@@ -20,6 +20,7 @@ begin
  ('CY-A1','Cycle fixture optional',2,'Optional'),('CY-C1','Cycle fixture consumable',3,'Consumable'),
  ('CY-U1','Cycle fixture unclassified',0,'Unclassified'),('CY-N1','Cycle fixture not on BOM',0,'Not on BOM');
  select id into stock_id from public.stock where part_number='CY-R10';
+ insert into public.dhr_expected_parts(analyzer_model,section_id,part_number,description,bom_qty,category) values('5600','C1','CY-R10','Cycle fixture required',4,'required');
  insert into public.dhr_scan_sessions(id,instrument_sn,wo_number,analyzer_model,status)
  values(dhr_id,'CYCLE-ACTIVE','CYCLE-FIXTURE','5600','in_progress');
  perform public.apply_dhr_scan_transition(dhr_id,'C1','CY-R10',4,2,'required','Cycle fixture required','fixture-admin','cycle-fixture-initial',0,'CYCLE-ACTIVE');
