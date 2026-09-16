@@ -327,5 +327,19 @@ await test('Part metadata saves through audited action without a stock adjustmen
  assert.match(text(renderer.root),/Save quantity changes separately/);assert.equal(f.calls.length,1);assert.equal(adjustments,0);assert(!text(renderer.root).includes('Bin Location'));
  await act(async()=>renderer.unmount());
 });
+await test('Rev J Tool classification filters and saves through audited metadata action', async () => {
+ const f=screenFixture();const data=f.modules['../../hooks/useConvexData'].useConvexData();Object.assign(data.parts[0],{type:'Tool',version:4});
+ let adjustments=0;data.updatePart=async()=>{adjustments++};data.refresh=async()=>{};f.mutation=async()=>({version:5});
+ const load=loader(f,true);const {ConfigProvider}=load('src/components/ConfigProvider.tsx');const {StockSummary}=load('src/pages/inventory/StockSummary.tsx');
+ assert(load('convex/configContract.ts').PART_TYPES.includes('Tool'));
+ let renderer;await act(async()=>{renderer=create(React.createElement(ConfigProvider,null,React.createElement(StockSummary)))});
+ const filter=renderer.root.findAllByType('select').find(n=>n.children.some(c=>text(c)==='All Types'));assert(filter);assert(filter.children.some(c=>text(c)==='Tool'));
+ await act(async()=>filter.props.onChange({target:{value:'Tool'}}));
+ const edit=renderer.root.findAllByType('button').find(n=>n.props.title==='Edit');assert(edit);await act(async()=>edit.props.onClick());
+ const select=renderer.root.findAllByType('select').find(n=>n.props.value==='Tool' && n!==filter);assert(select);
+ await act(async()=>select.props.onChange({target:{value:'Optional'}}));
+ const save=renderer.root.findAllByType('button').find(n=>text(n)==='Save Changes');await act(async()=>save.props.onClick());
+ assert.equal(f.calls[0].ref,'partMasterActions:updatePartMaster');assert.equal(f.calls[0].args.updates.type,'Optional');assert.equal(adjustments,0);await act(async()=>renderer.unmount());
+});
 console.log(`Config editor actual component checks: ${passed} passed, ${failed} failed (synthetic transport/portal boundaries).`);
 if (failed) process.exitCode = 1;

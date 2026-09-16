@@ -49,6 +49,7 @@ function typeBadgeStyle(type: string): { bg: string; text: string } {
     case "Required":   return { bg: "#ea580c", text: "#fff" };
     case "Optional":   return { bg: "#ca8a04", text: "#fff" };
     case "Not on BOM": return { bg: "#475569", text: "#e2e8f0" };
+    case "Tool": return { bg: "#0369a1", text: "#fff" };
     case "Consumable": return { bg: "#7c3aed", text: "#fff" };
     default:           return { bg: "#475569", text: "#e2e8f0" };
   }
@@ -470,6 +471,7 @@ export function StockSummary() {
           <option value="Required">Required</option>
           <option value="Optional">Optional</option>
           <option value="Not on BOM">Not on BOM</option>
+          <option value="Tool">Tool</option>
           <option value="Consumable">Consumable</option>
         </select>
         <select
@@ -697,6 +699,7 @@ export function StockSummary() {
                             <option value="Required">Required</option>
                             <option value="Optional">Optional</option>
                             <option value="Not on BOM">Not on BOM</option>
+                            <option value="Tool">Tool</option>
                             <option value="Consumable">Consumable</option>
                           </select>
                         </div>
@@ -811,6 +814,7 @@ export function StockSummary() {
                             <option value="Required">Required</option>
                             <option value="Optional">Optional</option>
                             <option value="Not on BOM">Not on BOM</option>
+                            <option value="Tool">Tool</option>
                             <option value="Consumable">Consumable</option>
                           </select>
                         </div>

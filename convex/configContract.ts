@@ -244,7 +244,7 @@ export const DASHBOARD_LIST_SOURCES = ["inventoryStatus"] as const;
 
 export const REPORT_SECTION_IDS = ["actions", "inventory", "kits"] as const;
 
-export const PART_TYPES = ["Required", "Optional", "Not on BOM", "Consumable"] as const;
+export const PART_TYPES = ["Required", "Optional", "Tool", "Not on BOM", "Consumable"] as const;
 
 export const DATE_FORMATS = [
   "MMM d h:mm A",
