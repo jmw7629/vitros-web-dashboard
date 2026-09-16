@@ -1,3 +1,6 @@
+import { useAction } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { normalizePartColumns, listDisplay, partSearchText, stockCsv, parseMetadataList } from "../../lib/partMetadata";
 import { kitPartQuantity } from "../../lib/kitDemand";
 import { useState, useMemo, useCallback } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
@@ -15,7 +18,7 @@ type ViewMode = "all" | "plan";
 // Both header and rows use the same bounded tracks, including on narrow screens.
 const STOCK_COLUMN_WIDTHS: Record<string, number> = {
   partNumber: 100, description: 240, type: 120, qoh: 64,
-  minQty: 56, maxQty: 56, status: 104, onPlan: 64, binLocation: 100, module: 100,
+  minQty: 56, maxQty: 56, status: 104, onPlan: 64, module: 240, supportedModels: 150, subassemblyCodes: 110, systemSide: 100,
 };
 const STOCK_COLUMN_GAP = 12;
 const STOCK_ACTION_WIDTH = 72;
@@ -53,32 +56,19 @@ function typeBadgeStyle(type: string): { bg: string; text: string } {
 
 /* ── Export to XLSX (real download) ─────────────────────────── */
 function exportToXLSX(parts: any[]) {
-  // Build CSV (Excel-compatible) with all columns
-  const headers = ["Part #", "Description", "Type", "QOH", "Min", "Max", "Status", "On Plan", "Bin Location", "Module"];
-  const rows = parts.map(p => [
-    p.partNumber,
-    `"${(p.description || "").replace(/"/g, '""')}"`,
-    normalizeType(p.type),
-    p.qoh,
-    p.minQty,
-    p.maxQty,
-    computeStatus(p),
-    p.onPlan ? "Yes" : "No",
-    p.binLocation || "",
-    p.module || "",
-  ]);
-  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+  const csv = stockCsv(parts);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `VITROS_Stock_Summary_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `REM_Stock_Summary_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
 export function StockSummary() {
   const data = useConvexData();
+  const updatePartMaster = useAction(api.partMasterActions.updatePartMaster);
   const { role } = useRole();
   const { getStockSummaryColumns, get } = useConfig();
   const formatDate = useFormatDate();
@@ -100,12 +90,12 @@ export function StockSummary() {
     columnGap: STOCK_COLUMN_GAP,
     minWidth: columns.reduce((sum, column) => sum + (STOCK_COLUMN_WIDTHS[column.key] ?? 100), STOCK_ACTION_WIDTH + 32) + columns.length * STOCK_COLUMN_GAP,
   }), [columns]);
-  const partMasterFields = useMemo(() => get<PartMasterFieldConfig[]>("forms.partMasterFields") ?? [], [get]);
+  const partMasterFields = useMemo(() => normalizePartColumns(get<PartMasterFieldConfig[]>("forms.partMasterFields") ?? []), [get]);
   const defaultPartType = useMemo(() => get<string>("defaults.partType") ?? "Required", [get]);
 
   /* ── Edit / Delete / Add states ──────────────────────────── */
   const [editPart, setEditPart] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ partNumber: "", description: "", type: "", qoh: "", minQty: "", maxQty: "", onPlan: false, binLocation: "", module: "" });
+  const [editForm, setEditForm] = useState({ partNumber: "", description: "", type: "", qoh: "", minQty: "", maxQty: "", onPlan: false, module: "", supportedModels: "", subassemblyCodes: "", systemSide: "Not mapped" });
   const [confirmDeletePart, setConfirmDeletePart] = useState<any>(null);
   const [addPartOpen, setAddPartOpen] = useState(false);
   const [addForm, setAddForm] = useState({ partNumber: "", description: "", type: defaultPartType, qoh: "", minQty: "", maxQty: "", onPlan: false });
@@ -121,8 +111,10 @@ export function StockSummary() {
       minQty: String(p.minQty ?? ""),
       maxQty: String(p.maxQty ?? ""),
       onPlan: !!p.onPlan,
-      binLocation: p.binLocation || "",
       module: p.module || "",
+      supportedModels: (p.supportedModels || []).join(" / "),
+      subassemblyCodes: (p.subassemblyCodes || []).join(" / "),
+      systemSide: p.systemSide || "Not mapped",
     });
     setEditPart(p);
     setActionError(null);
@@ -133,14 +125,16 @@ export function StockSummary() {
     setSaving(true);
     setActionError(null);
     try {
-      await data.updatePart(editPart._id, {
-        description: editForm.description,
-        type: editForm.type,
-        qoh: parseInt(editForm.qoh) || 0,
-        minQty: parseInt(editForm.minQty) || 0,
-        maxQty: parseInt(editForm.maxQty) || 0,
-        onPlan: editForm.onPlan,
-      });
+      const quantity = Number(editForm.qoh), minimum = Number(editForm.minQty), maximum = Number(editForm.maxQty);
+      if ([editForm.qoh,editForm.minQty,editForm.maxQty].some(v=>!v.trim()) || [quantity,minimum,maximum].some(v=>!Number.isInteger(v)||v<0)) throw new Error("Quantities must be non-negative whole numbers");
+      const proposed: Record<string, unknown> = { description:editForm.description, type:editForm.type, min_qty:minimum, max_qty:maximum, on_plan:editForm.onPlan, module:editForm.module, supported_models:parseMetadataList(editForm.supportedModels), subassembly_codes:parseMetadataList(editForm.subassemblyCodes).map(v=>v.toUpperCase()), system_side:editForm.systemSide };
+      const previous: Record<string, unknown> = { description:editPart.description, type:editPart.type, min_qty:editPart.minQty, max_qty:editPart.maxQty, on_plan:editPart.onPlan, module:editPart.module||"", supported_models:editPart.supportedModels||[], subassembly_codes:editPart.subassemblyCodes||[], system_side:editPart.systemSide||"Not mapped" };
+      const updates=Object.fromEntries(Object.entries(proposed).filter(([key,value])=>JSON.stringify(value)!==JSON.stringify(previous[key])));
+      const quantityChanged=quantity!==editPart.qoh;
+      if(quantityChanged && Object.keys(updates).length) throw new Error("Save quantity changes separately from part-detail changes.");
+      if(Object.keys(updates).length) await updatePartMaster({partId:editPart._id,updates,expectedVersion:editPart.version??1,correlationId:crypto.randomUUID(),reason:"Superuser Stock Summary part details"});
+      if(quantityChanged) await data.updatePart(editPart._id,{qoh:quantity});
+      await data.refresh();
       setEditPart(null);
       setSelectedPart(null);
     } catch (e: any) {
@@ -214,8 +208,7 @@ export function StockSummary() {
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(p =>
-        p.partNumber.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q)
+        partSearchText(p).includes(q)
       );
     }
     if (typeFilter !== "all") {
@@ -284,16 +277,24 @@ export function StockSummary() {
             ["Part Number", part.partNumber],
             ["Description", part.description],
             ["Type", nType],
-            ["Bin Location", part.binLocation],
-            ["Module", part.module],
+            ["Models", listDisplay(part.supportedModels)],
+            ["Subassembly", part.module || "Not verified"],
+            ["Subcode", listDisplay(part.subassemblyCodes)],
+            ["Dry / Wet", part.systemSide || "Not mapped"],
             ["On Plan", part.onPlan ? "Yes" : "No"],
           ].map(([label, val]) => (
-            <div key={label} className="flex items-center justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
+            <div key={label} className="flex items-start justify-between gap-4 py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
               <span className="text-xs" style={{ color: theme.textSecondary }}>{label}</span>
-              <span className="text-xs font-medium" style={{ color: theme.textPrimary }}>{val}</span>
+              <span className="text-xs font-medium min-w-0 break-words text-right" style={{ color: theme.textPrimary }}>{val}</span>
             </div>
           ))}
         </WebCard>
+        {part.mappingEvidence && <WebCard className="p-4 space-y-2">
+          <h3 className="text-sm font-bold">Source audit</h3><p className="text-xs">{part.mappingEvidence.status || "Not verified"}</p>
+          <p className="text-xs" style={{color:theme.textSecondary}}>Subcodes use the supplied 5600 reference diagram. Dry = Cuvette Supply and left; Wet = MicroTip Supply and right.</p>
+          {(part.mappingEvidence.notes || []).map((note:string,i:number)=><p className="text-xs break-words" key={i}>{note}</p>)}
+          {(part.mappingEvidence.sources || []).map((source:any,i:number)=><p className="text-xs break-words" style={{color:theme.textSecondary}} key={i}>{source.document}{source.page ? " · page "+source.page : ""}{source.sheet ? " · "+source.sheet+" row "+source.row : ""}</p>)}
+        </WebCard>}
         {partKits.length > 0 && (
           <WebCard className="p-4">
             <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>Kit Membership</h3>
@@ -491,7 +492,7 @@ export function StockSummary() {
           className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg border text-sm font-medium"
           style={{ borderColor: theme.cardBorder, backgroundColor: theme.cardBg, color: theme.textSecondary }}
         >
-          <Download className="w-4 h-4" /> Export XLSX
+          <Download className="w-4 h-4" /> Export CSV
         </button>
       </div>
 
@@ -622,16 +623,14 @@ export function StockSummary() {
                                 )}
                               </span>
                             );
-                          case "binLocation":
-                            return (
-                              <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm text-center" style={{ color: theme.textSecondary }}>
-                                {p.binLocation || "—"}
-                              </span>
-                            );
+                          case "supportedModels":
+                          case "subassemblyCodes":
+                          case "systemSide":
+                            return <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-xs" style={{color:theme.textSecondary}}>{col.key === "systemSide" ? p.systemSide || "Not mapped" : listDisplay(p[col.key])}</span>;
                           case "module":
                             return (
                               <span key={col.key} data-stock-column={col.key} className="min-w-0 break-words text-sm text-center" style={{ color: theme.textSecondary }}>
-                                {p.module || "—"}
+                                {p.module || "Not verified"}
                               </span>
                             );
                           default:
@@ -708,8 +707,11 @@ export function StockSummary() {
                       return <EditField key={field.key} label={field.label} value={editForm.minQty} type="number" onChange={v => setEditForm(f => ({ ...f, minQty: v }))} />;
                     case "maxQty":
                       return <EditField key={field.key} label={field.label} value={editForm.maxQty} type="number" onChange={v => setEditForm(f => ({ ...f, maxQty: v }))} />;
-                    case "binLocation":
-                      return <EditField key={field.key} label={field.label} value={editForm.binLocation} onChange={v => setEditForm(f => ({ ...f, binLocation: v }))} />;
+                    case "supportedModels":
+                    case "subassemblyCodes":
+                      return <EditField key={field.key} label={field.label + " (separate with /)"} value={editForm[field.key]} onChange={v => setEditForm(f => ({ ...f, [field.key]: v }))} />;
+                    case "systemSide":
+                      return <label key={field.key} className="text-xs">{field.label}<select aria-label={field.label} value={editForm.systemSide} onChange={e=>setEditForm(f=>({...f,systemSide:e.target.value}))} className="block w-full mt-1 p-2 rounded-xl border" style={{backgroundColor:theme.inputBg,color:theme.textPrimary,borderColor:theme.cardBorder}}>{["Dry","Wet","Both","Shared","Not mapped"].map(v=><option key={v}>{v}</option>)}</select></label>;
                     case "module":
                       return <EditField key={field.key} label={field.label} value={editForm.module} onChange={v => setEditForm(f => ({ ...f, module: v }))} />;
                     case "onPlan":
@@ -859,6 +861,7 @@ function EditField({ label, value, onChange, type = "text", disabled = false }: 
     <div>
       <label className="text-[10px] font-semibold uppercase" style={{ color: theme.textMuted }}>{label}</label>
       <input
+        aria-label={label}
         type={type}
         value={value}
         onChange={onChange ? e => onChange(e.target.value) : undefined}

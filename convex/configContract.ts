@@ -223,7 +223,7 @@ export const REM_VIEWS = ["dashboard", "kanban", "gantt", "morning"] as const;
 
 export const STOCK_SUMMARY_COLUMN_KEYS = [
   "partNumber", "description", "type", "qoh", "minQty", "maxQty",
-  "status", "onPlan", "binLocation", "module",
+  "status", "onPlan", "binLocation", "module", "supportedModels", "subassemblyCodes", "systemSide",
 ] as const;
 
 export const TRANSACTION_SEARCH_FIELD_KEYS = [
@@ -232,7 +232,7 @@ export const TRANSACTION_SEARCH_FIELD_KEYS = [
 
 export const PART_MASTER_FIELD_KEYS = [
   "partNumber", "description", "type", "qoh", "minQty", "maxQty",
-  "onPlan", "binLocation", "module",
+  "onPlan", "binLocation", "module", "supportedModels", "subassemblyCodes", "systemSide",
 ] as const;
 
 export const DASHBOARD_METRICS = [
@@ -571,8 +571,8 @@ function validateTransactionSearchFields(value: unknown): ValidationOutcome {
 
 function validatePartMasterFields(value: unknown): ValidationOutcome {
   if (!Array.isArray(value)) return fail("Part master form fields must be an array");
-  if (value.length !== PART_MASTER_FIELD_KEYS.length) {
-    return fail(`Part master form fields must contain exactly the ${PART_MASTER_FIELD_KEYS.length} supported fields`);
+  if (value.length < 8 || value.length > PART_MASTER_FIELD_KEYS.length) {
+    return fail("Part master form fields must contain all eight core fields and only supported metadata fields");
   }
   const orders: number[] = [];
   const keys = new Set<string>();
@@ -592,6 +592,7 @@ function validatePartMasterFields(value: unknown): ValidationOutcome {
     }
     orders.push(field.order);
   }
+  for (const key of ["partNumber","description","type","qoh","minQty","maxQty","onPlan","module"]) if (!keys.has(key)) return fail(`Missing core part master field ${key}`);
   return checkUnique(orders, "Part master form fields");
 }
 

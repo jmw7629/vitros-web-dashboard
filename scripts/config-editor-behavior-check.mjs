@@ -39,6 +39,7 @@ function loader(f, realProvider = false) {
       if (ref === 'configActions:getAuditLog') return [];
       throw new Error(`Unexpected query ${ref}`);
     },
+    useAction: ref => async args => { f.calls.push({ ref, args }); return f.mutation(ref, args); },
     useMutation: ref => async args => { f.calls.push({ ref, args }); return f.mutation(ref, args); },
     useConvex: () => ({ query: async (ref, args) => { f.calls.push({ ref, args }); return f.query(ref, args); } }),
   };
@@ -310,6 +311,21 @@ await test('Engineer custom menus respect visibility and order without changing 
   f.role = 'superuser'; f.pathname = '/stock-summary'; await act(async () => renderer.update(tree()));
   assert.match(text(renderer.root), /SAP Staging/); assert(!text(renderer.root).includes('Bench DHR'));
   await act(async () => renderer.unmount());
+});
+await test('Part metadata saves through audited action without a stock adjustment; mixed edits are blocked', async () => {
+ const f=screenFixture();const data=f.modules['../../hooks/useConvexData'].useConvexData();const p=data.parts[0];Object.assign(p,{module:'Computer',supportedModels:['5600'],subassemblyCodes:[],systemSide:'Not mapped',version:4});
+ let adjustments=0;data.updatePart=async()=>{adjustments++};data.refresh=async()=>{};f.mutation=async()=>({version:5});
+ const load=loader(f,true);const {ConfigProvider}=load('src/components/ConfigProvider.tsx');const {StockSummary}=load('src/pages/inventory/StockSummary.tsx');
+ let renderer;await act(async()=>{renderer=create(React.createElement(ConfigProvider,null,React.createElement(StockSummary)))});
+ const click=async label=>{const b=renderer.root.findAllByType('button').find(n=>text(n)===label);assert(b,label);await act(async()=>b.props.onClick())};
+ const openEdit=async()=>{const b=renderer.root.findAllByType('button').find(n=>n.props.title==='Edit');assert(b);await act(async()=>b.props.onClick())};
+ await openEdit();
+ const change=async(label,value)=>{const input=renderer.root.findAllByType('input').find(n=>n.props['aria-label']===label);assert(input,label);await act(async()=>input.props.onChange({target:{value}}))};
+ await change('Subassembly','Cabinetry');await click('Save Changes');
+ assert.equal(f.calls.length,1);assert.equal(f.calls[0].ref,'partMasterActions:updatePartMaster');assert.equal(f.calls[0].args.expectedVersion,4);assert.equal(f.calls[0].args.updates.module,'Cabinetry');assert.equal(adjustments,0);
+ await openEdit();await change('Subassembly','Computer revised');const q=renderer.root.findAllByType('input').find(n=>n.props.value==='7');assert(q);await act(async()=>q.props.onChange({target:{value:'8'}}));await click('Save Changes');
+ assert.match(text(renderer.root),/Save quantity changes separately/);assert.equal(f.calls.length,1);assert.equal(adjustments,0);assert(!text(renderer.root).includes('Bin Location'));
+ await act(async()=>renderer.unmount());
 });
 console.log(`Config editor actual component checks: ${passed} passed, ${failed} failed (synthetic transport/portal boundaries).`);
 if (failed) process.exitCode = 1;
