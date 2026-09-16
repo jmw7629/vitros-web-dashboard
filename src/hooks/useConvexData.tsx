@@ -19,6 +19,11 @@ export interface Part {
   onPlan: boolean;
   binLocation: string;
   module: string;
+  supportedModels?: string[];
+  subassemblyCodes?: string[];
+  systemSide?: string;
+  mappingEvidence?: { status?: string; notes?: string[]; sources?: Array<{document?: string;page?: number;sheet?: string;row?: number;note?: string}> };
+  version?: number;
   unitCost?: number;
   lastActivity?: string;
   status: string;
@@ -238,6 +243,11 @@ function mapStockToPart(row: any): Part {
     onPlan: row.on_plan ?? false,
     binLocation: row.bin_location || "",
     module: row.module || "",
+    supportedModels: Array.isArray(row.supported_models) ? row.supported_models : [],
+    subassemblyCodes: Array.isArray(row.subassembly_codes) ? row.subassembly_codes : [],
+    systemSide: row.system_side || "Not mapped",
+    mappingEvidence: row.mapping_evidence || {},
+    version: Number(row.version) || 1,
     unitCost: Number(row.unit_cost) || 0,
     lastActivity: row.last_activity || row.updated_at,
     status: "",

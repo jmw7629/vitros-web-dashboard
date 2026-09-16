@@ -41,7 +41,7 @@ const partMasterUpdatableFields = [
   "on_plan",
   "bin_location",
   "module",
-  "unit_cost",
+  "unit_cost", "supported_models", "subassembly_codes", "system_side",
 ] as const;
 
 type PartMasterUpdatableField = (typeof partMasterUpdatableFields)[number];
@@ -54,6 +54,11 @@ function validatePartMasterUpdates(updates: Record<string, unknown>): Record<str
     if (!partMasterUpdatableFields.includes(key as PartMasterUpdatableField)) {
       throw new Error(`Field ${key} is not editable via part master administration`);
     }
+    if (key === "supported_models" || key === "subassembly_codes") {
+      if (!Array.isArray(value) || value.length > 20 || value.some(v => typeof v !== "string" || !v.trim() || v.length > 80 || (key === "subassembly_codes" && !/^[A-Z]{2}$/.test(v)))) throw new Error("Invalid model or subassembly code list");
+      safe[key] = [...new Set(value.map(v => (v as string).trim()))]; continue;
+    }
+    if (key === "system_side" && !["Dry","Wet","Both","Shared","Not mapped"].includes(String(value))) throw new Error("Invalid Dry/Wet classification");
     if (key === "type" && typeof value === "string" && !allowedPartTypes.has(value)) {
       throw new Error("Invalid part type");
     }
@@ -97,6 +102,9 @@ export const listPartMaster = action({
     onPlan: v.boolean(),
     binLocation: v.string(),
     module: v.string(),
+    supportedModels: v.array(v.string()),
+    subassemblyCodes: v.array(v.string()),
+    systemSide: v.string(),
     unitCost: v.number(),
     version: v.number(),
     updatedAt: v.string(),
@@ -107,7 +115,7 @@ export const listPartMaster = action({
     const rows = await sbFetch<Array<Record<string, unknown>>>(
       serviceKey,
       url,
-      "stock?select=id,part_number,description,type,qty_on_hand,min_qty,max_qty,on_plan,bin_location,module,unit_cost,version,updated_at&order=part_number.asc",
+      "stock?select=id,part_number,description,type,qty_on_hand,min_qty,max_qty,on_plan,bin_location,module,unit_cost,version,updated_at,supported_models,subassembly_codes,system_side&order=part_number.asc",
     );
     return rows.map((row) => ({
       id: String(row.id ?? ""),
@@ -120,6 +128,9 @@ export const listPartMaster = action({
       onPlan: row.on_plan === true,
       binLocation: String(row.bin_location ?? ""),
       module: String(row.module ?? ""),
+      supportedModels: Array.isArray(row.supported_models) ? row.supported_models.map(String) : [],
+      subassemblyCodes: Array.isArray(row.subassembly_codes) ? row.subassembly_codes.map(String) : [],
+      systemSide: String(row.system_side ?? "Not mapped"),
       unitCost: Number(row.unit_cost ?? 0),
       version: Number(row.version ?? 1),
       updatedAt: String(row.updated_at ?? ""),
@@ -138,6 +149,9 @@ export const updatePartMaster = action({
       on_plan: v.optional(v.boolean()),
       bin_location: v.optional(v.string()),
       module: v.optional(v.string()),
+      supported_models: v.optional(v.array(v.string())),
+      subassembly_codes: v.optional(v.array(v.string())),
+      system_side: v.optional(v.string()),
       unit_cost: v.optional(v.number()),
     }),
     expectedVersion: v.number(),

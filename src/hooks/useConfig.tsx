@@ -1,3 +1,4 @@
+import { normalizePartColumns } from "../lib/partMetadata";
 /**
  * React hook for reading published configuration values.
  * Uses the shared contract from convex/configContract.ts via configRegistry re-export.
@@ -64,7 +65,7 @@ export function useConfig(): ConfigContextType {
   const getStockSummaryColumns = useMemo(() => {
     return (): StockSummaryColumnConfig[] => {
       const columns = get<StockSummaryColumnConfig[]>("tables.stockSummary.columns");
-      return columns
+      return normalizePartColumns(columns)
         .filter((c) => c.visible !== false)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     };
