@@ -46,7 +46,7 @@ const partMasterUpdatableFields = [
 
 type PartMasterUpdatableField = (typeof partMasterUpdatableFields)[number];
 
-const allowedPartTypes = new Set(["Required", "Optional", "Not on BOM", "Consumable"]);
+const allowedPartTypes = new Set(["Required", "Optional", "Tool", "Not on BOM", "Consumable"]);
 
 function validatePartMasterUpdates(updates: Record<string, unknown>): Record<string, unknown> {
   const safe: Record<string, unknown> = {};

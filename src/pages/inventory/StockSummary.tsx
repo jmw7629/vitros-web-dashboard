@@ -49,6 +49,7 @@ function typeBadgeStyle(type: string): { bg: string; text: string } {
     case "Required":   return { bg: "#ea580c", text: "#fff" };
     case "Optional":   return { bg: "#ca8a04", text: "#fff" };
     case "Not on BOM": return { bg: "#475569", text: "#e2e8f0" };
+    case "Tool": return { bg: "#0369a1", text: "#fff" };
     case "Consumable": return { bg: "#7c3aed", text: "#fff" };
     default:           return { bg: "#475569", text: "#e2e8f0" };
   }
@@ -289,6 +290,13 @@ export function StockSummary() {
             </div>
           ))}
         </WebCard>
+        {part.mappingEvidence?.rev_j_bom_authority && <WebCard className="p-4 space-y-2">
+          <h3 className="text-sm font-bold">Rev J checklist classification</h3>
+          <p className="text-xs">{part.mappingEvidence.rev_j_bom_authority.classification} · 5600 checklist</p>
+          <p className="text-xs">{part.mappingEvidence.rev_j_bom_authority.classification === "Tool" ? "Tool Qty" : "BOM Qty"}: {part.mappingEvidence.rev_j_bom_authority.bom_qty}</p>
+          {(part.mappingEvidence.rev_j_bom_authority.notes || []).map((note:string,i:number)=><p className="text-xs break-words" key={i}>{note}</p>)}
+          <p className="text-xs break-words" style={{color:theme.textSecondary}}>{part.mappingEvidence.rev_j_bom_authority.document}</p>
+        </WebCard>}
         {part.mappingEvidence && <WebCard className="p-4 space-y-2">
           <h3 className="text-sm font-bold">Source audit</h3><p className="text-xs">{part.mappingEvidence.status || "Not verified"}</p>
           <p className="text-xs" style={{color:theme.textSecondary}}>Subcodes use the supplied 5600 reference diagram. Dry = Cuvette Supply and left; Wet = MicroTip Supply and right.</p>
@@ -470,6 +478,7 @@ export function StockSummary() {
           <option value="Required">Required</option>
           <option value="Optional">Optional</option>
           <option value="Not on BOM">Not on BOM</option>
+          <option value="Tool">Tool</option>
           <option value="Consumable">Consumable</option>
         </select>
         <select
@@ -697,6 +706,7 @@ export function StockSummary() {
                             <option value="Required">Required</option>
                             <option value="Optional">Optional</option>
                             <option value="Not on BOM">Not on BOM</option>
+                            <option value="Tool">Tool</option>
                             <option value="Consumable">Consumable</option>
                           </select>
                         </div>
@@ -811,6 +821,7 @@ export function StockSummary() {
                             <option value="Required">Required</option>
                             <option value="Optional">Optional</option>
                             <option value="Not on BOM">Not on BOM</option>
+                            <option value="Tool">Tool</option>
                             <option value="Consumable">Consumable</option>
                           </select>
                         </div>
