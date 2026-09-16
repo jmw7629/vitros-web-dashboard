@@ -290,6 +290,13 @@ export function StockSummary() {
             </div>
           ))}
         </WebCard>
+        {part.mappingEvidence?.rev_j_bom_authority && <WebCard className="p-4 space-y-2">
+          <h3 className="text-sm font-bold">Rev J checklist classification</h3>
+          <p className="text-xs">{part.mappingEvidence.rev_j_bom_authority.classification} · 5600 checklist</p>
+          <p className="text-xs">{part.mappingEvidence.rev_j_bom_authority.classification === "Tool" ? "Tool Qty" : "BOM Qty"}: {part.mappingEvidence.rev_j_bom_authority.bom_qty}</p>
+          {(part.mappingEvidence.rev_j_bom_authority.notes || []).map((note:string,i:number)=><p className="text-xs break-words" key={i}>{note}</p>)}
+          <p className="text-xs break-words" style={{color:theme.textSecondary}}>{part.mappingEvidence.rev_j_bom_authority.document}</p>
+        </WebCard>}
         {part.mappingEvidence && <WebCard className="p-4 space-y-2">
           <h3 className="text-sm font-bold">Source audit</h3><p className="text-xs">{part.mappingEvidence.status || "Not verified"}</p>
           <p className="text-xs" style={{color:theme.textSecondary}}>Subcodes use the supplied 5600 reference diagram. Dry = Cuvette Supply and left; Wet = MicroTip Supply and right.</p>
