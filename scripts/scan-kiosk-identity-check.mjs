@@ -9,6 +9,8 @@ const source = readFileSync(new URL('../src/pages/inventory/ScanKiosk.tsx', impo
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
+const kitExports = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/kitDemand.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: kitExports });
 const self = { _id: 'test-authenticated-engineer', name: 'Test Engineer', role: 'engineer' };
 const part = { _id: 'test-part', partNumber: 'TEST-PART', description: 'Synthetic component fixture', qoh: 10, minQty: 1, maxQty: 20, status: 'OK' };
 
@@ -31,6 +33,7 @@ function harness(identity) {
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },
     'convex/react': { useQuery: query => { assert.equal(query, 'auth.currentUser'); return identity; } },
     '../../../convex/_generated/api': { api: { auth: { currentUser: 'auth.currentUser' } } },
+    '../../lib/kitDemand': kitExports,
     '../../hooks/useConvexData': { useConvexData: () => data },
     '../../components/vitros/SharedComponents': { WebCard: 'card', StatusBadge: 'badge', DashCard: 'dash', theme: {}, statusColor: () => '', modeColor: () => '', formatDate: () => '' },
     'lucide-react': {},
@@ -105,3 +108,33 @@ for (const identity of [self, null, undefined]) {
   console.log(`PASS kit: ${identity ? 'preview and actual OUT commit use self with empty directory' : identity === null ? 'signed-out disabled' : 'loading identity disabled'}`);
 }
 console.log('ScanKiosk identity regression passed: 9 actual-render/event paths; no remote writes.');
+
+for (const manualUnits of ["0", "1"]) {
+  const h = harness(self);
+  h.data.parts.push({ ...part, partNumber: "TEST-OIL", description: "Synthetic measured consumable" });
+  h.data.kits[0].components = [
+    { partNumber: part.partNumber, description: "Shared spring", qtyRequired: 2, module: "First module" },
+    { partNumber: part.partNumber, description: "Shared spring", qtyRequired: 2, module: "Second module" },
+    { partNumber: "TEST-OIL", description: "Synthetic measured consumable", qtyRequired: 0, quantityLabel: "Dab", requiresManualQuantity: true },
+  ];
+  h.render();
+  await h.click(/Synthetic Kit/);
+  h.fill(p => p.placeholder === 'Enter analyzer serial number...', 'TEST-SERIAL');
+  assert.equal(h.button(/Consume Kit \(/).props.disabled, true);
+  for (const invalid of ["", "-1", "0.5", "NaN"]) {
+    h.fill(p => p['aria-label'] === "Inventory units to issue for TEST-OIL", invalid);
+    assert.equal(h.button(/Consume Kit \(/).props.disabled, true, "Measured quantity must be explicit and whole");
+  }
+  h.fill(p => p['aria-label'] === "Inventory units to issue for TEST-OIL", manualUnits);
+  await h.click(/Consume Kit \(/);
+  await h.click(/Commit Batch/);
+  assert.deepEqual(h.calls[0], ['OUT', part.partNumber, 4, self._id, 'TEST-SERIAL'], "Both modules consume their combined requirement once");
+  assert.equal(h.calls.length, manualUnits === "0" ? 1 : 2);
+  if (manualUnits === "1") assert.deepEqual(h.calls[1], ['OUT', 'TEST-OIL', 1, self._id, 'TEST-SERIAL']);
+  console.log("PASS duplicate module totals and explicit measured-consumable issue " + manualUnits);
+}
+assert.equal(kitExports.kitPartQuantity([{partNumber:"P",qtyRequired:2},{partNumber:"P",qtyRequired:2}], "P"), "4");
+assert.equal(kitExports.kitPartQuantity([{partNumber:"O",qtyRequired:0,requiresManualQuantity:true,quantityLabel:"Dab"}], "O"), "Dab");
+const duplicates = kitExports.getKitDemand([{partNumber:"P",qtyRequired:2},{partNumber:"P",qtyRequired:2}]);
+assert.equal(duplicates.totals.get("P"), 4);
+assert.equal(Math.floor(3 / duplicates.parts[0].qtyRequired), 0, "Three available cannot build a kit needing four");

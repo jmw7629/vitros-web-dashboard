@@ -1,3 +1,4 @@
+import { kitPartQuantity } from "../../lib/kitDemand";
 import { useState, useMemo, useCallback } from "react";
 import { useConvexData } from "../../hooks/useConvexData";
 import { useRole } from "../../hooks/useRole";
@@ -304,7 +305,7 @@ export function StockSummary() {
                   <div className="text-[10px]" style={{ color: theme.textMuted }}>{kit.kitId}</div>
                 </div>
                 <span className="text-xs font-bold" style={{ color: "#8b5cf6" }}>
-                  Qty: {kit.components.find((c: any) => c.partNumber === part.partNumber)?.qtyRequired || 0}
+                  Qty: {kitPartQuantity(kit.components, part.partNumber)}
                 </span>
               </div>
             ))}
