@@ -1,3 +1,4 @@
+import { getKitDemand } from "../../lib/kitDemand";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -350,6 +351,7 @@ export function ScanKiosk() {
   const [result, setResult] = useState<string | null>(null);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [kitPreview, setKitPreview] = useState<any>(null); // kit being previewed before consume
+  const [kitQuantities, setKitQuantities] = useState<Record<string, string>>({});
   const [stockoutReport, setStockoutReport] = useState<any>(null); // stockout report after commit
 
 
@@ -517,12 +519,15 @@ export function ScanKiosk() {
     const kit = data.kits.find(k => k.kitId === kitId);
     if (!kit) return;
     // Show preview instead of immediately adding
+    setKitQuantities({});
     setKitPreview(kit);
   };
 
   const confirmKitConsume = () => {
     if (!kitPreview) return;
-    const items: BatchItem[] = kitPreview.components.map((comp: any) => ({
+    const demand = getKitDemand(kitPreview.components, kitQuantities);
+    if (demand.unresolved.length) return;
+    const items: BatchItem[] = demand.parts.map(comp => ({
       partNumber: comp.partNumber,
       description: comp.description || data.parts.find((p: any) => p.partNumber === comp.partNumber)?.description || "",
       qty: comp.qtyRequired,
@@ -535,10 +540,11 @@ export function ScanKiosk() {
 
   // KIT PREVIEW MODAL
   if (kitPreview) {
-    const previewComponents = kitPreview.components.map((comp: any) => {
+    const demand = getKitDemand(kitPreview.components, kitQuantities);
+    const previewComponents = demand.lines.map(comp => {
       const part = data.parts.find((p: any) => p.partNumber === comp.partNumber);
       const qoh = part?.qoh ?? 0;
-      const missing = qoh < comp.qtyRequired;
+      const missing = comp.resolvedQuantity === null || qoh < (demand.totals.get(comp.partNumber) ?? 0);
       return { ...comp, qoh, missing, description: comp.description || part?.description || "" };
     });
     const missingCount = previewComponents.filter((c: any) => c.missing).length;
@@ -583,13 +589,30 @@ export function ScanKiosk() {
                   <div className="text-[10px] truncate" style={{ color: comp.missing ? "#ef444499" : theme.textMuted }}>{comp.description}</div>
                 </div>
                 <div className="flex gap-8 shrink-0">
-                  <span className="w-12 text-center text-sm font-bold" style={{ color: theme.textPrimary }}>{comp.qtyRequired}</span>
+                  <span className="w-12 text-center text-sm font-bold" style={{ color: theme.textPrimary }}>{comp.requiresManualQuantity ? comp.quantityLabel || "Measured" : comp.qtyRequired}</span>
                   <span className="w-12 text-center text-sm font-bold" style={{ color: comp.missing ? "#ef4444" : theme.statusOk }}>{comp.qoh}</span>
                 </div>
               </div>
             ))}
           </div>
         </WebCard>
+
+        {demand.lines.some(comp => comp.requiresManualQuantity) && (
+          <WebCard className="p-4 space-y-3">
+            <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Measured consumables</h3>
+            <p className="text-xs" style={{ color: theme.textSecondary }}>Enter whole inventory units to issue. Enter 0 when using an already-open container. A dab is not automatically treated as one container.</p>
+            {demand.lines.filter(comp => comp.requiresManualQuantity).map(comp => (
+              <label key={comp.partNumber} className="block text-xs" style={{ color: theme.textPrimary }}>
+                {comp.partNumber} · {comp.quantityLabel || "Measured quantity"}
+                <input type="number" min="0" step="1" aria-label={"Inventory units to issue for " + comp.partNumber}
+                  value={kitQuantities[comp.partNumber] ?? ""}
+                  onChange={event => setKitQuantities(previous => ({ ...previous, [comp.partNumber]: event.target.value }))}
+                  className="block w-full mt-1 px-3 py-2 rounded-xl border"
+                  style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }} />
+              </label>
+            ))}
+          </WebCard>
+        )}
 
         {/* Employee & Analyzer fields — required before consuming */}
         <WebCard className="p-4 space-y-3">
@@ -624,7 +647,7 @@ export function ScanKiosk() {
             Cancel
           </button>
           <button onClick={confirmKitConsume}
-            disabled={!employeeId || !analyzerSerial}
+            disabled={!employeeId || !analyzerSerial || demand.unresolved.length > 0}
             className="py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
             style={{ backgroundColor: "#6366f1" }}>
             Consume Kit ({kitPreview.components.length})

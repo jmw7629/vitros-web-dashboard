@@ -60,6 +60,10 @@ export interface KitComponent {
   partNumber: string;
   description: string;
   qtyRequired: number;
+  module?: string;
+  sourceLine?: string;
+  quantityLabel?: string;
+  requiresManualQuantity?: boolean;
 }
 
 export interface SapRecord {
@@ -285,6 +289,10 @@ function mapKit(row: any): Kit {
       partNumber: String(component.partNumber ?? component.part_number ?? ""),
       description: String(component.description ?? ""),
       qtyRequired: Number(component.qtyRequired ?? component.qty_required ?? component.qty ?? 0),
+      module: component.module,
+      sourceLine: component.sourceLine,
+      quantityLabel: component.quantityLabel,
+      requiresManualQuantity: component.requiresManualQuantity === true,
     })),
   };
 }
