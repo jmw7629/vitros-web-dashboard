@@ -14,7 +14,8 @@ const rejectText = (text, pattern, label) => {
 
 const action = read("convex/remOperationalActions.ts");
 const migration = read("supabase/migrations/20260907033000_rem_operational_analyzer_updates.sql");
-const kiosk = read("src/pages/rem/EngineerKiosk.tsx");
+const kiosk = read("src/components/vitros/RemProgressDialog.tsx");
+const board = read("src/components/vitros/RemWorkboard.tsx");
 const report = read("src/pages/rem/Reports.tsx");
 const morning = read("src/pages/rem/MorningSnapshot.tsx");
 const kanban = read("src/pages/rem/KanbanBoard.tsx");
@@ -30,9 +31,10 @@ const pages = [
 ];
 
 for (const path of pages) {
-  const source = read(path);
+  const page = read(path);
+  const source = page.includes("RemWorkboard") ? page + board : page;
   requireText(source, /useRemCoreData/, `${path} authoritative REM hook`);
-  rejectText(source, /useConvexData/, `${path} legacy Convex aggregate`);
+  rejectText(source, /import\s*\{[^}]*useConvexData/, `${path} legacy Convex aggregate`);
 }
 
 // Field Status now reads imported source records through its dedicated server
@@ -81,12 +83,12 @@ requireText(migration, /grant execute on function[\s\S]*to service_role/i, "serv
 rejectText(migration, /delete\s+from\s+public\.(?:rem_analyzers|audit_log)/i, "destructive REM/audit delete");
 rejectText(migration, /sap_staging|inventory_operations|\bstock\b/i, "unrelated SAP/inventory mutation");
 
-requireText(kiosk, /api\.remOperationalActions\.getAnalyzerOperational/, "Engineer Kiosk authoritative detail read");
-requireText(kiosk, /api\.remOperationalActions\.updateAnalyzerOperational/, "Engineer Kiosk authoritative update");
+requireText(kiosk, /api\.remProgressActions\.getDetail/, "Engineer Kiosk authoritative detail read");
+requireText(kiosk, /api\.remProgressActions\.updateProgress/, "Engineer Kiosk authoritative update");
 requireText(kiosk, /crypto\.randomUUID\(\)/, "per-attempt idempotency key");
-requireText(kiosk, /onClick=\{\(\) => void save\(\)\}/, "working Engineer Kiosk save button");
-requireText(kiosk, /expectedStage/, "Engineer Kiosk optimistic stage precondition");
-requireText(kiosk, /expectedNotes/, "Engineer Kiosk optimistic notes precondition");
+requireText(kiosk, /onClick=\{\(\)=>void save\(\)\}/, "working Engineer Kiosk save button");
+requireText(kiosk, /expectedRevision/, "Engineer Kiosk optimistic revision precondition");
+requireText(kiosk, /engineerId/, "Engineer Kiosk required attribution");
 rejectText(kiosk, /Service\/Repair/, "non-authoritative Service/Repair stage alias");
 
 requireText(report, /onClick=\{exportReport\}/, "working REM export button");
@@ -96,7 +98,8 @@ requireText(report, /data\.lvccItems/, "authoritative LVCC export");
 
 rejectText(morning, /targetDate/, "fabricated completion-date metric");
 requireText(morning, /slaDays/, "authoritative SLA metric");
-requireText(kanban, /"Service"/, "authoritative Service stage");
+requireText(kanban, /RemWorkboard/, "shared authoritative Kanban");
+requireText(read("convex/remProgressContract.ts"), /label: 'Service'/, "authoritative Service stage");
 rejectText(kanban, /Service\/Repair/, "non-authoritative Kanban stage alias");
 
 console.log("REM_OPERATIONAL_AUTHORITATIVE_UI=PASS");

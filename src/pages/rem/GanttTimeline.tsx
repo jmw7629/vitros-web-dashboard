@@ -1,3 +1,4 @@
+import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { useMemo } from "react";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
@@ -13,6 +14,8 @@ export function GanttTimeline() {
       .filter((analyzer) => !analyzer.isComplete)
       .sort((a, b) => (a.startDate || "").localeCompare(b.startDate || ""));
   }, [data.analyzers]);
+
+  const { inspect, dialog } = useRemInspection();
 
   return (
     <div className="space-y-4">
@@ -34,14 +37,14 @@ export function GanttTimeline() {
 
       <div className="flex flex-wrap gap-2">
         {STAGES.map((stage, index) => (
-          <div key={stage} className="flex items-center gap-1">
+          <button type="button" onClick={() => inspect(stage, activeAnalyzers.filter(a => a.currentStage === stage))} key={stage} className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: STAGE_COLORS[index] }} />
             <span className="text-[9px]" style={{ color: theme.textSecondary }}>{stage}</span>
-          </div>
+          </button>
         ))}
       </div>
 
-      <WebCard className="p-4 overflow-x-auto">
+      <RemInfoCard title="Timeline" data={activeAnalyzers} className="p-4 overflow-x-auto">
         {data.isLoading ? (
           <div className="py-8 text-center text-sm" style={{ color: theme.textSecondary }}>Loading authoritative REM timeline…</div>
         ) : !data.error && activeAnalyzers.length === 0 ? (
@@ -60,7 +63,7 @@ export function GanttTimeline() {
                 { name: "SAP Release", pct: analyzer.sapReleasePct },
               ];
               return (
-                <div key={analyzer.serialNumber} className="flex items-center gap-3">
+                <button type="button" onClick={() => inspect(analyzer.serialNumber, [analyzer])} key={analyzer.serialNumber} className="w-full text-left flex items-center gap-3">
                   <div className="w-[80px] shrink-0">
                     <div className="text-xs font-bold" style={{ color: theme.textPrimary }}>{analyzer.serialNumber}</div>
                     <div className="text-[9px]" style={{ color: theme.textMuted }}>{analyzer.analyzerType}</div>
@@ -79,12 +82,13 @@ export function GanttTimeline() {
                     ))}
                   </div>
                   <span className="text-[10px] w-[30px] text-right font-bold" style={{ color: theme.textPrimary }}>{Math.round(analyzer.overallPct)}%</span>
-                </div>
+                </button>
               );
             })}
           </div>
         ) : null}
-      </WebCard>
+      </RemInfoCard>
+      {dialog}
     </div>
   );
 }

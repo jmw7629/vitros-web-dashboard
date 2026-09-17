@@ -1,3 +1,4 @@
+import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { saveAs } from "file-saver";
 import { useState, useMemo, useCallback } from "react";
 import * as XLSX from "xlsx";
@@ -247,6 +248,8 @@ export function RemReports() {
     }
   }, [currentPeriod.type]);
 
+  const { inspect, dialog } = useRemInspection();
+
   return (
     <div className="space-y-4">
       {/* Header with period selector */}
@@ -359,13 +362,13 @@ export function RemReports() {
       {!isLoading && !hasError && report && (
         <>
           <div className="grid grid-cols-2 gap-3">
-            <DashCard label="TOTAL (Current Snapshot)" value={total} icon="🔬" color="#6366f1" />
-            <DashCard label="ACTIVE (Current Snapshot)" value={active} icon="🔧" color="#f59e0b" />
-            <DashCard label="COMPLETED (Current Snapshot)" value={completed} icon="✅" color={theme.statusOk} />
-            <DashCard label="LVCC IN PERIOD" value={periodActivity.lvccItems.length} icon="📋" color="#8b5cf6" />
+            <DashCard onClick={() => inspect("TOTAL (Current Snapshot)", data.analyzers)} label="TOTAL (Current Snapshot)" value={total} icon="🔬" color="#6366f1" />
+            <DashCard onClick={() => inspect("ACTIVE (Current Snapshot)", data.analyzers.filter(a => !a.isComplete))} label="ACTIVE (Current Snapshot)" value={active} icon="🔧" color="#f59e0b" />
+            <DashCard onClick={() => inspect("COMPLETED (Current Snapshot)", data.analyzers.filter(a => a.isComplete))} label="COMPLETED (Current Snapshot)" value={completed} icon="✅" color={theme.statusOk} />
+            <DashCard onClick={() => inspect("LVCC IN PERIOD", periodActivity.lvccItems)} label="LVCC IN PERIOD" value={periodActivity.lvccItems.length} icon="📋" color="#8b5cf6" />
           </div>
 
-          <WebCard className="p-4 border-l-4" style={{ borderColor: theme.accentBlue, backgroundColor: theme.cardBg }}>
+          <RemInfoCard title="Period date coverage" data={{analyzers:data.analyzers,lvcc:data.lvccItems}} className="p-4 border-l-4" style={{ borderColor: theme.accentBlue, backgroundColor: theme.cardBg }}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Info className="h-4 w-4" style={{ color: theme.accentBlue }} />
@@ -377,16 +380,16 @@ export function RemReports() {
                 Analyzers unknown date: {periodActivity.analyzerUnknownDates} | LVCC unknown date: {periodActivity.lvccUnknownDates} | LVCC total: {allLvccCount}
               </div>
             </div>
-          </WebCard>
+          </RemInfoCard>
 
-          <WebCard className="p-4">
+          <RemInfoCard title="Completion rate" data={data.analyzers} className="p-4">
             <h3 className="text-sm font-bold mb-2" style={{ color: theme.textPrimary }}>Completion Rate (Current Snapshot)</h3>
             <ProgressBar value={completed} maxValue={total || 1} color={theme.statusOk} height={10} />
             <div className="text-xs mt-1 text-right" style={{ color: theme.textMuted }}>{total ? Math.round((completed / total) * 100) : 0}%</div>
-          </WebCard>
+          </RemInfoCard>
 
           {/* Planning Data - Tracker Plan vs Recorded Actual */}
-          <WebCard className="p-4 border-l-4" style={{ borderColor: "#3b82f6", backgroundColor: theme.cardBg }}>
+          <RemInfoCard title="Tracker plan and actual" data={planningPeriod.trackerRows} className="p-4 border-l-4" style={{ borderColor: "#3b82f6", backgroundColor: theme.cardBg }}>
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="h-4 w-4" style={{ color: "#3b82f6" }} />
               <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>
@@ -396,9 +399,9 @@ export function RemReports() {
             {planningPeriod.trackerRows.length > 0 ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
-                  <DashCard label="PLAN TOTAL" value={trackerPlanTotal} icon="📊" color="#3b82f6" />
-                  <DashCard label="RECORDED ACTUAL (partial)" value={recordedActualSum} icon="📈" color={theme.statusOk} />
-                  <DashCard label={`MISSING ACTUALS: ${missingActualCount} of ${planningPeriod.trackerRows.length}`} value={`${recordedActualCount} recorded`} icon="⚠️" color="#f59e0b" />
+                  <DashCard onClick={() => inspect("PLAN TOTAL", planningPeriod.trackerRows)} label="PLAN TOTAL" value={trackerPlanTotal} icon="📊" color="#3b82f6" />
+                  <DashCard onClick={() => inspect("RECORDED ACTUAL (partial)", planningPeriod.trackerRows.filter(r => r.actual !== undefined))} label="RECORDED ACTUAL (partial)" value={recordedActualSum} icon="📈" color={theme.statusOk} />
+                  <DashCard onClick={() => inspect("Missing actuals", planningPeriod.trackerRows.filter(r => r.actual === undefined))} label={`MISSING ACTUALS: ${missingActualCount} of ${planningPeriod.trackerRows.length}`} value={`${recordedActualCount} recorded`} icon="⚠️" color="#f59e0b" />
                 </div>
                 <div className="max-h-[16rem] overflow-auto" role="region" aria-label="Tracker weekly rows" tabIndex={0}>
                   <table className="w-full min-w-[600px] border-collapse text-left">
@@ -417,8 +420,8 @@ export function RemReports() {
                         const hasActual = row.actual !== undefined && row.actual !== null;
                         return (
                           <tr key={row._id} style={{ borderBottom: `1px solid ${theme.cardBorder}` }}>
-                            <td className="px-3 py-2 text-xs" style={{ color: theme.textPrimary }}>{row.product}</td>
-                            <td className="px-3 py-2 text-xs" style={{ color: theme.textSecondary }}>W{row.weekNumber}</td>
+                            <td className="px-3 py-2 text-xs" style={{ color: theme.textPrimary }}><button className="underline" onClick={() => inspect(row.product, row)}>{row.product}</button></td>
+                            <td className="px-3 py-2 text-xs" style={{ color: theme.textSecondary }}><button className="underline" onClick={() => inspect(`Week ${row.weekNumber}`, row)}>W{row.weekNumber}</button></td>
                             <td className="px-3 py-2 text-xs" style={{ color: theme.textSecondary }}>{row.quarter}</td>
                             <td className="px-3 py-2 text-xs text-right font-medium" style={{ color: theme.textPrimary }}>{row.plan}</td>
                             <td className="px-3 py-2 text-xs text-right" style={{ color: hasActual ? theme.textPrimary : theme.textMuted }}>
@@ -442,10 +445,10 @@ export function RemReports() {
                 No tracker planning data available for this period.
               </div>
             )}
-          </WebCard>
+          </RemInfoCard>
 
           {/* Build Plan Data */}
-          <WebCard className="p-4 border-l-4" style={{ borderColor: "#f59e0b", backgroundColor: theme.cardBg }}>
+          <RemInfoCard title="Build plan" data={planningPeriod.buildPlanRows} className="p-4 border-l-4" style={{ borderColor: "#f59e0b", backgroundColor: theme.cardBg }}>
             <div className="flex items-center gap-2 mb-3">
               <BarChart3 className="h-4 w-4" style={{ color: "#f59e0b" }} />
               <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>
@@ -469,7 +472,7 @@ export function RemReports() {
                   <tbody>
                     {planningPeriod.buildPlanRows.map((row) => (
                       <tr key={row._id} style={{ borderBottom: `1px solid ${theme.cardBorder}` }}>
-                        <td className="px-3 py-2 text-xs" style={{ color: theme.textSecondary }}>W{row.weekNumber}</td>
+                        <td className="px-3 py-2 text-xs" style={{ color: theme.textSecondary }}><button className="underline" onClick={() => inspect(`Week ${row.weekNumber}`, row)}>W{row.weekNumber}</button></td>
                         <td className="px-3 py-2 text-xs text-right" style={{ color: theme.textPrimary }}>{row.delivery.analyzer3600 ?? "—"}</td>
                         <td className="px-3 py-2 text-xs text-right" style={{ color: theme.textPrimary }}>{row.delivery.analyzer5600 ?? "—"}</td>
                         <td className="px-3 py-2 text-xs text-right" style={{ color: theme.textPrimary }}>{row.delivery.analyzer7600 ?? "—"}</td>
@@ -486,7 +489,7 @@ export function RemReports() {
                 No build plan data available for this period.
               </div>
             )}
-          </WebCard>
+          </RemInfoCard>
         </>
       )}
 
@@ -506,6 +509,7 @@ export function RemReports() {
         </div>
         <RemOperationalRecords key={dataset} dataset={dataset} title={DATASETS.find(([value]) => value === dataset)?.[1] ?? "Workbook Records"} />
       </div>
+      {dialog}
     </div>
   );
 }

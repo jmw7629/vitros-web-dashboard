@@ -1,3 +1,4 @@
+import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { useMemo } from "react";
 import { DashCard, WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemPlanningData } from "../../hooks/useRemPlanningData";
@@ -64,6 +65,8 @@ export function ProductionPlan() {
     .slice(0, 8)
     .reverse();
 
+  const { inspect, dialog } = useRemInspection();
+
   return (
     <div className="space-y-4">
       <div>
@@ -83,16 +86,16 @@ export function ProductionPlan() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <DashCard label="VITROS PLAN" value={isLoading ? "…" : fmt(vitros?.plan)} icon="🎯" color="#6366f1" />
-        <DashCard label="VITROS ACTUAL" value={isLoading ? "…" : fmt(vitros?.actual)} icon="✅" color={theme.statusOk} />
-        <DashCard label="ATTAINMENT" value={isLoading ? "…" : vitros ? `${vitros.attainment}%` : "—"} icon="📊" color="#f59e0b" />
-        <DashCard label="REPORTING WEEK" value={isLoading ? "…" : latestReportedWeek || "—"} icon="🗓️" color="#22d3ee" />
+        <DashCard onClick={() => inspect("VITROS PLAN", {targets:annualTargets.filter(t => t.product === "VITROS"),weeks:trackerForYear.filter(t => t.product === "VITROS")})} label="VITROS PLAN" value={isLoading ? "…" : fmt(vitros?.plan)} icon="🎯" color="#6366f1" />
+        <DashCard onClick={() => inspect("VITROS ACTUAL", trackerForYear.filter(t => t.product === "VITROS" && t.actual !== undefined))} label="VITROS ACTUAL" value={isLoading ? "…" : fmt(vitros?.actual)} icon="✅" color={theme.statusOk} />
+        <DashCard onClick={() => inspect("ATTAINMENT", vitros)} label="ATTAINMENT" value={isLoading ? "…" : vitros ? `${vitros.attainment}%` : "—"} icon="📊" color="#f59e0b" />
+        <DashCard onClick={() => inspect("REPORTING WEEK", buildForYear.filter(t => t.weekNumber === latestReportedWeek))} label="REPORTING WEEK" value={isLoading ? "…" : latestReportedWeek || "—"} icon="🗓️" color="#22d3ee" />
       </div>
 
       {productSummaries.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {productSummaries.map((row) => (
-            <WebCard key={row.product} className="p-4">
+            <RemInfoCard title={row.label} data={{summary:row,targets:annualTargets.filter(t => t.product === row.product),weeks:trackerForYear.filter(t => t.product === row.product)}} key={row.product} className="p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-sm font-bold" style={{ color: theme.textPrimary }}>{row.label}</div>
@@ -103,16 +106,16 @@ export function ProductionPlan() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 mt-3">
-                <div className="rounded-xl p-3" style={{ backgroundColor: `${theme.accentBlue}12` }}>
+                <button type="button" onClick={() => inspect(row.label + " plan", trackerForYear.filter(t => t.product === row.product))} className="rounded-xl p-3 text-left" style={{ backgroundColor: `${theme.accentBlue}12` }}>
                   <div className="text-[10px] uppercase font-bold" style={{ color: theme.textMuted }}>Plan</div>
                   <div className="text-lg font-black" style={{ color: theme.textPrimary }}>{fmt(row.plan)}</div>
-                </div>
-                <div className="rounded-xl p-3" style={{ backgroundColor: `${theme.statusOk}12` }}>
+                </button>
+                <button type="button" onClick={() => inspect(row.label + " actual", trackerForYear.filter(t => t.product === row.product))} className="rounded-xl p-3 text-left" style={{ backgroundColor: `${theme.statusOk}12` }}>
                   <div className="text-[10px] uppercase font-bold" style={{ color: theme.textMuted }}>Actual</div>
                   <div className="text-lg font-black" style={{ color: theme.textPrimary }}>{fmt(row.actual)}</div>
-                </div>
+                </button>
               </div>
-            </WebCard>
+            </RemInfoCard>
           ))}
         </div>
       )}
@@ -123,7 +126,7 @@ export function ProductionPlan() {
       </div>
 
       {currentBuild && (
-        <WebCard className="p-4">
+        <RemInfoCard title="Current week capacity" data={currentBuild} className="p-4">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
               <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Week {currentBuild.weekNumber} Capacity</h3>
@@ -134,29 +137,29 @@ export function ProductionPlan() {
             </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div className="rounded-xl p-3" style={{ backgroundColor: theme.cardBg }}>
+            <button type="button" onClick={() => inspect("Head Count", currentBuild)} className="rounded-xl p-3 text-left" style={{ backgroundColor: theme.cardBg }}>
               <div className="text-[10px]" style={{ color: theme.textMuted }}>Head Count</div>
               <div className="text-lg font-black" style={{ color: theme.textPrimary }}>{fmt(currentBuild.capacity.headCount)}</div>
-            </div>
-            <div className="rounded-xl p-3" style={{ backgroundColor: theme.cardBg }}>
+            </button>
+            <button type="button" onClick={() => inspect("In Training", currentBuild)} className="rounded-xl p-3 text-left" style={{ backgroundColor: theme.cardBg }}>
               <div className="text-[10px]" style={{ color: theme.textMuted }}>In Training</div>
               <div className="text-lg font-black" style={{ color: theme.textPrimary }}>{fmt(currentBuild.capacity.inTraining)}</div>
-            </div>
-            <div className="rounded-xl p-3" style={{ backgroundColor: theme.cardBg }}>
+            </button>
+            <button type="button" onClick={() => inspect("Capacity", currentBuild)} className="rounded-xl p-3 text-left" style={{ backgroundColor: theme.cardBg }}>
               <div className="text-[10px]" style={{ color: theme.textMuted }}>Capacity</div>
               <div className="text-lg font-black" style={{ color: theme.textPrimary }}>{fmt(currentBuild.capacity.capacity)}</div>
-            </div>
-            <div className="rounded-xl p-3" style={{ backgroundColor: theme.cardBg }}>
+            </button>
+            <button type="button" onClick={() => inspect("Capacity Delta", currentBuild)} className="rounded-xl p-3 text-left" style={{ backgroundColor: theme.cardBg }}>
               <div className="text-[10px]" style={{ color: theme.textMuted }}>Capacity Delta</div>
               <div className="text-lg font-black" style={{ color: (currentBuild.capacity.delta ?? 0) >= 0 ? theme.statusOk : "#ef4444" }}>
                 {fmt(currentBuild.capacity.delta)}
               </div>
-            </div>
+            </button>
           </div>
-        </WebCard>
+        </RemInfoCard>
       )}
 
-      <WebCard className="overflow-hidden">
+      <RemInfoCard title="Recent weekly plan" data={recentVitros} className="overflow-hidden">
         <div className="px-4 py-3 border-b" style={{ borderColor: theme.cardBorder }}>
           <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Recent VITROS Weekly Plan</h3>
         </div>
@@ -173,7 +176,7 @@ export function ProductionPlan() {
               {recentVitros.map((row) => {
                 const variance = row.actual === undefined ? undefined : row.actual - row.plan;
                 return (
-                  <div key={row._id} className="grid grid-cols-[70px_100px_1fr_1fr_1fr_1fr] px-4 py-2.5 border-b last:border-b-0 text-sm" style={{ borderColor: theme.cardBorder, color: theme.textPrimary }}>
+                  <button type="button" onClick={() => inspect(`Week ${row.weekNumber}`, row)} key={row._id} className="w-full text-left grid grid-cols-[70px_100px_1fr_1fr_1fr_1fr] px-4 py-2.5 border-b last:border-b-0 text-sm" style={{ borderColor: theme.cardBorder, color: theme.textPrimary }}>
                     <span className="font-bold">W{row.weekNumber}</span>
                     <span className="text-xs" style={{ color: theme.textSecondary }}>{row.weekStart || "—"}</span>
                     <span className="text-right">{fmt(row.plan)}</span>
@@ -182,13 +185,14 @@ export function ProductionPlan() {
                     <span className="text-right font-bold" style={{ color: variance === undefined ? theme.textMuted : variance >= 0 ? theme.statusOk : "#ef4444" }}>
                       {variance === undefined ? "—" : `${variance >= 0 ? "+" : ""}${variance}`}
                     </span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
           </div>
         )}
-      </WebCard>
+      </RemInfoCard>
+      {dialog}
     </div>
   );
 }

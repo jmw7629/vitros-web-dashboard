@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from 'typescript';
+import vm from 'node:vm';
+const code=ts.transpileModule(fs.readFileSync('convex/remProgressContract.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
+const context={exports:{}};vm.runInNewContext(code,context);
+const {validateProgress,recordSnapshot,boardStage}=context.exports;
+const p={buildPct:0,testPct:25,packagingPct:100,qaReleasePct:null,sapReleasePct:0};
+validateProgress('lvcc',p,'Test');
+for(const value of [-1,101,0.5,NaN,Infinity,undefined])assert.throws(()=>validateProgress('lvcc',{...p,buildPct:value},'Build'));
+assert.throws(()=>validateProgress('lvcc',{...p,extra:1},'Test'));
+assert.throws(()=>validateProgress('lvcc',p,'Complete'));
+validateProgress('lvcc',Object.fromEntries(Object.keys(p).map(k=>[k,100])),'Complete');
+assert.equal(recordSnapshot('lvcc',{id:'x',progress_revision:0,build_pct:null}).progress.buildPct,null);
+assert.equal(boardStage('Pack',false,'lvcc'),'Packaging');assert.equal(boardStage('Unknown',false,'lvcc'),'Unknown');
+console.log('REM progress contract: range, nulls, exact keys, completion and legacy stage cases passed.');

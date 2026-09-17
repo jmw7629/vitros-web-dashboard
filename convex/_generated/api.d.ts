@@ -52,6 +52,7 @@ import type * as remLvcc from "../remLvcc.js";
 import type * as remOperationalActions from "../remOperationalActions.js";
 import type * as remOperationalImportActions from "../remOperationalImportActions.js";
 import type * as remOperationalImportValidation from "../remOperationalImportValidation.js";
+import type * as remProgressActions from "../remProgressActions.js";
 import type * as remReadActions from "../remReadActions.js";
 import type * as remStaffing from "../remStaffing.js";
 import type * as remTargets from "../remTargets.js";
@@ -120,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   remOperationalActions: typeof remOperationalActions;
   remOperationalImportActions: typeof remOperationalImportActions;
   remOperationalImportValidation: typeof remOperationalImportValidation;
+  remProgressActions: typeof remProgressActions;
   remReadActions: typeof remReadActions;
   remStaffing: typeof remStaffing;
   remTargets: typeof remTargets;
