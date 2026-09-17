@@ -429,3 +429,12 @@ Verification: frontend/Convex typecheck, production build, configuration handler
 
 ## 2026-09-16 Rev J BOM authority
 Production is React/Vite with Convex authenticated actions and Supabase stock as authority; PR405 is live. User supplied VITROS_5600_Rev_J_Fillable_Word.docx and directed Required/Optional/Tool classification from it, all other stock Not on BOM. Existing database and server enum lack Tool. Extend the allowlists and stock filter/edit selectors without changing authentication or inventory quantities. Reconcile through audited versioned part-master RPCs; preserve source provenance and dual-use notes. Validate typecheck/build, Tool acceptance and authorization, and live stock/label parity.
+
+## REM percentage progress audit — 2026-09-17
+- Baseline: main d0327b5; React 19/Vite 7, Convex authenticated actions, Supabase authoritative REM rows. No framework change.
+- Existing kiosk writes only stage/notes; analyzer/LVCC cards and Kanban are read-only. LVCC has Build/Test/Packaging/QA/SAP percentages already. Shared active employee directory exists.
+- Add per-record revision, server timestamp, selected employee attribution and immutable events with service-only RPC. Maintain canonical rows and preserve imported quantities. Photos supply layout only, by user confirmation.
+- Existing web route registry and published permissions retained. Native SwiftUI shares these actions. No SAP posting or inventory balance mutation is part of REM progress editing.
+- Validation pending implementation: action types, SQL rollback-only invariants, web build/browser flows, native builds. Do not infer deployment success from source changes.
+
+Validation: all REM TypeScript and the production bundle pass; synthetic desktop (1440px) and mobile (390px) browser flows pass required engineer selection, invalid percentages, stable retries, audit history, Kanban parity, stale revision handling and LVCC registration. SQL invariants executed inside a rolled-back transaction: service-only privileges, active directory checks, idempotent replay/payload conflicts, all-stage completion, before/after audit, revision increments on external writes and analyzer projections. Original production analyzer/LVCC quantities remain unchanged. Local native package: 14 tests, two opt-in checks skipped, zero failures. OpenCode free/default sessions stalled before edits; no paid Go fallback used.

@@ -1,3 +1,4 @@
+import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { useEffect, useMemo, useState } from "react";
 import { useConfig } from "../../hooks/useConfig";
 import { WebCard, DashCard, ProgressBar, theme } from "../../components/vitros/SharedComponents";
@@ -77,6 +78,8 @@ export function RemDashboard() {
   const progressColor = remProgressConfig.color || "#6366f1";
   const showProgress = remProgressConfig.visible !== false;
 
+  const { inspect, dialog } = useRemInspection();
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -95,47 +98,48 @@ export function RemDashboard() {
       )}
 
       <div className="grid grid-cols-3 gap-3">
-        <DashCard label="TOTAL" value={total} icon="🔬" color={progressColor} />
-        <DashCard label="COMPLETED" value={completed} icon="✅" color={theme.statusOk} />
-        <DashCard label="IN PROGRESS" value={active} icon="🔧" color="#f59e0b" />
+        <DashCard onClick={() => inspect("TOTAL", data.analyzers)} label="TOTAL" value={total} icon="🔬" color={progressColor} />
+        <DashCard onClick={() => inspect("COMPLETED", data.analyzers.filter(a => a.isComplete))} label="COMPLETED" value={completed} icon="✅" color={theme.statusOk} />
+        <DashCard onClick={() => inspect("IN PROGRESS", data.analyzers.filter(a => !a.isComplete))} label="IN PROGRESS" value={active} icon="🔧" color="#f59e0b" />
       </div>
 
       {showProgress && (
-        <WebCard className="p-4">
+        <RemInfoCard title="Analyzer types" data={data.analyzers} className="p-4">
           <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>By Analyzer Type</h3>
           {byType.length === 0 ? (
             <div className="text-sm py-4 text-center" style={{ color: theme.textMuted }}>No REM analyzers available</div>
           ) : byType.map(([type, counts]) => (
-            <div key={type} className="mb-3">
+            <button type="button" onClick={() => inspect(type, data.analyzers.filter(a => a.analyzerType === type))} key={type} className="mb-3 w-full text-left">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm" style={{ color: theme.textPrimary }}>{type}</span>
                 <span className="text-xs" style={{ color: theme.textMuted }}>{counts.completed}/{counts.total} complete</span>
               </div>
               <ProgressBar value={counts.completed} maxValue={counts.total} color={progressColor} />
-            </div>
+            </button>
           ))}
-        </WebCard>
+        </RemInfoCard>
       )}
 
-      <WebCard className="p-4">
+      <RemInfoCard title="WIP by stage" data={data.analyzers.filter(a => !a.isComplete)} className="p-4">
         <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>WIP by Stage</h3>
         {byStage.length === 0 ? (
           <div className="text-sm py-4 text-center" style={{ color: theme.textMuted }}>No active REM work in progress</div>
         ) : byStage.map(([stage, count]) => (
-          <div key={stage} className="flex items-center justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
+          <button type="button" onClick={() => inspect(stage, data.analyzers.filter(a => !a.isComplete && a.currentStage === stage))} key={stage} className="w-full text-left flex items-center justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: progressColor }} />
               <span className="text-sm" style={{ color: theme.textPrimary }}>{stage}</span>
             </div>
             <span className="text-sm font-bold" style={{ color: progressColor }}>{count}</span>
-          </div>
+          </button>
         ))}
-      </WebCard>
+      </RemInfoCard>
 
       <div className="grid grid-cols-2 gap-3">
-        <DashCard label="LVCC TOTAL" value={lvccTotal} icon="📋" color="#8b5cf6" />
-        <DashCard label="LVCC ACTIVE" value={lvccActive} icon="⚡" color="#f59e0b" />
+        <DashCard onClick={() => inspect("LVCC TOTAL", data.lvccItems)} label="LVCC TOTAL" value={lvccTotal} icon="📋" color="#8b5cf6" />
+        <DashCard onClick={() => inspect("LVCC ACTIVE", data.lvccItems.filter(a => !a.isComplete))} label="LVCC ACTIVE" value={lvccActive} icon="⚡" color="#f59e0b" />
       </div>
+      {dialog}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { recordSnapshot } from "./remProgressContract";
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./authGuard";
@@ -5,6 +6,9 @@ import { requireCapability } from "./authGuard";
 declare const process: { env: Record<string, string | undefined> };
 
 const analyzerRow = v.object({
+  stageProgress: v.record(v.string(), v.union(v.number(), v.null())),
+  progressUpdatedAt: v.union(v.string(), v.null()),
+  progressEngineerName: v.union(v.string(), v.null()),
   _id: v.string(),
   serialNumber: v.string(),
   analyzerType: v.string(),
@@ -27,6 +31,9 @@ const analyzerRow = v.object({
 });
 
 const lvccRow = v.object({
+  stageProgress: v.record(v.string(), v.union(v.number(), v.null())),
+  progressUpdatedAt: v.union(v.string(), v.null()),
+  progressEngineerName: v.union(v.string(), v.null()),
   _id: v.string(),
   serialNumber: v.string(),
   batchNumber: v.optional(v.string()),
@@ -195,13 +202,13 @@ export const listCore = action({
         url,
         serviceKey,
         "rem_analyzers",
-        "select=id,serial_number,analyzer_type,production_order,start_date,sla_days,current_stage,days_in_stage,overall_pct,procurement_pct,cleaning_pct,service_pct,final_line_pct,release_testing_pct,qa_release_pct,sap_release_pct,packaging_pct,current_pct,is_complete&order=serial_number.asc&limit=500",
+        "select=progress_updated_at,progress_engineer_name,progress_revision,id,serial_number,analyzer_type,production_order,start_date,sla_days,current_stage,days_in_stage,overall_pct,procurement_pct,cleaning_pct,service_pct,final_line_pct,release_testing_pct,qa_release_pct,sap_release_pct,packaging_pct,current_pct,is_complete&order=serial_number.asc&limit=500",
       ),
       readRows(
         url,
         serviceKey,
         "rem_lvcc",
-        "select=id,serial_number,item_type,batch_number,start_date,end_date,current_stage,build_pct,test_pct,qa_release_pct,sap_release_pct,packaging_pct,is_complete&order=serial_number.asc&limit=500",
+        "select=progress_updated_at,progress_engineer_name,progress_revision,id,serial_number,item_type,batch_number,start_date,end_date,current_stage,build_pct,test_pct,qa_release_pct,sap_release_pct,packaging_pct,is_complete&order=serial_number.asc&limit=500",
       ),
       readRows(
         url,
@@ -214,6 +221,9 @@ export const listCore = action({
     const analyzers = analyzerRows.map((raw) => {
       const row = raw as Record<string, unknown>;
       return {
+        stageProgress: recordSnapshot("analyzer", row).progress,
+        progressUpdatedAt: row.progress_updated_at == null ? null : String(row.progress_updated_at),
+        progressEngineerName: row.progress_engineer_name == null ? null : String(row.progress_engineer_name),
         _id: String(row.id ?? ""),
         serialNumber: String(row.serial_number ?? ""),
         analyzerType: String(row.analyzer_type ?? ""),
@@ -241,6 +251,9 @@ export const listCore = action({
     const lvccItems = lvccRows.map((raw) => {
       const row = raw as Record<string, unknown>;
       return {
+        stageProgress: recordSnapshot("lvcc", row).progress,
+        progressUpdatedAt: row.progress_updated_at == null ? null : String(row.progress_updated_at),
+        progressEngineerName: row.progress_engineer_name == null ? null : String(row.progress_engineer_name),
         _id: String(row.id ?? ""),
         serialNumber: String(row.serial_number ?? ""),
         batchNumber: optionalString(row.batch_number),

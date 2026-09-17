@@ -18,7 +18,7 @@ function loader(f) {
   const cache = new Map();
   const load = relative => {
     let filename = path.resolve(root, relative);
-    if (!fs.existsSync(filename)) filename = ['.tsx', '.ts'].map(e => filename + e).find(fs.existsSync);
+    if (!fs.existsSync(filename)) filename = ['.tsx', '.ts', '.js', '.mjs'].map(e => filename + e).find(fs.existsSync);
     assert(filename, `Missing module ${relative}`);
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} }; cache.set(filename, module);
@@ -43,8 +43,9 @@ function loader(f) {
         const component = name.split('/').at(-1);
         return { [component]: () => { f.mounted.push(component); return React.createElement('div', null, component); } };
       }
+      if (name.startsWith('@/')) return load(path.join(root, 'src', name.slice(2)));
       if (name.startsWith('.')) return load(path.resolve(path.dirname(filename), name));
-      return req(name);
+      return name === 'react' || name.startsWith('react/') ? req(name) : projectReq(name);
     };
     const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
     vm.runInNewContext(code, { module, exports: module.exports, require: scoped, console, Date, Map, Set, Intl, URL, Blob, TextEncoder, Math }, { filename });

@@ -1,3 +1,4 @@
+import { RemProgressDialog } from "../../components/vitros/RemProgressDialog";
 import { useMemo, useState } from "react";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
 import { WebCard, StatusBadge, ProgressBar, theme } from "../../components/vitros/SharedComponents";
@@ -5,6 +6,7 @@ import { Search, X } from "lucide-react";
 
 export function Analyzers() {
   const data = useRemCoreData();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
 
@@ -59,7 +61,7 @@ export function Analyzers() {
           {data.isLoading && <div className="px-4 py-8 text-center text-sm" style={{ color: theme.textSecondary }}>Loading authoritative REM analyzers…</div>}
           {!data.isLoading && !data.error && filtered.length === 0 && <div className="px-4 py-8 text-center text-sm" style={{ color: theme.textSecondary }}>No analyzers match the current filters.</div>}
           {filtered.map(a => (
-            <div key={a._id || a.serialNumber} className="px-4 py-3">
+            <button type="button" onClick={() => setSelectedId(a._id)} key={a._id || a.serialNumber} className="px-4 py-3 w-full text-left hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-indigo-500">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-sm font-bold" style={{ color: theme.textPrimary }}>{a.serialNumber}</span>
                 <StatusBadge text={a.analyzerType} color="#6366f1" />
@@ -73,10 +75,11 @@ export function Analyzers() {
                 <div className="flex-1"><ProgressBar value={a.overallPct} maxValue={100} color="#6366f1" height={4} /></div>
                 <span className="text-[10px] font-bold" style={{ color: theme.textPrimary }}>{Math.round(a.overallPct)}%</span>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </WebCard>
+      {selectedId && <RemProgressDialog key={selectedId} kind="analyzer" recordId={selectedId} onClose={() => setSelectedId(null)} onSaved={() => void data.refresh()} />}
     </div>
   );
 }

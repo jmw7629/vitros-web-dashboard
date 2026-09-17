@@ -1,3 +1,4 @@
+import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { useMemo } from "react";
 import { WebCard, DashCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
@@ -22,6 +23,8 @@ export function MorningSnapshot() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [data.analyzers]);
 
+  const { inspect, dialog } = useRemInspection();
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -43,25 +46,26 @@ export function MorningSnapshot() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <DashCard label="ACTIVE WIP" value={active} subtitle="in progress" icon="🔧" color="#f59e0b" />
-        <DashCard label="COMPLETED" value={completed} subtitle="authoritative total" icon="✅" color={theme.statusOk} />
-        <DashCard label="AVG PROGRESS" value={`${averageProgress}%`} subtitle="active analyzers" icon="📈" color="#8b5cf6" />
-        <DashCard label="SLA ATTENTION" value={slaAttention} subtitle="days in stage > SLA" icon="⚠️" color={slaAttention > 0 ? theme.statusOut : theme.statusOk} />
+        <DashCard onClick={() => inspect("ACTIVE WIP", activeAnalyzers)} label="ACTIVE WIP" value={active} subtitle="in progress" icon="🔧" color="#f59e0b" />
+        <DashCard onClick={() => inspect("COMPLETED", data.analyzers.filter(a => a.isComplete))} label="COMPLETED" value={completed} subtitle="authoritative total" icon="✅" color={theme.statusOk} />
+        <DashCard onClick={() => inspect("AVG PROGRESS", activeAnalyzers)} label="AVG PROGRESS" value={`${averageProgress}%`} subtitle="active analyzers" icon="📈" color="#8b5cf6" />
+        <DashCard onClick={() => inspect("SLA ATTENTION", activeAnalyzers.filter(a => a.slaDays > 0 && a.daysInStage > a.slaDays))} label="SLA ATTENTION" value={slaAttention} subtitle="days in stage > SLA" icon="⚠️" color={slaAttention > 0 ? theme.statusOut : theme.statusOk} />
       </div>
 
-      <WebCard className="p-4">
+      <RemInfoCard title="Active by stage" data={activeAnalyzers} className="p-4">
         <h3 className="text-sm font-bold mb-3" style={{ color: theme.textPrimary }}>Active by Stage</h3>
         {data.isLoading ? (
           <div className="py-6 text-center text-sm" style={{ color: theme.textSecondary }}>Loading authoritative REM WIP…</div>
         ) : !data.error && stages.length === 0 ? (
           <div className="py-6 text-center text-sm" style={{ color: theme.textSecondary }}>No active REM work in progress.</div>
         ) : !data.error ? stages.map(([stage, count]) => (
-          <div key={stage} className="flex items-center justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
+          <button type="button" onClick={() => inspect(stage, activeAnalyzers.filter(a => a.currentStage === stage))} key={stage} className="w-full text-left flex items-center justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>
             <span className="text-sm" style={{ color: theme.textPrimary }}>{stage}</span>
             <span className="text-sm font-bold" style={{ color: "#6366f1" }}>{count}</span>
-          </div>
+          </button>
         )) : null}
-      </WebCard>
+      </RemInfoCard>
+      {dialog}
     </div>
   );
 }
