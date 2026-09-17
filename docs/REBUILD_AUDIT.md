@@ -429,3 +429,39 @@ Verification: frontend/Convex typecheck, production build, configuration handler
 
 ## 2026-09-16 Rev J BOM authority
 Production is React/Vite with Convex authenticated actions and Supabase stock as authority; PR405 is live. User supplied VITROS_5600_Rev_J_Fillable_Word.docx and directed Required/Optional/Tool classification from it, all other stock Not on BOM. Existing database and server enum lack Tool. Extend the allowlists and stock filter/edit selectors without changing authentication or inventory quantities. Reconcile through audited versioned part-master RPCs; preserve source provenance and dual-use notes. Validate typecheck/build, Tool acceptance and authorization, and live stock/label parity.
+
+
+## 2026-09-17 Enterprise universal upload audit
+Native enterprise app is SwiftUI in vitros-ios; existing authenticated backend is Convex with server-only canonical inventory. User authorizes arbitrary-file intake, AI-assisted inventory/production mapping and additional data fields. Existing import handlers require REM-specific workbook schemas and reject formula errors; native app has no file intake. Add a durable upload/review/publication workflow with source preservation, hidden-sheet/cell evidence, free Zen mapping, recoverable parsing problems, server authorization and revision/idempotency guards. Published uploaded snapshots remain explicitly distinct from operational inventory transactions; no upload automatically changes stock, SAP or live work records. All unknown columns remain available. No paid inference fallback. Source documents are data, never instructions. Validate parser fixtures, real handlers, native builds and end-to-end upload review/publication before claiming delivery.
+
+## 2026-09-17 Enterprise upload backend verification — 2026-09-17 20:35 UTC
+
+Branch `codex/enterprise-uploads-20260917` from base `d0327b5`. Additive slice only:
+`convex/enterpriseFileParser.ts`, `convex/enterpriseMapping.ts`, `convex/enterpriseUploads.ts`,
+`convex/enterpriseUploadActions.ts`, `convex/enterpriseUploadSchema.ts` (+ spread into
+`convex/schema.ts` and regenerated `convex/_generated/api.d.ts`); three check scripts;
+`docs/ENTERPRISE_UPLOADS.md`; `.github/workflows/enterprise-uploads.yml` (node 22).
+
+Review fixes applied and verified against real SheetJS behavior (no fixture invention):
+uncached formulas read back as `t:"z"` with synthetic `v:0` — now flagged and nulled, never
+counted as zero; cached zero stays a legitimate zero; real `t:"e"` numeric error codes
+(e.g. `0x2A`) flagged with null value (SheetJS write/read strips error cells, so the fixture
+ships exact OOXML worksheet XML); empty JSON gets `needs_attention` with a no-data warning;
+UTF-16 CJK text parses as legitimate data while control-byte binaries are rejected;
+explicit `us`/`eu` number formats parse `1,234.50`/`1.234,50` to 1234.5 while default plain
+keeps them null; leading-zero text (`00123`) is never coerced to a quantity.
+
+Evidence (local, this worktree): `enterprise-file-parser-check.mjs` 142 passed / 0 failed;
+`enterprise-upload-check.mjs` 88 passed / 0 failed; `enterprise-upload-flow-check.mjs`
+37 passed / 0 failed (total 267). `npm run typecheck` clean (tsc -b + convex tsconfig).
+`npm run build` succeeds (1939 modules). `git diff --check` clean. Biome reformatted the new
+modules; remaining biome lint diagnostics match pre-existing repo parity (CI lint is
+non-blocking `|| true`). The `enterprise-upload-flow-check.mjs` loader was fixed to use the
+proven transpileModule/vm sandbox with real `xlsx` require and `Blob`/`structuredClone`
+globals; Convex ESM imports are never loaded directly.
+
+Open limitations: no Zen app key is configured (`OPENCODE_ZEN_API_KEY` missing from Convex
+`youthful-cat-318`), so live AI mapping is unverified; rule-based suggestions and manual
+mapping are fully covered instead. No production fixtures were inserted. Native client
+(PR5) and macOS packaging are owned elsewhere and untouched. Deployment of the additive
+Convex functions/schema follows only after merge and green required checks.

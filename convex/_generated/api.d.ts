@@ -8,12 +8,11 @@
  * @module
  */
 
-import type * as aiAdminActions from "../aiAdminActions.js";
-import type * as zenRuntime from "../zenRuntime.js";
-import type * as aiControl from "../aiControl.js";
-import type * as aiContract from "../aiContract.js";
 import type * as ViktorSpacesEmail from "../ViktorSpacesEmail.js";
 import type * as adminSettingsActions from "../adminSettingsActions.js";
+import type * as aiAdminActions from "../aiAdminActions.js";
+import type * as aiContract from "../aiContract.js";
+import type * as aiControl from "../aiControl.js";
 import type * as aiGateway from "../aiGateway.js";
 import type * as auth from "../auth.js";
 import type * as authGuard from "../authGuard.js";
@@ -23,9 +22,9 @@ import type * as configContract from "../configContract.js";
 import type * as configDefaults from "../configDefaults.js";
 import type * as configMutations from "../configMutations.js";
 import type * as constants from "../constants.js";
+import type * as cycleCount from "../cycleCount.js";
 import type * as cycleCountActions from "../cycleCountActions.js";
 import type * as cycleCountContract from "../cycleCountContract.js";
-import type * as cycleCount from "../cycleCount.js";
 import type * as dhr from "../dhr.js";
 import type * as dhrDocumentActions from "../dhrDocumentActions.js";
 import type * as dhrInventoryActions from "../dhrInventoryActions.js";
@@ -33,6 +32,11 @@ import type * as employeeAccess from "../employeeAccess.js";
 import type * as employeeActions from "../employeeActions.js";
 import type * as employeeIdentity from "../employeeIdentity.js";
 import type * as employees from "../employees.js";
+import type * as enterpriseFileParser from "../enterpriseFileParser.js";
+import type * as enterpriseMapping from "../enterpriseMapping.js";
+import type * as enterpriseUploadActions from "../enterpriseUploadActions.js";
+import type * as enterpriseUploadSchema from "../enterpriseUploadSchema.js";
+import type * as enterpriseUploads from "../enterpriseUploads.js";
 import type * as http from "../http.js";
 import type * as incomingStockActions from "../incomingStockActions.js";
 import type * as incomingStockDeterministicIdentity from "../incomingStockDeterministicIdentity.js";
@@ -68,6 +72,7 @@ import type * as testAuth from "../testAuth.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
 import type * as viktorTools from "../viktorTools.js";
+import type * as zenRuntime from "../zenRuntime.js";
 
 import type {
   ApiFromModules,
@@ -76,12 +81,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  aiAdminActions: typeof aiAdminActions;
-  zenRuntime: typeof zenRuntime;
-  aiControl: typeof aiControl;
-  aiContract: typeof aiContract;
   ViktorSpacesEmail: typeof ViktorSpacesEmail;
   adminSettingsActions: typeof adminSettingsActions;
+  aiAdminActions: typeof aiAdminActions;
+  aiContract: typeof aiContract;
+  aiControl: typeof aiControl;
   aiGateway: typeof aiGateway;
   auth: typeof auth;
   authGuard: typeof authGuard;
@@ -101,6 +105,11 @@ declare const fullApi: ApiFromModules<{
   employeeActions: typeof employeeActions;
   employeeIdentity: typeof employeeIdentity;
   employees: typeof employees;
+  enterpriseFileParser: typeof enterpriseFileParser;
+  enterpriseMapping: typeof enterpriseMapping;
+  enterpriseUploadActions: typeof enterpriseUploadActions;
+  enterpriseUploadSchema: typeof enterpriseUploadSchema;
+  enterpriseUploads: typeof enterpriseUploads;
   http: typeof http;
   incomingStockActions: typeof incomingStockActions;
   incomingStockDeterministicIdentity: typeof incomingStockDeterministicIdentity;
@@ -136,6 +145,7 @@ declare const fullApi: ApiFromModules<{
   transactions: typeof transactions;
   users: typeof users;
   viktorTools: typeof viktorTools;
+  zenRuntime: typeof zenRuntime;
 }>;
 
 /**
