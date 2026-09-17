@@ -28,7 +28,7 @@ export function validateProgress(kind: RemKind, progress: Record<string, number 
   if (stage === 'Complete' && stages.some(s => progress[s.key] !== 100)) throw new Error('Complete requires every stage at 100%');
 }
 export function recordSnapshot(kind: RemKind, row: Record<string, unknown>) {
-  return { id: String(row.id), serialNumber: String(row.serial_number ?? ''), itemType: String(row.analyzer_type ?? row.item_type ?? ''), currentStage: String(row.current_stage ?? ''), revision: Number(row.progress_revision), notes: String(row.operator_notes ?? ''), updatedAt: row.progress_updated_at == null ? null : String(row.progress_updated_at), engineerName: row.progress_engineer_name == null ? null : String(row.progress_engineer_name), progress: Object.fromEntries(progressStages(kind).map(s => [s.key, row[s.column] == null ? null : Number(row[s.column])])) };
+  return { startDate: row.start_date == null ? null : String(row.start_date), endDate: row.end_date == null ? null : String(row.end_date), id: String(row.id), serialNumber: String(row.serial_number ?? ''), itemType: String(row.analyzer_type ?? row.item_type ?? ''), currentStage: String(row.current_stage ?? ''), revision: Number(row.progress_revision), notes: String(row.operator_notes ?? ''), updatedAt: row.progress_updated_at == null ? null : String(row.progress_updated_at), engineerName: row.progress_engineer_name == null ? null : String(row.progress_engineer_name), progress: Object.fromEntries(progressStages(kind).map(s => [s.key, row[s.column] == null ? null : Number(row[s.column])])) };
 }
 /** Preserve legacy aliases and unknown stages visibly instead of dropping their cards. */
 export function boardStage(stage: string | undefined, complete: boolean, kind: RemKind) {

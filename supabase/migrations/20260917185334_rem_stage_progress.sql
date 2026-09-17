@@ -29,7 +29,7 @@ grant select,insert on public.rem_progress_events to service_role;
 
 create function public.rem_progress_snapshot(p_kind text,p_row jsonb) returns jsonb
 language sql immutable set search_path = pg_catalog,public as $$
-select jsonb_build_object('id',p_row->>'id','serialNumber',p_row->>'serial_number',
+select jsonb_build_object('startDate',p_row->'start_date','endDate',p_row->'end_date','id',p_row->>'id','serialNumber',p_row->>'serial_number',
  'itemType',coalesce(p_row->>'analyzer_type',p_row->>'item_type',''),
  'currentStage',coalesce(p_row->>'current_stage',''),'revision',p_row->'progress_revision',
  'notes',coalesce(p_row->>'operator_notes',''),'updatedAt',p_row->'progress_updated_at',

@@ -7,7 +7,7 @@ import { LVCC_TYPES, recordSnapshot, validateProgress } from './remProgressContr
 declare const process: { env: Record<string, string | undefined> };
 const kind = v.union(v.literal('analyzer'), v.literal('lvcc'));
 const progress = v.record(v.string(), v.union(v.number(), v.null()));
-const record = v.object({id:v.string(),serialNumber:v.string(),itemType:v.string(),currentStage:v.string(),revision:v.number(),notes:v.string(),progress,updatedAt:v.union(v.string(),v.null()),engineerName:v.union(v.string(),v.null())});
+const record = v.object({startDate:v.union(v.string(),v.null()),endDate:v.union(v.string(),v.null()),id:v.string(),serialNumber:v.string(),itemType:v.string(),currentStage:v.string(),revision:v.number(),notes:v.string(),progress,updatedAt:v.union(v.string(),v.null()),engineerName:v.union(v.string(),v.null())});
 const engineer = v.object({id:v.string(),name:v.string(),initials:v.string()});
 const receipt = v.object({duplicate:v.boolean(),record,eventId:v.string(),createdAt:v.string()});
 function uuid(value:string) { if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) throw new Error('Invalid record or engineer ID'); }
