@@ -110,6 +110,7 @@ begin
  packaging_pct=(p_progress->>'packagingPct')::numeric,
  qa_release_pct=(p_progress->>'qaReleasePct')::numeric,
  sap_release_pct=(p_progress->>'sapReleasePct')::numeric ,
+ end_date=case when p_stage='Complete' then coalesce(end_date,current_date::text) else null end,
  current_stage=p_stage,operator_notes=btrim(p_notes),is_complete=(p_stage='Complete'),progress_engineer_name=emp.name
  where id=p_record_id returning public.rem_progress_snapshot(p_kind,to_jsonb(rem_lvcc.*)) into saved;
  end if;

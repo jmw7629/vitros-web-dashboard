@@ -30,7 +30,7 @@ begin
  exception when others then if sqlerrm not like '%Complete requires%' then raise;end if;end;
  p:='{"buildPct":100,"testPct":100,"packagingPct":100,"qaReleasePct":100,"sapReleasePct":100}';
  perform public.apply_rem_progress_update('lvcc',a,1,e,'Complete',p,'done','test-actor',corr||'-done');
- if not(select is_complete from public.rem_lvcc where id=a) then raise exception 'Completion not stored';end if;
+ if not(select is_complete and end_date=current_date::text from public.rem_lvcc where id=a) then raise exception 'Completion not stored';end if;
  if (select count(*) from public.rem_progress_events where record_id=a)<>3 then raise exception 'Duplicate audit events';end if;
  a:=gen_random_uuid();
  insert into public.rem_analyzers(id,serial_number,analyzer_type,current_stage,is_complete) values(a,'TEST-'||a,'5600','Service',false);
