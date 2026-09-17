@@ -1,3 +1,4 @@
+import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { saveAs } from "file-saver";
 import { useState } from "react";
 import * as XLSX from "xlsx";
@@ -62,6 +63,8 @@ export function Reports() {
     );
   };
 
+  const { inspect, dialog } = useRemInspection();
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -83,17 +86,17 @@ export function Reports() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <DashCard label="TOTAL" value={total} icon="🔬" color="#6366f1" />
-        <DashCard label="ACTIVE" value={active} icon="🔧" color="#f59e0b" />
-        <DashCard label="COMPLETED" value={completed} icon="✅" color={theme.statusOk} />
-        <DashCard label="LVCC" value={data.lvccItems.length} icon="📋" color="#8b5cf6" />
+        <DashCard onClick={() => inspect("TOTAL", data.analyzers)} label="TOTAL" value={total} icon="🔬" color="#6366f1" />
+        <DashCard onClick={() => inspect("ACTIVE", data.analyzers.filter(a => !a.isComplete))} label="ACTIVE" value={active} icon="🔧" color="#f59e0b" />
+        <DashCard onClick={() => inspect("COMPLETED", data.analyzers.filter(a => a.isComplete))} label="COMPLETED" value={completed} icon="✅" color={theme.statusOk} />
+        <DashCard onClick={() => inspect("LVCC", data.lvccItems)} label="LVCC" value={data.lvccItems.length} icon="📋" color="#8b5cf6" />
       </div>
 
-      <WebCard className="p-4">
+      <RemInfoCard title="Completion" data={data.analyzers} className="p-4">
         <h3 className="text-sm font-bold mb-2" style={{ color: theme.textPrimary }}>Completion Rate</h3>
         <ProgressBar value={completed} maxValue={total || 1} color={theme.statusOk} height={10} />
         <div className="text-xs mt-1 text-right" style={{ color: theme.textMuted }}>{total ? Math.round((completed / total) * 100) : 0}%</div>
-      </WebCard>
+      </RemInfoCard>
 
       <button
         type="button"
@@ -115,6 +118,7 @@ export function Reports() {
         </select>
       </div>
       <RemOperationalRecords key={dataset} dataset={dataset} title={DATASETS.find(([value]) => value === dataset)?.[1] ?? "Workbook Records"} />
+      {dialog}
     </div>
   );
 }

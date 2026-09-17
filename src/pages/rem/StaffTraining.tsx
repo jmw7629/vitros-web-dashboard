@@ -1,3 +1,4 @@
+import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { useMemo } from "react";
 import { DashCard, StatusBadge, WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemPlanningData } from "../../hooks/useRemPlanningData";
@@ -19,6 +20,8 @@ export function StaffTraining() {
     return { totalFte, inTraining, qualified };
   }, [staff]);
 
+  const { inspect, dialog } = useRemInspection();
+
   return (
     <div className="space-y-4">
       <div>
@@ -38,13 +41,13 @@ export function StaffTraining() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <DashCard label="PLANNED STAFF" value={isLoading ? "…" : staff.length} icon="👥" color="#6366f1" />
-        <DashCard label="TOTAL FTE" value={isLoading ? "…" : Math.round(summary.totalFte * 100) / 100} icon="⚙️" color="#22d3ee" />
-        <DashCard label="IN TRAINING" value={isLoading ? "…" : summary.inTraining} icon="🎓" color="#f59e0b" />
-        <DashCard label="SKILL DATA" value={isLoading ? "…" : summary.qualified} icon="✅" color={theme.statusOk} />
+        <DashCard onClick={() => inspect("PLANNED STAFF", staff)} label="PLANNED STAFF" value={isLoading ? "…" : staff.length} icon="👥" color="#6366f1" />
+        <DashCard onClick={() => inspect("TOTAL FTE", staff)} label="TOTAL FTE" value={isLoading ? "…" : Math.round(summary.totalFte * 100) / 100} icon="⚙️" color="#22d3ee" />
+        <DashCard onClick={() => inspect("IN TRAINING", staff.filter(s => Boolean(s.trainingUntil || s.completeAfter)))} label="IN TRAINING" value={isLoading ? "…" : summary.inTraining} icon="🎓" color="#f59e0b" />
+        <DashCard onClick={() => inspect("SKILL DATA", staff.filter(s => s.skills.length > 0 || s.certifications.length > 0))} label="SKILL DATA" value={isLoading ? "…" : summary.qualified} icon="✅" color={theme.statusOk} />
       </div>
 
-      <WebCard className="overflow-hidden">
+      <RemInfoCard title="Team members" data={staff} className="overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderColor: theme.cardBorder }}>
           <div>
             <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Team Members</h3>
@@ -63,7 +66,7 @@ export function StaffTraining() {
               const training = Boolean(member.trainingUntil || member.completeAfter);
               const visibleSkills = member.skills.slice(0, 5);
               return (
-                <div key={member._id} className="px-4 py-3">
+                <button type="button" onClick={() => inspect(member.name, [member])} key={member._id} className="w-full text-left px-4 py-3">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-full flex shrink-0 items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: "#6366f1" }} aria-hidden="true">
                       {initials(member.name) || "REM"}
@@ -101,12 +104,13 @@ export function StaffTraining() {
                       )}
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         )}
-      </WebCard>
+      </RemInfoCard>
+      {dialog}
     </div>
   );
 }

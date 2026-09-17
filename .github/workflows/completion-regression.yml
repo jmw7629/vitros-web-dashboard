@@ -173,6 +173,12 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260905074500_rem_authoritative_workbook_parity.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260913123239_rem_operational_staged_import.sql
           psql -v ON_ERROR_STOP=1 -f database/tests/rem_operational_import.sql
+          psql -v ON_ERROR_STOP=1 -f database/tests/rem_progress_bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260907033000_rem_operational_analyzer_updates.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260917185334_rem_stage_progress.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260917195154_rem_progress_service_permissions.sql
+          psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f scripts/rem-progress-db-test.sql -c 'ROLLBACK'
+
 
   dhr-document-database:
     runs-on: ubuntu-latest

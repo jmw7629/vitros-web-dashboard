@@ -1,3 +1,4 @@
+import { RemInfoCard } from "../../components/vitros/RemDataDialog";
 import { useMemo } from "react";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
 import { WebCard, StatusBadge, theme } from "../../components/vitros/SharedComponents";
@@ -8,6 +9,7 @@ export function WeeklyNotes() {
   const notes = useMemo(() => {
     return [...(data.weeklyNotes || [])].sort((a, b) => b.weekNumber - a.weekNumber);
   }, [data.weeklyNotes]);
+
 
   return (
     <div className="space-y-4">
@@ -36,7 +38,7 @@ export function WeeklyNotes() {
         </WebCard>
       ) : (
         notes.map(note => (
-          <WebCard key={note._id || `${note.weekStart}-${note.weekNumber}`} className="p-4">
+          <RemInfoCard title={`Week ${note.weekNumber} notes`} data={note} key={note._id || `${note.weekStart}-${note.weekNumber}`} className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-sm font-bold" style={{ color: theme.textPrimary }}>Week {note.weekNumber}</span>
               <StatusBadge text={note.quarter} color="#8b5cf6" />
@@ -48,7 +50,7 @@ export function WeeklyNotes() {
                 <p className="text-sm mt-1 whitespace-pre-wrap" style={{ color: theme.textPrimary }}>{n.content}</p>
               </div>
             ))}
-          </WebCard>
+          </RemInfoCard>
         ))
       )}
     </div>

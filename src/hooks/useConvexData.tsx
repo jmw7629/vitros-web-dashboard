@@ -131,6 +131,9 @@ export interface AppSetting {
 }
 
 export interface REMAnalyzer {
+  stageProgress?: Record<string, number | null>;
+  progressUpdatedAt?: string | null;
+  progressEngineerName?: string | null;
   _id: string;
   serialNumber: string;
   analyzerType: string;
@@ -156,6 +159,9 @@ export interface REMAnalyzer {
 }
 
 export interface LVCCItem {
+  stageProgress?: Record<string, number | null>;
+  progressUpdatedAt?: string | null;
+  progressEngineerName?: string | null;
   _id: string;
   serialNumber: string;
   batchNumber?: string;
