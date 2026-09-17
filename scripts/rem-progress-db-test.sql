@@ -5,6 +5,10 @@ declare e uuid:=gen_random_uuid(); dead uuid:=gen_random_uuid(); a uuid:=gen_ran
  corr text:='rem-test-'||gen_random_uuid(); created jsonb; result jsonb; p jsonb;
 begin
  insert into public.convex_employees(id,name,initials,active) values(e,'REM test engineer','TST',true),(dead,'REM inactive test','INACT',false);
+ execute 'set local role service_role';
+ if has_table_privilege('service_role','public.convex_employees','UPDATE')
+ or has_table_privilege('service_role','public.rem_progress_events','UPDATE')
+ or has_table_privilege('service_role','public.rem_progress_events','DELETE') then raise exception 'Progress grants broaden canonical writes';end if;
  if has_function_privilege('anon','public.apply_rem_progress_update(text,uuid,bigint,uuid,text,jsonb,text,text,text)','EXECUTE')
  or has_function_privilege('authenticated','public.create_rem_lvcc_record(text,text,text,uuid,text,text,text)','EXECUTE')
  or has_table_privilege('authenticated','public.rem_progress_events','SELECT') then raise exception 'Untrusted role has progress access'; end if;
