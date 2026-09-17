@@ -1,0 +1,42 @@
+name: Enterprise Uploads
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "convex/enterprise*.ts"
+      - "scripts/enterprise-*.mjs"
+      - "docs/ENTERPRISE_UPLOADS.md"
+      - ".github/workflows/enterprise-uploads.yml"
+  push:
+    branches: [main]
+    paths:
+      - "convex/enterprise*.ts"
+      - "scripts/enterprise-*.mjs"
+      - "docs/ENTERPRISE_UPLOADS.md"
+      - ".github/workflows/enterprise-uploads.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  enterprise-upload-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Enterprise file parser behavior (needs node >= 22.6 type stripping)
+        run: node --experimental-strip-types scripts/enterprise-file-parser-check.mjs
+      - name: Enterprise upload handler behavior
+        run: node scripts/enterprise-upload-check.mjs
+      - name: Enterprise upload end-to-end flow behavior
+        run: node scripts/enterprise-upload-flow-check.mjs
+      - name: Frontend and Convex typecheck
+        run: npm run typecheck
+      - name: Whitespace gate
+        run: git diff --check
