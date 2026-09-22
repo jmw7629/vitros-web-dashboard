@@ -22,10 +22,12 @@ export async function assertEmployeeAccess(ctx: ReadCtx, rawEmployeeId: string):
 export async function assertUserEmployeeAccess(ctx: ReadCtx, userId: Id<"users">): Promise<void> {
   const account = await ctx.db.query("authAccounts")
     .withIndex("userIdAndProvider", q => q.eq("userId", userId).eq("provider", "vitros-role")).unique();
-  if (account?.providerAccountId === "engineer:generic") throw new Error("Employee access requires a fresh canonical employee sign-in");
+  if (account?.providerAccountId === "superuser") return;
   if (account?.providerAccountId.startsWith("employee:")) {
     await assertEmployeeAccess(ctx, account.providerAccountId.slice("employee:".length));
+    return;
   }
+  if (account) throw new Error("Employee access requires a fresh canonical employee sign-in");
 }
 
 // Called only after the login action verifies canonical active status in Supabase.

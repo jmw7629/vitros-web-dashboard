@@ -58,7 +58,11 @@ requireTokens(identity, "DHR provider identity", [
   '.withIndex("userIdAndProvider"',
   '.eq("provider", "vitros-role")',
   'accountId.startsWith("employee:")',
-  'employeeId: !shared',
+  'employeeId: accountId.slice("employee:".length)',
+]);
+forbidTokens(identity, "DHR provider identity", [
+  "engineer:open-v1",
+  "SHARED_ENGINEER",
 ]);
 requireTokens(server, "DHR server boundary", [
   'requireCapability(ctx, "inventory.write")',
