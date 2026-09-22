@@ -30,6 +30,8 @@ import { publishRealtimePulse } from "./realtimePulsePublisher";
 declare const process: { env: Record<string, string | undefined> };
 
 const MAX_CONFIRMATION_ID_CHARS = 180;
+const STOCK_LOOKUP_PAGE_SIZE = 1_000;
+const MAX_STOCK_LOOKUP_ROWS = 100_000;
 
 function getSupabaseConfig() {
   const url = process.env.SUPABASE_URL;
@@ -43,22 +45,29 @@ async function listStockRows(
   url: string,
   serviceKey: string,
 ): Promise<StockRow[]> {
-  const res = await fetch(
-    `${url}/rest/v1/stock?select=id,part_number,description,qty_on_hand&limit=5000`,
-    {
-      method: "GET",
-      headers: {
-        apikey: serviceKey,
-        Authorization: `Bearer ${serviceKey}`,
-        Accept: "application/json",
+  const rows: StockRow[] = [];
+  for (let offset = 0; offset < MAX_STOCK_LOOKUP_ROWS; offset += STOCK_LOOKUP_PAGE_SIZE) {
+    const res = await fetch(
+      `${url}/rest/v1/stock?select=id,part_number,description,qty_on_hand&order=id.asc&limit=${STOCK_LOOKUP_PAGE_SIZE}&offset=${offset}`,
+      {
+        method: "GET",
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          Accept: "application/json",
+        },
       },
-    },
-  );
-  if (!res.ok) throw new Error("Inventory match lookup failed");
-  const body = await res.json();
-  if (!Array.isArray(body))
-    throw new Error("Inventory match lookup returned an invalid response");
-  return body as StockRow[];
+    );
+    if (!res.ok) throw new Error("Inventory match lookup failed");
+    const body = await res.json();
+    if (!Array.isArray(body))
+      throw new Error("Inventory match lookup returned an invalid response");
+    if (rows.length + body.length > MAX_STOCK_LOOKUP_ROWS)
+      throw new Error("Inventory match lookup exceeds supported row limit");
+    rows.push(...(body as StockRow[]));
+    if (body.length < STOCK_LOOKUP_PAGE_SIZE) return rows;
+  }
+  throw new Error("Inventory match lookup exceeds supported row limit");
 }
 
 async function applyConfirmedReceive(
