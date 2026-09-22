@@ -98,43 +98,50 @@ const correct = () => auth.validateRoleSelection.handler(actionCtx, { role: "sup
 let checks = 0;
 async function test(name, callback) { await callback(); checks++; console.log(`PASS ${name}`); }
 
-await test("Engineer enters without credentials or provider fetch and caller identity claims are ignored", async () => {
-  const result = await enter({ role: "engineer", accountId: "superuser", employeeId: employee.id, name: "Impostor", sharedEngineer: false });
-  actorId = result.userId;
+await test("Engineer requires an active canonical employee identity and ignores caller identity claims", async () => {
+  await assert.rejects(enter({ role: "engineer", accountId: "superuser", employeeId: employee.id, name: "Impostor" }), /initials are invalid/);
   assert.equal(fetchCalls, 0); assert.equal(verifierCalls, 0);
+  providerActive = true;
+  const result = await enter({ role: "engineer", initials: "ab", accountId: "superuser", employeeId: "ffffffff-ffff-4fff-8fff-ffffffffffff", name: "Impostor" });
+  actorId = result.userId;
+  assert.equal(fetchCalls, 1);
   const projected = await auth.currentUser.handler(ctx, {});
-  assert.equal(projected.role, "engineer"); assert.equal(projected.name, identity.SHARED_ENGINEER_NAME);
-  const audit = await users.getUserAuditIdentity.handler(ctx, { userId: actorId }); assert.equal(audit.employeeId, null);
-  assert.equal([...rows.values()].filter(row => row._id.startsWith("employeeAccessBarriers:")).length, 0);
+  assert.equal(projected.role, "engineer"); assert.equal(projected.name, employee.name);
+  const audit = await users.getUserAuditIdentity.handler(ctx, { userId: actorId }); assert.equal(audit.employeeId, employee.id);
+  assert.equal([...rows.values()].filter(row => row._id.startsWith("employeeAccessBarriers:")).length, 1);
 });
-const sharedUserId = actorId;
-await test("poisoned shared profiles and existing accounts cannot acquire admin privileges or employee attribution", async () => {
-  await db.patch(actorId, { role: "superuser", name: "Impostor", employeeId: employee.id });
-  assert.equal((await enter({ role: "engineer" })).userId, sharedUserId, "existing account skips profile callback");
+const namedUserId = actorId;
+await test("immutable employee provider identity prevents mutable profile role elevation", async () => {
+  await db.patch(actorId, { role: "superuser", employeeId: "ffffffff-ffff-4fff-8fff-ffffffffffff" });
+  assert.equal((await enter({ role: "engineer", initials: "AB" })).userId, namedUserId, "existing canonical account remains stable");
   for (const context of [ctx, actionCtx]) {
     await guard.requireCapability(context, "inventory.read"); await guard.requireCapability(context, "rem.write");
     for (const capability of ["inventory.admin", "admin.users.manage", "admin.system_settings.manage"]) await assert.rejects(guard.requireCapability(context, capability), /Missing capability/);
   }
   assert.equal((await auth.currentUser.handler(ctx, {})).role, "engineer");
   const audit = await users.getUserAuditIdentity.handler(ctx, { userId: actorId });
-  assert.equal(audit.name, identity.SHARED_ENGINEER_NAME); assert.equal(audit.employeeId, null); assert.equal(audit.role, "engineer");
+  assert.equal(audit.employeeId, employee.id); assert.equal(audit.role, "engineer");
   await assert.rejects(users.updateMyProfile.handler(ctx, { name: "Impostor" }), /disabled/);
 });
-await test("explicit invalid or inactive employee initials never fall back to shared access", async () => {
-  for (const initials of ["", "ABCDE", "A B", null, {}, 17]) await assert.rejects(enter({ role: "engineer", initials }), /initials are invalid/);
+await test("invalid inactive or missing employee initials never fall back to shared access", async () => {
+  providerActive = false;
+  for (const initials of [undefined, "", "ABCDE", "A B", null, {}, 17]) await assert.rejects(enter({ role: "engineer", ...(initials === undefined ? {} : { initials }) }), /initials are invalid/);
   await assert.rejects(enter({ role: "engineer", initials: "AB" }), /not active or are ambiguous/);
   await assert.rejects(enter({ role: "administrator" }), /Invalid VITROS role/);
 });
-await test("named employee access barriers and retired generic sessions remain enforced", async () => {
-  providerActive = true; const named = await enter({ role: "engineer", initials: "AB" }); actorId = named.userId;
+await test("employee barriers and retired generic/shared engineer sessions fail closed", async () => {
+  providerActive = true; actorId = namedUserId;
   const barrier = [...rows.values()].find(row => row._id.startsWith("employeeAccessBarriers:"));
   await guard.requireCapability(ctx, "inventory.write"); await db.patch(barrier._id, { blocked: true });
   await assert.rejects(guard.requireCapability(ctx, "inventory.write"), /suspended/);
   await assert.rejects(enter({ role: "engineer", initials: "AB" }), /suspended/);
-  actorId = await db.insert("users", { role: "engineer" });
-  await db.insert("authAccounts", { userId: actorId, provider: "vitros-role", providerAccountId: "engineer:generic" });
-  await assert.rejects(guard.requireCapability(actionCtx, "inventory.read"), /fresh canonical/);
-  actorId = sharedUserId; await guard.requireCapability(actionCtx, "inventory.read");
+  for (const retired of ["engineer:generic", "engineer:open-v1"]) {
+    actorId = await db.insert("users", { role: "engineer" });
+    await db.insert("authAccounts", { userId: actorId, provider: "vitros-role", providerAccountId: retired });
+    await assert.rejects(guard.requireCapability(actionCtx, "inventory.read"), /fresh canonical/);
+    assert.equal(await auth.currentUser.handler(ctx, {}), null);
+  }
+  actorId = null;
 });
 await test("missing config and empty secrets fail without creating authority", async () => {
   const hash = env.VITROS_SUPERUSER_PASSWORD_HASH; delete env.VITROS_SUPERUSER_PASSWORD_HASH;

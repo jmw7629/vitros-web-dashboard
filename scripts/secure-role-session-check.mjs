@@ -3,6 +3,8 @@ import fs from "node:fs";
 const roleLogin = fs.readFileSync("src/pages/RoleLogin.tsx", "utf8");
 const useRole = fs.readFileSync("src/hooks/useRole.tsx", "utf8");
 const auth = fs.readFileSync("convex/auth.ts", "utf8");
+const roleIdentity = fs.readFileSync("convex/roleIdentity.ts", "utf8");
+const employeeAccess = fs.readFileSync("convex/employeeAccess.ts", "utf8");
 const loginResolver = fs.readFileSync("database/migrations/20260912213423_employee_login_canonical_resolver.sql", "utf8");
 const envExample = fs.readFileSync(".env.example", "utf8");
 
@@ -19,9 +21,10 @@ function forbidAll(source, label, tokens) {
 
 requireAll(roleLogin, "RoleLogin", [
   'useAuthActions',
-  'signIn("vitros-role", { role: "engineer" })',
+  'signIn("vitros-role", { role: "engineer", initials: normalized })',
   'signIn("vitros-role", { role: "superuser", secret: password })',
-  'No password required',
+  'Employee identity · No password required',
+  'Enter Employee Initials',
 ]);
 forbidAll(roleLogin, "RoleLogin", [
   'password === "12345"',
@@ -45,7 +48,6 @@ requireAll(auth, "auth", [
   'maxFailedAttempsPerHour: 6',
   'internal.roleSignInLimiter.reserveSuperuserAttempt',
   'internal.roleSignInLimiter.releaseSuccessfulSuperuserAttempt',
-  'SHARED_ENGINEER_ACCOUNT_ID',
   'resolveServerIdentity(ctx, userId)',
   'args.provider.id !== "vitros-role"',
   'await ctx.db.patch(args.userId',
@@ -56,6 +58,24 @@ forbidAll(auth, "auth", [
   'VITE_VITROS_SUPERUSER_PASSWORD_HASH',
   'VITE_SUPERUSER_PASSWORD',
 ]);
+
+
+requireAll(roleIdentity, "role identity", [
+  'accountId === "superuser"',
+  'accountId.startsWith("employee:")',
+  'role: "engineer"',
+  'return null',
+]);
+forbidAll(roleIdentity, "role identity", [
+  'engineer:open-v1',
+  'SHARED_ENGINEER',
+]);
+requireAll(employeeAccess, "employee access", [
+  'account?.providerAccountId === "superuser"',
+  'account?.providerAccountId.startsWith("employee:")',
+  'Employee access requires a fresh canonical employee sign-in',
+]);
+forbidAll(auth, "auth", ['SHARED_ENGINEER_ACCOUNT_ID', 'SHARED_ENGINEER_NAME', 'isAnonymous: true']);
 
 requireAll(loginResolver, "canonical login resolver", [
   'SECURITY INVOKER',

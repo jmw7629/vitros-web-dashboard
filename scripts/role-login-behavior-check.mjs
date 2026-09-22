@@ -84,50 +84,71 @@ async function harness(publishedValues = new Map()) {
 let checks = 0;
 async function test(name, run) { await run(); checks++; console.log(`PASS ${name}`); }
 
-await test("Engineer is a native single-click button with no initials or credential dialog", async () => {
+await test("Engineer requires active employee initials before authentication", async () => {
   const h = await harness();
   assert.equal(h.requests.length, 0, "mount must not sign in automatically");
   assert.equal(h.button("Engineer").props.type, "button");
   assert.notEqual(h.button("Engineer").props.tabIndex, -1, "native role button remains keyboard reachable");
-  assert.equal(h.button("Engineer").props.disabled, false);
-  assert.equal(h.root().findAllByType("input").length, 0);
-  assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 0);
-  assert(!text(h.root()).toLowerCase().includes("initials"));
   await h.click("Engineer");
+  assert.equal(h.requests.length, 0, "opening identity dialog must not authenticate");
+  assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 1);
+  assert.equal(h.input().props.type, "text");
+  assert.equal(h.input().props.autoComplete, "off");
+  assert.equal(h.root().findByType("label").props.htmlFor, h.input().props.id);
+  await h.password("ab");
+  assert.equal(h.input().props.value, "AB");
+  await h.click("Continue");
   assert.equal(h.requests.length, 1); assert.equal(h.requests[0].provider, "vitros-role");
-  assert.deepEqual(JSON.parse(JSON.stringify(h.requests[0].args)), { role: "engineer" });
-  assert.equal(h.root().findAllByType("input").length, 0);
-  assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.requests[0].args)), { role: "engineer", initials: "AB" });
   assert.deepEqual(h.navigations, []); assert.deepEqual(h.roleHints, []);
-  assert.equal(h.button("Engineer").props["aria-busy"], true);
-  assert.match(text(h.root().findByProps({ role: "status" })), /Signing in/);
+  assert.equal(h.input().props.disabled, true);
   await h.settle({ signingIn: true });
   assert.deepEqual(h.timeline, ["auth-resolved", "role-hint", "navigate"]);
-  assert.deepEqual(h.roleHints, ["engineer"]); assert.deepEqual(h.navigations, ["/engineer-dashboard"]); await h.close();
+  assert.deepEqual(h.roleHints, ["engineer"]); assert.deepEqual(h.navigations, ["/engineer-dashboard"]);
+  assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 0); await h.close();
 });
 
-await test("same-tick repeated Engineer activation and disabled role switching dispatch only once", async () => {
-  const h = await harness(); const engineer = h.button("Engineer").props.onClick; const superuser = h.button("Superuser").props.onClick;
-  await act(async () => { engineer(); engineer(); superuser(); });
-  assert.equal(h.requests.length, 1); assert.equal(h.button("Engineer").props.disabled, true); assert.equal(h.button("Superuser").props.disabled, true);
-  await h.click("Engineer"); await h.click("Superuser");
-  assert.equal(h.requests.length, 1); assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 0);
-  assert.deepEqual(h.navigations, []); await h.settle({ signingIn: true }); assert.equal(h.navigations.length, 1); await h.close();
+await test("Engineer initials are bounded and invalid identity never dispatches", async () => {
+  const h = await harness(); await h.click("Engineer");
+  await h.click("Continue");
+  assert.equal(h.requests.length, 0); assert.equal(h.alerts().length, 1);
+  assert.match(text(h.alerts()[0]), /active employee initials/i);
+  await h.password("a b-c_12345");
+  assert.equal(h.input().props.value, "ABC1", "input keeps only four canonical alphanumerics");
+  assert.equal(h.alerts().length, 1, "stale validation stays visible until submit/reopen");
+  await h.click("Continue"); assert.equal(h.requests.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.requests[0].args)), { role: "engineer", initials: "ABC1" });
+  await h.settle({ signingIn: true }); await h.close();
 });
 
-await test("Engineer rejection exposes a safe accessible retry state without assigning a role", async () => {
-  const h = await harness(); await h.click("Engineer"); await h.reject();
-  assert.deepEqual(h.navigations, []); assert.deepEqual(h.roleHints, []); assert.equal(h.alerts().length, 1);
-  assert.match(text(h.alerts()[0]), /Unable to sign in as Engineer/); assert(!text(h.root()).includes("private provider detail"));
-  assert.equal(h.button("Engineer").props["aria-describedby"], h.alerts()[0].props.id);
-  assert.equal(h.button("Engineer").props.disabled, false); assert.equal(h.button("Superuser").props.disabled, false);
-  await h.click("Engineer"); assert.equal(h.alerts().length, 0); assert.equal(h.requests.length, 2);
+await test("same-tick repeated Engineer submission dispatches only once and cannot dismiss in flight", async () => {
+  const h = await harness(); await h.click("Engineer"); await h.password("AB");
+  const submit = h.button("Continue").props.onClick; const cancel = h.button("Cancel").props.onClick;
+  await act(async () => { submit(); submit(); cancel(); });
+  assert.equal(h.requests.length, 1); assert.equal(h.button("Verifying").props.disabled, true); assert.equal(h.button("Cancel").props.disabled, true);
+  const content = h.root().findByType(DialogContent); let prevented = 0;
+  await act(async () => {
+    content.props.onEscapeKeyDown({ preventDefault: () => prevented++ });
+    content.props.onInteractOutside({ preventDefault: () => prevented++ });
+    h.root().findAllByType(Dialog).find(node => node.props.open).props.onOpenChange(false);
+  });
+  assert.equal(prevented, 2); assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 1);
   await h.settle({ signingIn: true }); assert.deepEqual(h.navigations, ["/engineer-dashboard"]); await h.close();
 });
 
-await test("resolved incomplete or malformed authentication never navigates", async () => {
-  for (const result of [{ signingIn: false }, { signingIn: false, redirect: "https://synthetic.invalid" }, {}, undefined, null, { signingIn: "true" }]) {
-    const h = await harness(); await h.click("Engineer"); await h.settle(result);
+await test("Engineer provider rejection exposes safe retry without assigning a role", async () => {
+  const h = await harness(); await h.click("Engineer"); await h.password("AB"); await h.click("Continue"); await h.reject();
+  assert.deepEqual(h.navigations, []); assert.deepEqual(h.roleHints, []); assert.equal(h.alerts().length, 1);
+  assert.match(text(h.alerts()[0]), /Unable to verify active employee initials/); assert(!text(h.root()).includes("private provider detail"));
+  assert.equal(h.input().props["aria-describedby"], h.alerts()[0].props.id);
+  assert.equal(h.input().props.disabled, false);
+  await h.click("Continue"); assert.equal(h.requests.length, 2);
+  await h.settle({ signingIn: true }); assert.deepEqual(h.navigations, ["/engineer-dashboard"]); await h.close();
+});
+
+await test("resolved incomplete Engineer authentication never navigates", async () => {
+  for (const result of [{ signingIn: false }, {}, undefined, null, { signingIn: "true" }]) {
+    const h = await harness(); await h.click("Engineer"); await h.password("AB"); await h.click("Continue"); await h.settle(result);
     assert.deepEqual(h.navigations, []); assert.deepEqual(h.roleHints, []); assert.equal(h.alerts().length, 1); await h.close();
   }
 });
@@ -170,7 +191,7 @@ await test("Enter submission, repeated keyboard events and dialog dismissal resp
   await act(async () => {
     content.props.onEscapeKeyDown({ preventDefault: () => prevented++ });
     content.props.onInteractOutside({ preventDefault: () => prevented++ });
-    h.root().findByType(Dialog).props.onOpenChange(false);
+    h.root().findAllByType(Dialog).find(node => node.props.open).props.onOpenChange(false);
   });
   assert.equal(prevented, 4); assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 1);
   await h.reject(); await h.click("Cancel"); assert.equal(h.root().findAllByProps({ role: "dialog" }).length, 0);

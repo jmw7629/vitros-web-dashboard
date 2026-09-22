@@ -8,7 +8,7 @@ import { internalAction, query, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { TestCredentials } from "./testAuth";
 import { assertEmployeeAccess } from "./employeeAccess";
-import { resolveServerIdentity, SHARED_ENGINEER_ACCOUNT_ID, SHARED_ENGINEER_NAME } from "./roleIdentity";
+import { resolveServerIdentity } from "./roleIdentity";
 import {
   ViktorSpacesEmail,
   ViktorSpacesPasswordReset,
@@ -127,9 +127,6 @@ export const validateRoleSelection = internalAction({
   }),
   handler: async (ctx, args) => {
     if (args.role === "engineer") {
-      if (args.initials === undefined) {
-        return { accountId: SHARED_ENGINEER_ACCOUNT_ID, name: SHARED_ENGINEER_NAME, role: "engineer" as const };
-      }
       return await resolveActiveEmployee(args.initials ?? "");
     }
     return await verifySuperuserSecret(ctx, args.secret ?? "");
@@ -156,8 +153,7 @@ function VitrosRoleCredentials() {
 
       // Only the server-resolved active canonical identity may initialize access.
       // Existing blocked/pending barriers are never cleared by signing in.
-      const sharedEngineer = identity.role === "engineer" && identity.accountId === SHARED_ENGINEER_ACCOUNT_ID;
-      if (identity.role === "engineer" && !sharedEngineer) {
+      if (identity.role === "engineer") {
         await ctx.runMutation(internal.employeeAccess.provisionVerifiedEmployeeAccess, {
           employeeId: identity.accountId.slice("employee:".length),
         });
@@ -169,7 +165,7 @@ function VitrosRoleCredentials() {
         profile: {
           name: identity.name,
           role: identity.role,
-          ...(sharedEngineer ? { isAnonymous: true } : identity.role === "engineer" ? { employeeId: identity.accountId.slice("employee:".length) } : {}),
+          ...(identity.role === "engineer" ? { employeeId: identity.accountId.slice("employee:".length) } : {}),
         },
         shouldLinkViaEmail: false,
         shouldLinkViaPhone: false,
@@ -212,11 +208,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       }
       const name = typeof args.profile.name === "string" ? args.profile.name.trim() : "";
       const employeeId = args.profile.employeeId;
-      const sharedEngineer = role === "engineer" && args.profile.isAnonymous === true;
-      if (sharedEngineer && (name !== SHARED_ENGINEER_NAME || employeeId !== undefined)) {
-        throw new Error("Invalid server-issued shared Engineer identity");
-      }
-      if (role === "engineer" && !sharedEngineer) {
+      if (role === "engineer") {
         if (typeof employeeId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeId)) {
           throw new Error("Invalid server-issued employee identity");
         }
@@ -224,7 +216,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       }
       await ctx.db.patch(args.userId, {
         role,
-        ...(sharedEngineer ? { employeeId: undefined } : role === "engineer" ? { employeeId: employeeId as string } : {}),
+        ...(role === "engineer" ? { employeeId: employeeId as string } : {}),
         ...(name ? { name } : {}),
       });
     },

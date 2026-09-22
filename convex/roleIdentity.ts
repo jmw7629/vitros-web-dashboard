@@ -1,23 +1,32 @@
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
-// Separate from the retired generic account and from canonical employee logins.
-export const SHARED_ENGINEER_ACCOUNT_ID = "engineer:open-v1";
-export const SHARED_ENGINEER_NAME = "Engineer (shared access)";
-
 export async function resolveServerIdentity(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
   const user = await ctx.db.get(userId);
   if (!user) return null;
   const account = await ctx.db.query("authAccounts")
     .withIndex("userIdAndProvider", q => q.eq("userId", userId).eq("provider", "vitros-role")).unique();
   const accountId = account?.providerAccountId ?? "";
-  const shared = accountId === SHARED_ENGINEER_ACCOUNT_ID;
-  return {
-    user,
-    // The shared account can never acquire elevated privileges or an employee
-    // attribution through a mutable profile, including on an existing session.
-    role: shared ? "engineer" : user.role ?? "viewer",
-    name: shared ? SHARED_ENGINEER_NAME : user.name?.trim() || null,
-    employeeId: !shared && accountId.startsWith("employee:") ? accountId.slice("employee:".length) : null,
-  };
+
+  // VITROS role sessions are authoritative from their immutable provider account.
+  // A named engineer must always map to employee:<canonical employee UUID>. Any
+  // retired/open/shared role account fails closed instead of inheriting a mutable
+  // user-profile role or human attribution it cannot prove.
+  if (account) {
+    if (accountId === "superuser") {
+      return { user, role: "superuser", name: user.name?.trim() || "Superuser", employeeId: null };
+    }
+    if (accountId.startsWith("employee:")) {
+      return {
+        user,
+        role: "engineer",
+        name: user.name?.trim() || null,
+        employeeId: accountId.slice("employee:".length),
+      };
+    }
+    return null;
+  }
+
+  // Non-role auth providers retain their server-stored least-privilege role.
+  return { user, role: user.role ?? "viewer", name: user.name?.trim() || null, employeeId: null };
 }

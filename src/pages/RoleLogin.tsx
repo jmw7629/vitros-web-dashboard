@@ -15,6 +15,8 @@ export function RoleLogin() {
   const engineerButtonRef = useRef<HTMLButtonElement>(null);
   const superuserButtonRef = useRef<HTMLButtonElement>(null);
   const submissionPending = useRef(false);
+  const [showEngineer, setShowEngineer] = useState(false);
+  const [initials, setInitials] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState("");
   const [engineerError, setEngineerError] = useState("");
@@ -29,17 +31,32 @@ export function RoleLogin() {
     navigate(target);
   };
 
-  const handleEngineer = async () => {
+  const handleEngineerClick = () => {
     if (submissionPending.current) return;
+    setShowEngineer(true);
+    setInitials("");
+    setEngineerError("");
+    setError("");
+  };
+
+  const handleEngineerSubmit = async () => {
+    if (submissionPending.current) return;
+    const normalized = initials.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,4}$/.test(normalized)) {
+      setEngineerError("Enter your active employee initials.");
+      return;
+    }
     submissionPending.current = true;
     setIsSubmitting(true);
     setEngineerError("");
     try {
-      const result = await signIn("vitros-role", { role: "engineer" });
+      const result = await signIn("vitros-role", { role: "engineer", initials: normalized });
       if (result?.signingIn !== true) throw new Error("Sign-in did not complete");
+      setShowEngineer(false);
+      setInitials("");
       completeSignIn("engineer");
     } catch {
-      setEngineerError("Unable to sign in as Engineer. Please try again.");
+      setEngineerError("Unable to verify active employee initials. Please try again.");
     } finally {
       submissionPending.current = false;
       setIsSubmitting(false);
@@ -133,10 +150,10 @@ export function RoleLogin() {
               <button
                 type="button"
                 ref={engineerButtonRef}
-                onClick={() => void handleEngineer()}
+                onClick={handleEngineerClick}
                 disabled={isSubmitting}
-                aria-busy={isSubmitting && !showPassword}
-                aria-describedby={engineerError ? "engineer-login-error" : undefined}
+                aria-busy={isSubmitting && showEngineer}
+                aria-describedby={showEngineer && engineerError ? "engineer-login-error" : undefined}
                 className="w-full flex items-center gap-5 p-5 rounded-xl bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/25 hover:from-emerald-600/30 hover:to-teal-600/30 hover:border-emerald-400/40 transition-all duration-200 group disabled:cursor-wait disabled:opacity-60"
               >
                 <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-200">
@@ -144,8 +161,8 @@ export function RoleLogin() {
                 </div>
                 <div className="text-left flex-1">
                   <p className="font-bold text-white text-lg">Engineer</p>
-                  <p className="text-sm text-emerald-200/70" role={isSubmitting && !showPassword ? "status" : undefined}>
-                    {isSubmitting && !showPassword ? "Signing in…" : "Standard access · No password required"}
+                  <p className="text-sm text-emerald-200/70">
+                    Employee identity · No password required
                   </p>
                 </div>
                 <div className="text-emerald-400/50 group-hover:text-emerald-300 transition-colors">
@@ -155,8 +172,55 @@ export function RoleLogin() {
                 </div>
               </button>
             </div>
-            {engineerError && <p id="engineer-login-error" role="alert" className="text-red-400 text-sm mt-4">{engineerError}</p>}
           </div>
+
+          <Dialog open={showEngineer} onOpenChange={(open) => { if (!submissionPending.current) { setShowEngineer(open); if (!open) setEngineerError(""); } }}>
+              <DialogContent
+                showCloseButton={false}
+                className="block bg-slate-800 rounded-2xl p-6 w-[calc(100%-2rem)] max-w-sm sm:max-w-sm border border-white/10"
+                onCloseAutoFocus={(event) => { event.preventDefault(); engineerButtonRef.current?.focus(); }}
+                onEscapeKeyDown={(event) => { if (submissionPending.current) event.preventDefault(); }}
+                onInteractOutside={(event) => { if (submissionPending.current) event.preventDefault(); }}
+              >
+                <DialogTitle className="text-lg font-bold text-white mb-4">Enter Employee Initials</DialogTitle>
+                <DialogDescription className="text-sm text-slate-400 mb-4">Use the active initials registered in the employee directory.</DialogDescription>
+                <label htmlFor="engineer-initials" className="block text-sm text-slate-300 mb-2">Employee Initials</label>
+                <input
+                  id="engineer-initials"
+                  aria-invalid={Boolean(engineerError)}
+                  aria-describedby={engineerError ? "engineer-login-error" : undefined}
+                  type="text"
+                  value={initials}
+                  onChange={(e) => setInitials(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleEngineerSubmit(); } }}
+                  className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-xl text-white uppercase tracking-widest placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-3"
+                  placeholder="Initials"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  autoFocus
+                  disabled={isSubmitting}
+                />
+                {engineerError && <p id="engineer-login-error" role="alert" className="text-red-400 text-sm mb-3">{engineerError}</p>}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => { if (!submissionPending.current) { setShowEngineer(false); setEngineerError(""); } }}
+                    className="flex-1 px-4 py-2.5 bg-slate-600 text-white rounded-xl font-semibold hover:bg-slate-500 transition disabled:opacity-50"
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleEngineerSubmit()}
+                    className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-500 transition disabled:opacity-50"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Verifying…" : "Continue"}
+                  </button>
+                </div>
+              </DialogContent>
+          </Dialog>
 
           <Dialog open={showPassword} onOpenChange={(open) => { if (!submissionPending.current) setShowPassword(open); }}>
               <DialogContent
