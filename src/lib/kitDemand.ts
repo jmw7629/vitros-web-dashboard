@@ -8,6 +8,11 @@ export interface KitDemandLine {
   requiresManualQuantity?: boolean;
 }
 
+export function kitDemandLineKey(line: KitDemandLine, index: number): string {
+  const provenance = line.sourceLine?.trim() || line.module?.trim() || "line";
+  return `${line.partNumber}:${provenance}:${index}`;
+}
+
 export function getKitDemand(
   components: KitDemandLine[],
   manualQuantities: Record<string, string> = {},
@@ -15,12 +20,13 @@ export function getKitDemand(
   const totals = new Map<string, number>();
   const unresolved: number[] = [];
   const lines = components.map((line, index) => {
-    const raw = line.requiresManualQuantity ? manualQuantities[line.partNumber] : line.qtyRequired;
+    const demandKey = kitDemandLineKey(line, index);
+    const raw = line.requiresManualQuantity ? manualQuantities[demandKey] : line.qtyRequired;
     const quantity = raw === undefined || raw === "" ? NaN : Number(raw);
     const valid = Number.isSafeInteger(quantity) && (line.requiresManualQuantity ? quantity >= 0 : quantity > 0);
     if (!valid) unresolved.push(index);
     if (valid && quantity > 0) totals.set(line.partNumber, (totals.get(line.partNumber) ?? 0) + quantity);
-    return { ...line, resolvedQuantity: valid ? quantity : null };
+    return { ...line, demandKey, resolvedQuantity: valid ? quantity : null };
   });
   const parts = [...totals].map(([partNumber, qtyRequired]) => ({
     partNumber,
