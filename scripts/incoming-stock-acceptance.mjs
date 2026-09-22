@@ -94,6 +94,25 @@ const {
 } = context.__api;
 
 const actionsSource = fs.readFileSync(actionsPath, "utf8");
+const stockLookupDecls = extractProductions(
+  actionsPath,
+  ["listStockRows"],
+  ["STOCK_LOOKUP_PAGE_SIZE", "MAX_STOCK_LOOKUP_ROWS"],
+);
+const stockLookupTranspiled = ts.transpileModule(stockLookupDecls, {
+  compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2020 },
+}).outputText;
+let stockLookupFetch = async () => { throw new Error("Synthetic stock lookup fetch is not configured"); };
+const stockLookupContext = {
+  fetch: (...args) => stockLookupFetch(...args),
+  Array, Object, Error, Promise, Number, String, JSON,
+};
+vm.createContext(stockLookupContext);
+vm.runInContext(
+  `${stockLookupTranspiled}\nthis.__lookup = { listStockRows, STOCK_LOOKUP_PAGE_SIZE, MAX_STOCK_LOOKUP_ROWS };`,
+  stockLookupContext,
+);
+const { listStockRows, STOCK_LOOKUP_PAGE_SIZE } = stockLookupContext.__lookup;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -111,6 +130,34 @@ const stockRows = [
 const stockByCanonical = indexStockByCanonical(stockRows);
 
 console.log("=== Incoming Stock Acceptance Fixtures (production review logic) ===\n");
+
+// ===== FIXTURE 0: Complete paged stock lookup (no silent 5000-row truncation) =====
+console.log("FIXTURE 0: Complete paged stock lookup");
+{
+  const syntheticRows = Array.from({ length: 2505 }, (_, index) => ({
+    id: `synthetic-stock-${String(index).padStart(5, "0")}`,
+    part_number: `P${String(index).padStart(5, "0")}`,
+    description: "SYNTHETIC PAGED LOOKUP",
+    qty_on_hand: index % 10,
+  }));
+  const calls = [];
+  stockLookupFetch = async (input, options) => {
+    const requestUrl = new URL(String(input));
+    const offset = Number(requestUrl.searchParams.get("offset") || 0);
+    const limit = Number(requestUrl.searchParams.get("limit") || 0);
+    calls.push({ offset, limit, method: options?.method, order: requestUrl.searchParams.get("order") });
+    return { ok: true, json: async () => syntheticRows.slice(offset, offset + limit) };
+  };
+  const rows = await listStockRows("https://synthetic.supabase.invalid", "synthetic-service-key");
+  equal(rows.length, syntheticRows.length, "paged stock lookup must return every row");
+  equal(calls.length, 3, "2505 rows require three bounded pages");
+  equal(calls[0].offset, 0, "first page offset");
+  equal(calls[1].offset, STOCK_LOOKUP_PAGE_SIZE, "second page offset");
+  equal(calls[2].offset, STOCK_LOOKUP_PAGE_SIZE * 2, "third page offset");
+  assert(calls.every(call => call.limit === STOCK_LOOKUP_PAGE_SIZE), "every page uses the bounded page size");
+  assert(calls.every(call => call.order === "id.asc"), "paged lookup must use deterministic ordering");
+  console.log("  PASS: stock lookup pages deterministically until the final short page");
+}
 
 // ===== FIXTURE 1: Exact PN with description mismatch =====
 console.log("FIXTURE 1: Exact PN with description mismatch");
