@@ -122,10 +122,10 @@ for (const manualUnits of ["0", "1"]) {
   h.fill(p => p.placeholder === 'Enter analyzer serial number...', 'TEST-SERIAL');
   assert.equal(h.button(/Consume Kit \(/).props.disabled, true);
   for (const invalid of ["", "-1", "0.5", "NaN"]) {
-    h.fill(p => p['aria-label'] === "Inventory units to issue for TEST-OIL", invalid);
+    h.fill(p => p['aria-label']?.startsWith("Inventory units to issue for TEST-OIL "), invalid);
     assert.equal(h.button(/Consume Kit \(/).props.disabled, true, "Measured quantity must be explicit and whole");
   }
-  h.fill(p => p['aria-label'] === "Inventory units to issue for TEST-OIL", manualUnits);
+  h.fill(p => p['aria-label']?.startsWith("Inventory units to issue for TEST-OIL "), manualUnits);
   await h.click(/Consume Kit \(/);
   await h.click(/Commit Batch/);
   assert.deepEqual(h.calls[0], ['OUT', part.partNumber, 4, self._id, 'TEST-SERIAL'], "Both modules consume their combined requirement once");
@@ -138,3 +138,16 @@ assert.equal(kitExports.kitPartQuantity([{partNumber:"O",qtyRequired:0,requiresM
 const duplicates = kitExports.getKitDemand([{partNumber:"P",qtyRequired:2},{partNumber:"P",qtyRequired:2}]);
 assert.equal(duplicates.totals.get("P"), 4);
 assert.equal(Math.floor(3 / duplicates.parts[0].qtyRequired), 0, "Three available cannot build a kit needing four");
+
+const duplicateMeasuredLines = [
+  {partNumber:"OIL",qtyRequired:0,requiresManualQuantity:true,quantityLabel:"Dab",module:"Module A"},
+  {partNumber:"OIL",qtyRequired:0,requiresManualQuantity:true,quantityLabel:"Dab",module:"Module B"},
+];
+const duplicateMeasured = kitExports.getKitDemand(duplicateMeasuredLines, {
+  [kitExports.kitDemandLineKey(duplicateMeasuredLines[0], 0)]: "1",
+  [kitExports.kitDemandLineKey(duplicateMeasuredLines[1], 1)]: "2",
+});
+assert.equal(duplicateMeasured.totals.get("OIL"), 3, "Measured duplicate lines must sum each physical line once, not reuse one part-level value");
+assert.equal(duplicateMeasured.unresolved.length, 0);
+assert.notEqual(duplicateMeasured.lines[0].demandKey, duplicateMeasured.lines[1].demandKey);
+console.log("PASS duplicate measured-consumable lines retain independent quantity identity");

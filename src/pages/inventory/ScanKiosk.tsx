@@ -602,11 +602,11 @@ export function ScanKiosk() {
             <h3 className="text-sm font-bold" style={{ color: theme.textPrimary }}>Measured consumables</h3>
             <p className="text-xs" style={{ color: theme.textSecondary }}>Enter whole inventory units to issue. Enter 0 when using an already-open container. A dab is not automatically treated as one container.</p>
             {demand.lines.filter(comp => comp.requiresManualQuantity).map(comp => (
-              <label key={comp.partNumber} className="block text-xs" style={{ color: theme.textPrimary }}>
+              <label key={comp.demandKey} className="block text-xs" style={{ color: theme.textPrimary }}>
                 {comp.partNumber} · {comp.quantityLabel || "Measured quantity"}
-                <input type="number" min="0" step="1" aria-label={"Inventory units to issue for " + comp.partNumber}
-                  value={kitQuantities[comp.partNumber] ?? ""}
-                  onChange={event => setKitQuantities(previous => ({ ...previous, [comp.partNumber]: event.target.value }))}
+                <input type="number" min="0" step="1" aria-label={"Inventory units to issue for " + comp.partNumber + " " + comp.demandKey}
+                  value={kitQuantities[comp.demandKey] ?? ""}
+                  onChange={event => setKitQuantities(previous => ({ ...previous, [comp.demandKey]: event.target.value }))}
                   className="block w-full mt-1 px-3 py-2 rounded-xl border"
                   style={{ borderColor: theme.cardBorder, backgroundColor: "#111827", color: theme.textPrimary }} />
               </label>
