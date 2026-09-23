@@ -35,6 +35,8 @@ async function fixture(role='superuser'){
    '../../hooks/useConvexData':{useConvexData:()=>({parts:[],refresh:async()=>{}})},
    '../../lib/dhrErrors':{get safeDhrError(){return load('src/lib/dhrErrors.ts').safeDhrError;}},
    '../../convex/dhrErrorContract':{get DHR_ERROR_MESSAGES(){return load('convex/dhrErrorContract.ts').DHR_ERROR_MESSAGES;}},
+   '../../lib/aiErrors':{get safeAiError(){return load('src/lib/aiErrors.ts').safeAiError;}},
+   '../../convex/aiErrorContract':{get AI_ERROR_MESSAGES(){return load('convex/aiErrorContract.ts').AI_ERROR_MESSAGES;}},
    '../../hooks/useRole':{useRole:()=>({role})},
    '../../hooks/useServerActions':{useServerActions:()=>actions},
    '../../../convex/_generated/api':{api:{realtimePulse:{watch:'watch'}}},
