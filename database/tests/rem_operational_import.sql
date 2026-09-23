@@ -19,26 +19,26 @@ begin
   r := '{"dataset":"field_status","sourceKey":"2026:field_status:VITROS:BATCH-1","sourceSheet":"Field Status VITROS","sourceRow":2,"data":{"product":"VITROS","batch":"BATCH-1","status":"RELEASED","country":"Ireland"}}'::jsonb;
   p := public.begin_rem_operational_import(repeat('a',64),2026,2,'synthetic-actor'); i := (p->>'importId')::uuid;
   if public.begin_rem_operational_import(repeat('a',64),2026,2,'synthetic-actor')->>'importId' <> i::text then raise exception 'begin retry duplicated'; end if;
-  rejected:=false; begin perform public.begin_rem_operational_import(repeat('a',64),2026,3,'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.begin_rem_operational_import(repeat('a',64),2026,3,'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='operational_import_identity_conflict'; end;
   if not rejected then raise exception 'changed begin metadata accepted'; end if;
-  rejected:=false; begin perform public.get_rem_operational_import_progress(i,'different-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.get_rem_operational_import_progress(i,'different-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='operational_import_not_found'; end;
   if not rejected then raise exception 'other actor can inspect staging'; end if;
-  rejected:=false; begin perform public.test_rem_core(repeat('a',64),i); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.test_rem_core(repeat('a',64),i); exception when others then rejected:=sqlstate='P0001' and sqlerrm='operational_upload_incomplete'; end;
   if not rejected or exists(select 1 from public.rem_authoritative_import_runs) then raise exception 'incomplete upload partially committed'; end if;
   records := jsonb_build_array(r,'{"dataset":"summary_targets","sourceKey":"2026:summary_targets:VITROS:Q1","sourceSheet":"2026 Summary","sourceRow":3,"data":{"product":"VITROS","quarter":"Q1","targetValue":0,"annualTargetValue":100}}'::jsonb);
-  rejected:=false; begin perform public.stage_rem_operational_import(i,0,jsonb_build_array(r,r),'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.stage_rem_operational_import(i,0,jsonb_build_array(r,r),'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='duplicate_operational_source_key'; end;
   if not rejected then raise exception 'duplicate natural keys accepted'; end if;
   bad:=jsonb_set(records,'{0,sourceKey}','"2026:field_status:VITROS:FAKE"');
-  rejected:=false; begin perform public.stage_rem_operational_import(i,0,bad,'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.stage_rem_operational_import(i,0,bad,'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='operational_source_key_mismatch'; end;
   if not rejected then raise exception 'forged source key accepted'; end if;
   bad:=jsonb_set(records,'{0,data,arbitrarySql}','"should not pass"');
-  rejected:=false; begin perform public.stage_rem_operational_import(i,0,bad,'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.stage_rem_operational_import(i,0,bad,'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='unexpected_operational_field'; end;
   if not rejected then raise exception 'unallowlisted field accepted'; end if;
   receipt:=public.stage_rem_operational_import(i,0,records,'synthetic-actor');
   if (receipt->>'receivedRows')::int <> 2 or (receipt->>'duplicate')::boolean then raise exception 'stage receipt invalid'; end if;
   if (public.list_rem_operational_records('field_status',0,50)->>'total')::int <> 0 then raise exception 'staged data leaked'; end if;
   if not (public.stage_rem_operational_import(i,0,records,'synthetic-actor')->>'duplicate')::boolean then raise exception 'batch retry not idempotent'; end if;
-  rejected:=false; begin perform public.stage_rem_operational_import(i,0,jsonb_set(records,'{0,data,status}','"DIFFERENT"'),'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.stage_rem_operational_import(i,0,jsonb_set(records,'{0,data,status}','"DIFFERENT"'),'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='operational_batch_retry_conflict'; end;
   if not rejected then raise exception 'changed batch retry accepted'; end if;
   receipt:=public.test_rem_core(repeat('a',64),i);
   if (receipt->'operational'->>'inserted')::int <> 2 or (receipt->>'already_applied')::boolean then raise exception 'first full receipt invalid'; end if;
@@ -48,7 +48,7 @@ begin
   select count(*) into before_audit from public.audit_log;
   if not (public.test_rem_core(repeat('a',64),i,'Renamed.xlsx')->>'already_applied')::boolean then raise exception 'renamed exact retry failed'; end if;
   if (select count(*) from public.rem_operational_record_events)<>before_events or (select count(*) from public.audit_log)<>before_audit then raise exception 'retry duplicated history'; end if;
-  rejected:=false; begin perform public.test_rem_core(repeat('a',64),i,'Renamed.xlsx',1); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.test_rem_core(repeat('a',64),i,'Renamed.xlsx',1); exception when others then rejected:=sqlstate='P0001' and sqlerrm='operational_finalize_retry_conflict'; end;
   if not rejected then raise exception 'changed core retry accepted'; end if;
   if (public.list_rem_operational_records('field_status',0,50,'Ireland','VITROS',2026)->>'total')::int <> 1 or (public.list_rem_operational_records('field_status',0,50,'','',2025)->>'total')::int <> 0 then raise exception 'read filters incorrect'; end if;
 
@@ -62,9 +62,9 @@ begin
   if not exists(select 1 from public.rem_operational_records where source_key=r->>'sourceKey' and data->>'country'='Ireland' and data->>'status'='REVIEWED' and data->>'partsAtInstallUsd'='0' and version=2) then raise exception 'blank/omission/zero merge failed'; end if;
   if (select count(*) from public.rem_operational_records)<>2 then raise exception 'omitted operational row deleted'; end if;
   if not exists(select 1 from public.rem_operational_record_events where import_id=j and old_value->>'status'='RELEASED' and new_value->>'status'='REVIEWED') then raise exception 'before/after evidence missing'; end if;
-  rejected:=false; begin update public.rem_operational_record_events set actor='tampered'; exception when others then rejected:=true; end;
+  rejected:=false; begin update public.rem_operational_record_events set actor='tampered'; exception when others then rejected:=sqlstate='P0001' and sqlerrm='REM operational import history is immutable'; end;
   if not rejected then raise exception 'event history mutable'; end if;
-  rejected:=false; begin delete from public.rem_operational_import_batches where import_id=i; exception when others then rejected:=true; end;
+  rejected:=false; begin delete from public.rem_operational_import_batches where import_id=i; exception when others then rejected:=sqlstate='P0001' and sqlerrm='REM operational import history is immutable'; end;
   if not rejected then raise exception 'staged batch evidence mutable'; end if;
 
   -- Service-only boundary independent of row policies.
@@ -83,7 +83,7 @@ begin
   i:=(public.begin_rem_operational_import(repeat('c',64),2026,1,'synthetic-actor')->>'importId')::uuid;
   perform public.stage_rem_operational_import(i,0,'[{"dataset":"field_status","sourceKey":"2026:field_status:VISION:FAILURE-PROBE","sourceSheet":"Field Status VISION","sourceRow":2,"data":{"product":"VISION","batch":"FAILURE-PROBE"}}]'::jsonb,'synthetic-actor');
   select count(*) into prior from public.audit_log;
-  begin perform public.test_rem_core(repeat('c',64),i,'Failure.xlsx',90); exception when others then rejected:=true; end;
+  begin perform public.test_rem_core(repeat('c',64),i,'Failure.xlsx',90); exception when others then rejected:=sqlstate='P0001' and sqlerrm='synthetic late failure'; end;
   if not rejected or exists(select 1 from public.rem_authoritative_import_runs where file_hash=repeat('c',64)) or exists(select 1 from public.rem_operational_records where source_key like '%FAILURE-PROBE') or exists(select 1 from public.rem_analyzers where cleaning_pct=90) or (select count(*) from public.audit_log)<>prior then raise exception 'full transaction did not roll back'; end if;
   if (public.get_rem_operational_import_progress(i,'synthetic-actor')->>'status')<>'staging' then raise exception 'failed finalize marked complete'; end if;
 end;
@@ -115,19 +115,19 @@ begin
   i:=(public.begin_rem_operational_import(repeat('d',64),2026,251,'synthetic-actor')->>'importId')::uuid;
   select jsonb_agg(jsonb_build_object('dataset','certified_parts','sourceKey','history:certified_parts:SO-BATCH:'||n||':0:J123:PART','sourceSheet','Certified Parts','sourceRow',n+1,'data',jsonb_build_object('serviceOrder','SO-BATCH','partLineNumber',n::text,'laborLineNumber','0','partNumber','J123','lineType','PART','equipmentNumber','EQ-SHARED','equipmentPartKey','EQ-SHARED-J123','quantity',1,'partCostUsd',3.5,'allCostUsd',4.5)) order by n) into rows from generate_series(1,251)n;
   last_row:=rows->250;
-  rejected:=false; begin perform public.stage_rem_operational_import(i,0,rows,'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.stage_rem_operational_import(i,0,rows,'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='invalid_operational_batch_size'; end;
   if not rejected then raise exception 'oversized batch accepted'; end if;
-  rejected:=false; begin perform public.stage_rem_operational_import(i,1,jsonb_build_array(last_row),'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.stage_rem_operational_import(i,1,jsonb_build_array(last_row),'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='operational_batch_out_of_order_or_incomplete'; end;
   if not rejected then raise exception 'out of order batch accepted'; end if;
   perform public.stage_rem_operational_import(i,0,rows-250,'synthetic-actor');
-  rejected:=false; begin perform public.stage_rem_operational_import(i,1,jsonb_build_array(rows->0),'synthetic-actor'); exception when others then rejected:=true; end;
+  rejected:=false; begin perform public.stage_rem_operational_import(i,1,jsonb_build_array(rows->0),'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm='duplicate_operational_source_key'; end;
   if not rejected or (public.get_rem_operational_import_progress(i,'synthetic-actor')->>'receivedRows')::integer<>250 then raise exception 'cross-batch collision changed staging'; end if;
   perform public.stage_rem_operational_import(i,1,jsonb_build_array(last_row),'synthetic-actor');
   p:=public.test_rem_core(repeat('d',64),i);
   if (p->'operational'->>'inserted')::integer<>251 then raise exception 'line identities collapsed to equipment-part key'; end if;
   page:=public.list_rem_operational_records('certified_parts',200,100,'EQ-SHARED','',2026);
   if (page->>'total')::integer<>251 or jsonb_array_length(page->'records')<>51 or (page->>'hasMore')::boolean then raise exception 'bounded pagination is incorrect'; end if;
-  rejected:=false; begin update public.rem_operational_imports set result='{}'::jsonb where id=i; exception when others then rejected:=true; end;
+  rejected:=false; begin update public.rem_operational_imports set result='{}'::jsonb where id=i; exception when others then rejected:=sqlstate='P0001' and sqlerrm='REM finalized import receipt is immutable'; end;
   if not rejected then raise exception 'accepted full import receipt mutable'; end if;
 end;
 $$;
@@ -138,11 +138,11 @@ begin
   r:='{"dataset":"lvcc_reviews","sourceKey":"2026:lvcc_reviews:J-LVCC:2","sourceSheet":"LVCC DHR Reviews","sourceRow":2,"data":{"partNumber":"J-LVCC","weekNumber":2,"weekStart":"2026-01-05","sourceWeekStart":"2025-01-05","reviewIds":[{"slot":1,"value":"SYNTHETIC-1","sourceCell":"F2"}],"listedCount":1,"recordedTotal":2,"totalDifference":-1,"sourceNumericText":{"recordedTotal":"2"}}}'::jsonb;
   i:=(public.begin_rem_operational_import(repeat('e',64),2026,1,'synthetic-actor')->>'importId')::uuid;
   for bad in select value from jsonb_array_elements(jsonb_build_array(
-    jsonb_set(r,'{data,totalDifference}','0'),
-    jsonb_set(r,'{data,reviewIds,0,sourceCell}','"F3"'),
-    jsonb_set(r,'{data,weekStart}','"2025-01-05"')
+    jsonb_build_object('record',jsonb_set(r,'{data,totalDifference}','0'),'error','lvcc_total_difference_mismatch'),
+    jsonb_build_object('record',jsonb_set(r,'{data,reviewIds,0,sourceCell}','"F3"'),'error','lvcc_source_cell_row_mismatch'),
+    jsonb_build_object('record',jsonb_set(r,'{data,weekStart}','"2025-01-05"'),'error','lvcc_iso_week_date_mismatch')
   )) loop
-    rejected:=false; begin perform public.stage_rem_operational_import(i,0,jsonb_build_array(bad),'synthetic-actor'); exception when others then rejected:=true; end;
+    rejected:=false; begin perform public.stage_rem_operational_import(i,0,jsonb_build_array(bad->'record'),'synthetic-actor'); exception when others then rejected:=sqlstate='P0001' and sqlerrm=bad->>'error'; end;
     if not rejected then raise exception 'LVCC contradictory provenance accepted'; end if;
   end loop;
   perform public.stage_rem_operational_import(i,0,jsonb_build_array(r),'synthetic-actor');
@@ -170,7 +170,7 @@ begin
   moved:=(public.begin_rem_operational_import(repeat('4',64),2026,1,'synthetic-actor')->>'importId')::uuid;
   r:=jsonb_set(r,'{sourceRow}','3');
   perform public.stage_rem_operational_import(moved,0,jsonb_build_array(r),'synthetic-actor');
-  begin perform public.test_rem_core(repeat('4',64),moved); exception when others then rejected:=true; end;
+  begin perform public.test_rem_core(repeat('4',64),moved); exception when others then rejected:=sqlstate='P0001' and sqlerrm='partial_lvcc_reviews_changed_source_requires_review'; end;
   if not rejected or exists(select 1 from public.rem_authoritative_import_runs where file_hash=repeat('4',64)) then raise exception 'ambiguous moved blank review source not rejected atomically'; end if;
 
   -- Service history natural keys survive annual plan rollover. Same accepted
