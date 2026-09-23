@@ -4,6 +4,7 @@ import { Check, FileText, Loader2, Upload, X, FileText as FileTextIcon, Hash } f
 import { api } from "../../../convex/_generated/api";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
+import { safeAiError } from "../../lib/aiErrors";
 import { IncomingStockSecure } from "./IncomingStockSecure";
 
 type MatchStatus =
@@ -78,6 +79,8 @@ function parseOcrArray(raw: string): Array<Record<string, unknown>> {
 }
 
 function safeError(error: unknown) {
+  const aiError = safeAiError(error);
+  if (aiError) return aiError;
   const message = error instanceof Error ? error.message : "Operation failed";
   if (/ambiguous/i.test(message)) return "Part number is ambiguous in Stock Summary. Nothing was received.";
   if (/not present|not found/i.test(message)) return "Part number is not present in Stock Summary. Nothing was received.";
