@@ -33,6 +33,8 @@ async function fixture(role='superuser'){
    'lucide-react':new Proxy({},{get:()=>()=>null}),xlsx:{},'file-saver':{},
    '../../components/vitros/SharedComponents':{WebCard:p=>React.createElement('section',null,p.children),theme:{}},
    '../../hooks/useConvexData':{useConvexData:()=>({parts:[],refresh:async()=>{}})},
+   '../../lib/dhrErrors':{get safeDhrError(){return load('src/lib/dhrErrors.ts').safeDhrError;}},
+   '../../convex/dhrErrorContract':{get DHR_ERROR_MESSAGES(){return load('convex/dhrErrorContract.ts').DHR_ERROR_MESSAGES;}},
    '../../hooks/useRole':{useRole:()=>({role})},
    '../../hooks/useServerActions':{useServerActions:()=>actions},
    '../../../convex/_generated/api':{api:{realtimePulse:{watch:'watch'}}},
