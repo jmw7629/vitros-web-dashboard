@@ -6,6 +6,8 @@ import path from 'node:path';
 const req=createRequire(process.env.VITROS_TEST_NODE_MODULES?path.join(process.env.VITROS_TEST_NODE_MODULES,'entry.cjs'):import.meta.url);
 const ts=req('typescript');
 const code=ts.transpileModule(fs.readFileSync('convex/dhrInventoryActions.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const contractExports={};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('convex/dhrErrorContract.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:contractExports});
 const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', key='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function fixture({allowed=true,status=200,duplicate=false}={}){
  const f={calls:[],caps:[],pulses:0,profiles:[]};
@@ -13,7 +15,8 @@ function fixture({allowed=true,status=200,duplicate=false}={}){
  const deps={
   './_generated/api':{internal:{users:{getUserAuditIdentity:'identity'}}},
   './_generated/server':{action:x=>x},
-  'convex/values':{v:new Proxy({},{get:()=>()=>({})})},
+  'convex/values':{ConvexError:req('convex/values').ConvexError,v:new Proxy({},{get:()=>()=>({})})},
+  './dhrErrorContract':contractExports,
   './authGuard':{requireCapability:async(_,cap)=>{f.caps.push(cap);if(!allowed)throw Error('Denied');return 'trusted-id';}},
   './realtimePulsePublisher':{publishRealtimePulse:async()=>{f.pulses++;}},
  };

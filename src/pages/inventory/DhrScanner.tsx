@@ -27,6 +27,7 @@ import { useServerActions, type DhrTransitionReceipt } from "../../hooks/useServ
 import { useRole } from "../../hooks/useRole";
 import { DhrDeleteDialog } from "../../components/vitros/DhrDeleteDialog";
 import { api } from "../../../convex/_generated/api";
+import { safeDhrError as safeError } from "../../lib/dhrErrors";
 
 interface DhrSection {
   id: string;
@@ -114,15 +115,6 @@ function sectionSort(a: string, b: string) {
   const bNumber = Number(b);
   if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber;
   return a.localeCompare(b, undefined, { numeric: true });
-}
-
-function safeError(error: unknown) {
-  const message = error instanceof Error ? error.message : "Operation failed";
-  if (/revision conflict/i.test(message)) return "This DHR line changed on another device. The latest value has been reloaded.";
-  if (/part not found/i.test(message)) return "Part number is not present in Stock Summary. Nothing was consumed.";
-  if (/ambiguous canonical/i.test(message)) return "This part number is ambiguous in the inventory master. Nothing was consumed.";
-  if (/insufficient|negative/i.test(message)) return "There is not enough available stock for this DHR quantity.";
-  return message.slice(0, 240);
 }
 
 function formatTimestamp(value: string | null | undefined) {

@@ -3,7 +3,8 @@
 // service-role-only database RPCs or base-table reads directly.
 import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import { dhrProviderErrorCode } from "./dhrErrorContract";
 import { requireCapability } from "./authGuard";
 import { publishRealtimePulse } from "./realtimePulsePublisher";
 import type { Id } from "./_generated/dataModel";
@@ -54,11 +55,8 @@ async function writeSupabaseRows<T>(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const message = (payload as { message?: string; error?: string }).message
-      || (payload as { message?: string; error?: string }).error
-      || `DHR write failed (${response.status})`;
-    throw new Error(message);
+    const payload: unknown = await response.json().catch(() => null);
+    throw new ConvexError({ kind: "dhr", code: dhrProviderErrorCode(payload) });
   }
   const payload = await response.json();
   if (!Array.isArray(payload)) throw new Error("DHR write returned invalid payload");
@@ -77,11 +75,8 @@ async function callAtomicDhrRpc(
   });
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const message = (payload as { message?: string; error?: string }).message
-      || (payload as { message?: string; error?: string }).error
-      || `DHR transition failed (${response.status})`;
-    throw new Error(message);
+    const payload: unknown = await response.json().catch(() => null);
+    throw new ConvexError({ kind: "dhr", code: dhrProviderErrorCode(payload) });
   }
 
   return response.json() as Promise<Record<string, unknown>>;
@@ -98,11 +93,8 @@ async function callDhrLifecycleRpc(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const message = (payload as { message?: string; error?: string }).message
-      || (payload as { message?: string; error?: string }).error
-      || `DHR lifecycle transition failed (${response.status})`;
-    throw new Error(message);
+    const payload: unknown = await response.json().catch(() => null);
+    throw new ConvexError({ kind: "dhr", code: dhrProviderErrorCode(payload) });
   }
   return response.json() as Promise<Record<string, unknown>>;
 }
