@@ -510,3 +510,12 @@ Active SapStaging uses a dedicated hook with no shared pulse subscription. Its m
 
 ## 2026-09-23 historical scan privacy operation
 Owned dhr-scans bucket is public with eight objects: seven historical JPEGs plus one tiny legacy text test object. Fresh read-only verification reproduced all seven previously recorded JPEG hashes, and a complete eight-object manifest is retained only in the local verification workspace. Current browser has no stored-object read path; OCR uses authenticated actions/base64. Prepared a fixed-project/fixed-bucket API operation with exact complete-inventory/hash guards, preserved authenticated retrieval, public denial checks, and no object writes or automatic public rollback. Storage API credential unavailable; no production change claimed. Synthetic transport behavior tests pass. See SCAN_STORAGE_PRIVACY.md.
+
+
+## 2026-09-23 — Incoming Stock receipt identity and in-flight confirmation
+
+Independent issue70 review5792623774 identified six actual React/action failures at main672c526: queued line changes ignored by an already-confirmed loop, header edits rebinding uncertain retry identity, and duplicate manual physical-line IDs. Replayed the original source/harness first (9pass/6fail) in a new isolated code archive; all implementation worktrees and Production data remained untouched.
+
+Two UI components now preserve reviewed reference and attempted request identity, require fresh review before confirming a pre-attempt header change, prevent changing/replacing attempted receipts, assign stable manual sequence identities and freeze guarded batch controls. Server/API/SQL/auth/part matching/actor/stock/SAP semantics and visible styling are unchanged. The attempted-request map is memory-only, not a claim of durable cross-reload receipt recovery or full production intake completion.
+
+The unchanged15-case independent reproducer passes on the candidate; three added implementation regressions pass (18total), using actual React/components/actions with synthetic external boundaries. Six existing scripts pass (including17acceptance groups and20identity tests), all three TypeScript projects pass, and an offline Vite bundle passes. Optional additional test authoring was tool-blocked and not bypassed; it is not counted. Exact-head independent review and actual CI/browser/provider/reversible Production tests remain open. See docs/INCOMING_RECEIPT_REPAIR.md and the project-local isolated receipt folder.

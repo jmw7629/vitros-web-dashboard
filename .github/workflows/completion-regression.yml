@@ -130,6 +130,8 @@ jobs:
         run: node scripts/scan-kiosk-identity-check.mjs
       - name: Receipt identity behavior
         run: node scripts/incoming-stock-identity-unit.mjs
+      - name: Incoming Stock confirmation and uncertain-retry UI behavior
+        run: node scripts/incoming-receipt-ui-regression.mjs
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Disposable employee transaction verification

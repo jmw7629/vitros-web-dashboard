@@ -16,6 +16,12 @@ type MatchStatus =
 
 type CommitStatus = "idle" | "committing" | "received" | "failed";
 
+type ConfirmedReceiveRequest = {
+  partNumber: string; qty: number; confirmationId: string; documentRef: string;
+  sourcePage?: string; sourceLineNo: number;
+};
+const receiptReference = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
+
 interface ReviewLine {
   lineNo: number;
   partNumberOcr: string;
@@ -54,6 +60,7 @@ interface ReviewResponse {
 interface IncomingLine {
   id: string;
   confirmationId: string;
+  reviewedDocumentRef: string;
   sourceLineNo: number;
   partNumber: string;
   description: string;
@@ -141,6 +148,25 @@ export function IncomingStockSecure() {
   const [busy, setBusy] = useState(false);
   const [commitBusy, setCommitBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const commitGuard = useRef(false);
+  const reviewGuard = useRef(false);
+  const attemptedRequests = useRef(new Map<string, ConfirmedReceiveRequest>());
+
+  const changeDocumentRef = (value: string) => {
+    if (commitGuard.current || reviewGuard.current) return;
+    const next = value.slice(0, 200);
+    if (attemptedRequests.current.size && receiptReference(next) !== receiptReference(documentRef)) {
+      setStatus("This receipt has already been attempted. Keep its original reference for retry; reconcile any uncertain result before starting a different receipt.");
+      return;
+    }
+    if (receiptReference(next) !== receiptReference(documentRef)) {
+      setLines(previous => previous.map(line => ({...line, selected: false, matchStatus: "needs_review", message: null})));
+      setReview(null);
+      if (lines.length) setStatus("Reference changed. Re-review the existing lines before confirming this receipt.");
+    }
+    setDocumentRef(next);
+  };
+  const manualSequence = useRef(0);
   const [manualPart, setManualPart] = useState("");
   const [manualQty, setManualQty] = useState("1");
   const [manualDescription, setManualDescription] = useState("");
@@ -157,6 +183,7 @@ const mergeReview = (
   source: Array<Record<string, unknown>>,
   review: ReviewResponse,
   existing?: IncomingLine,
+  reviewedDocumentRef = "",
 ): IncomingLine[] => review.lines.map((row, index) => {
     const raw = source[index] ?? {};
     const orderedQty = numberOrNull(raw.orderedQuantity ?? raw.ordered_quantity ?? raw.orderedQty ?? raw.ordered_qty);
@@ -165,6 +192,7 @@ const mergeReview = (
       id: existing?.id ?? makeId("incoming-line"),
       // confirmationId is now a presentation key only; deterministic identity comes from server
       confirmationId: row.deterministicIdentity ?? existing?.confirmationId ?? makeId("confirm"),
+      reviewedDocumentRef,
       sourceLineNo: row.sourceLineNo || index + 1,
       partNumber: row.resolvedPartNumber ?? row.partNumberOcr,
       description: row.stockDescription ?? row.descriptionOcr,
@@ -196,10 +224,12 @@ const mergeReview = (
     if (!existing) {
       setReview(review);
     }
-    return mergeReview(draft, review, existing);
+    return mergeReview(draft, review, existing, effectiveDocumentRef);
   };
 
   const scanImage = async (file: File) => {
+    if (commitGuard.current || reviewGuard.current) return;
+    reviewGuard.current = true;
     setBusy(true);
     setStatus("Reading packing list…");
     try {
@@ -227,6 +257,7 @@ const mergeReview = (
     } catch (error) {
       setStatus(`Error: ${safeOcrError(error)}`);
     } finally {
+      reviewGuard.current = false;
       setBusy(false);
     }
   };
@@ -238,14 +269,21 @@ const mergeReview = (
   };
 
   const addManual = async () => {
+    if (commitGuard.current || reviewGuard.current) return;
+    if (manualSequence.current >= 500) {
+      setStatus("This receipt has reached 500 manual lines. Reconcile it before starting another receipt.");
+      return;
+    }
     const qty = Number(manualQty);
     if (!manualPart.trim() || !Number.isInteger(qty) || qty <= 0) {
       setStatus("Enter an exact part number and a positive whole-number quantity.");
       return;
     }
+    reviewGuard.current = true;
     setBusy(true);
     try {
-      const draft = [{ partNumber: manualPart.trim(), description: manualDescription.trim(), qty }];
+      const draft = [{ partNumber: manualPart.trim(), description: manualDescription.trim(), qty,
+        page: "MANUAL", lineNo: ++manualSequence.current }];
       const reviewed = await serverReview(draft);
       setLines((previous) => [...previous, ...reviewed]);
       setManualPart("");
@@ -257,17 +295,21 @@ const mergeReview = (
     } catch (error) {
       setStatus(`Error: ${safeError(error)}`);
     } finally {
+      reviewGuard.current = false;
       setBusy(false);
     }
   };
 
   const updateLine = (id: string, patch: Partial<IncomingLine>) => {
+    if (commitGuard.current || reviewGuard.current || attemptedRequests.current.has(id)) return;
     setLines((previous) => previous.map((line) => line.id === id
       ? { ...line, ...patch, matchStatus: "needs_review", selected: false, commitStatus: "idle", message: null }
       : line));
   };
 
   const reReviewLine = async (line: IncomingLine) => {
+    if (commitGuard.current || reviewGuard.current || attemptedRequests.current.has(line.id)) return;
+    reviewGuard.current = true;
     setBusy(true);
     try {
       const draft = [{
@@ -285,15 +327,22 @@ const mergeReview = (
     } catch (error) {
       setStatus(`Error: ${safeError(error)}`);
     } finally {
+      reviewGuard.current = false;
       setBusy(false);
     }
   };
 
   const commitSelected = async () => {
+    if (commitGuard.current || reviewGuard.current) return;
     if (selectedMatched.length === 0) {
       setStatus("Select at least one matched line to confirm receiving.");
       return;
     }
+    if (!documentRef.trim() || selectedMatched.some(line => !attemptedRequests.current.has(line.id) && receiptReference(line.reviewedDocumentRef) !== receiptReference(documentRef))) {
+      setStatus("Enter the receipt reference and re-review the lines before confirmation. An attempted line cannot be rebound to another receipt.");
+      return;
+    }
+    commitGuard.current = true;
     setCommitBusy(true);
     setStatus("Applying confirmed RECEIVE movements…");
     let succeeded = 0;
@@ -304,14 +353,16 @@ const mergeReview = (
         ? { ...candidate, commitStatus: "committing", message: null }
         : candidate));
       try {
-        const result = await commitConfirmedReceiveLine({
+        const request = attemptedRequests.current.get(line.id) ?? Object.freeze({
           partNumber: line.resolvedPartNumber ?? line.partNumber,
           qty: line.qty,
           confirmationId: line.confirmationId,
-          documentRef: documentRef.trim() || undefined,
+          documentRef: line.reviewedDocumentRef,
           sourcePage: line.sourcePage ?? undefined,
           sourceLineNo: line.sourceLineNo,
-        }) as unknown as { receipt?: Record<string, unknown>; correlationId?: string };
+        });
+        attemptedRequests.current.set(line.id, request);
+        const result = await commitConfirmedReceiveLine({...request}) as unknown as { receipt?: Record<string, unknown>; correlationId?: string };
         const duplicate = Boolean(result.receipt?.duplicate);
         setLines((previous) => previous.map((candidate) => candidate.id === line.id
           ? {
@@ -332,6 +383,7 @@ const mergeReview = (
 
     await data.refresh().catch(() => undefined);
     setStatus(`Receive complete: ${succeeded} accepted, ${failed} failed. Accepted lines are idempotent and inventory is server-authoritative.`);
+    commitGuard.current = false;
     setCommitBusy(false);
   };
 
@@ -370,7 +422,8 @@ const mergeReview = (
             <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider" style={{ color: theme.textMuted }}>Document / Delivery / PO reference</span>
             <input
               value={documentRef}
-              onChange={(event) => setDocumentRef(event.target.value.slice(0, 200))}
+              disabled={busy || commitBusy}
+              onChange={(event) => changeDocumentRef(event.target.value)}
               placeholder="Required for deterministic receipt identity"
               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
               style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }}
@@ -443,13 +496,13 @@ const mergeReview = (
               </div>
             ) : lines.map((line) => {
               const presentation = statusPresentation(line.matchStatus);
-              const editable = line.commitStatus !== "received" && line.commitStatus !== "committing";
+              const editable = !busy && !commitBusy && !attemptedRequests.current.has(line.id) && line.commitStatus !== "received";
               return (
                 <div key={line.id} className="grid grid-cols-[42px_58px_80px_60px_150px_85px_1fr_110px_110px_130px_110px] items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: theme.cardBorder, backgroundColor: line.selected ? `${theme.accentBlue}0d` : undefined }}>
                   <button
                     type="button"
-                    disabled={line.matchStatus !== "matched" || line.commitStatus === "received" || line.commitStatus === "committing"}
-                    onClick={() => setLines((previous) => previous.map((candidate) => candidate.id === line.id ? { ...candidate, selected: !candidate.selected } : candidate))}
+                    disabled={busy || commitBusy || line.matchStatus !== "matched" || line.commitStatus === "received"}
+                    onClick={() => { if (commitGuard.current || reviewGuard.current) return; setLines((previous) => previous.map((candidate) => candidate.id === line.id ? { ...candidate, selected: !candidate.selected } : candidate)); }}
                     aria-label={`Select line ${line.sourceLineNo} for receiving`}
                     className="flex h-5 w-5 items-center justify-center rounded border-2 disabled:opacity-30"
                     style={{ borderColor: line.selected ? theme.accentBlue : theme.cardBorder, backgroundColor: line.selected ? theme.accentBlue : "transparent" }}
@@ -469,8 +522,8 @@ const mergeReview = (
                     {line.matchStatus === "needs_review" && editable && (
                       <button onClick={() => void reReviewLine(line)} disabled={busy} className="rounded p-1.5" title="Re-run server exact-match review" aria-label={`Review corrected line ${line.sourceLineNo}`}><RefreshCw className="h-3.5 w-3.5" style={{ color: theme.accentBlue }} /></button>
                     )}
-                    {editable && (
-                      <button onClick={() => setLines((previous) => previous.filter((candidate) => candidate.id !== line.id))} className="rounded p-1.5" title="Remove draft line" aria-label={`Remove draft line ${line.sourceLineNo}`}><Trash2 className="h-3.5 w-3.5" style={{ color: "#ef4444" }} /></button>
+                    {line.commitStatus !== "received" && (
+                      <button disabled={!editable} onClick={() => { if (commitGuard.current || reviewGuard.current || attemptedRequests.current.has(line.id)) return; setLines((previous) => previous.filter((candidate) => candidate.id !== line.id)); }} className="rounded p-1.5" title="Remove draft line" aria-label={`Remove draft line ${line.sourceLineNo}`}><Trash2 className="h-3.5 w-3.5" style={{ color: "#ef4444" }} /></button>
                     )}
                     {line.commitStatus === "committing" && <Loader2 className="h-4 w-4 animate-spin" style={{ color: theme.accentBlue }} />}
                   </div>
