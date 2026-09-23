@@ -9,8 +9,10 @@ DECLARE
   changed integer;
 BEGIN
   PERFORM set_config('lock_timeout', '5s', true);
-  -- Short, bounded serialization prevents new history/config between guard and update.
-  LOCK TABLE public.dhr_scan_sessions IN SHARE MODE;
+  -- Freeze DHR writers before reading expected config. SELECT ... FOR UPDATE in
+  -- apply_dhr_scan_transition holds ROW SHARE on this table, so EXCLUSIVE waits
+  -- for an in-flight writer before the guard can move 5.10 to 5.12.
+  LOCK TABLE public.dhr_scan_sessions IN EXCLUSIVE MODE;
   LOCK TABLE public.dhr_scan_results IN SHARE MODE;
   LOCK TABLE public.dhr_expected_parts IN SHARE ROW EXCLUSIVE MODE;
 
