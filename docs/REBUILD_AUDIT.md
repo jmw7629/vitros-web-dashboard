@@ -498,5 +498,15 @@ Current reviewed main `8b3808ce508753aedfd16a19d8bb1de3b47623f3` is READY with g
 ## 2026-09-23 OCR error contract review
 PR 422 head 21fafb4 failed independent review: inherited code-map keys returned non-string values, Incoming Stock OCR catches could reflect malformed provider diagnostics, and internal mutation plain errors lose their exact message across Convex boundaries. Repair is confined to bounded error transport and executable regression coverage; no inventory, SAP, authorization, or provider routing changes. Actual provider/source acceptance remains separate.
 
+## Configuration title editing — 2026-09-23
+
+- Audited base: `origin/main` at `13be049`; React/Vite frontend, existing Convex configuration mutations and validators remain authoritative. The active `/settings` route renders `Settings` and `ConfigEditor`.
+- Reproduced with actual React components and synthetic transport: clearing Application Title removes its input; clearing Engineer title removes the entire structured editor. `EntryPanel` hides controls on any validation error, including a temporarily empty required field.
+- Scoped repair preserves structured editing through intermediate invalid values, while advanced JSON must validate before structured controls are exposed. Save, preview and publication remain blocked for invalid values. No auth, backend, data, integration or deployment changes are required.
+- Verification: all 22 actual-component checks in `scripts/config-editor-behavior-check.mjs` pass, including title clearing/replacement and malformed/incompatible advanced JSON. `npm run build` (TypeScript and Vite) and `git diff --check` pass. Transport/portals are synthetic; this does not establish authenticated production or physical-device acceptance.
+
+## 2026-09-23 SAP staging refresh gap
+Active SapStaging uses a dedicated hook with no shared pulse subscription. Its manual, polling and mutation refreshes can overlap and publish responses out of order; the shared data provider coordinator does not cover this hook. Repair reuses authenticated pulse and coalesced refresh/scheduler primitives. Server writes, staging transitions and table/header structure remain unchanged. Live thirty-user latency remains an acceptance gate.
+
 ## 2026-09-23 historical scan privacy operation
 Owned dhr-scans bucket is public with seven historical JPEGs. Current browser has no stored-object read path; OCR uses authenticated actions/base64. Prepared a fixed-project/fixed-bucket API operation with exact object-manifest/hash guards, preserved authenticated retrieval, public denial checks, and no object writes or automatic public rollback. Storage API credential unavailable; no production change claimed. Synthetic transport behavior tests pass. See SCAN_STORAGE_PRIVACY.md.

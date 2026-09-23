@@ -48,6 +48,8 @@ jobs:
         run: node scripts/rem-operational-validation-check.mjs
       - name: REM operational browser component behavior
         run: node scripts/rem-operational-ui-behavior.mjs
+      - name: SAP staging refresh behavior
+        run: node scripts/sap-refresh-behavior-check.mjs
       - name: Historical scan privacy operation
         run: node scripts/scan-storage-privacy-check.mjs
       - name: OCR structured error transport

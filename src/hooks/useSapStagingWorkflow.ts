@@ -1,5 +1,6 @@
-import { useAction } from "convex/react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createCoalescedRefreshRunner, createRefreshScheduler } from "../lib/refreshCoordinator.mjs";
 import { api } from "../../convex/_generated/api";
 
 export type SapExportStatus = "pending" | "ready" | "exported" | "posted" | "error";
@@ -82,6 +83,10 @@ async function deterministicCorrelation(targetStatus: "ready" | "exported", ids:
 }
 
 export function useSapStagingWorkflow() {
+  const { isAuthenticated } = useConvexAuth();
+  const user = useQuery(api.auth.currentUser, isAuthenticated ? {} : "skip");
+  const identity = isAuthenticated && user ? String(user._id) : null;
+  const signal = useQuery(api.realtimePulse.watch, identity ? {} : "skip");
   const listSapStaging = useAction(api.supabaseGateway.listSapStaging);
   const transitionAction = useAction((api as any).sapStagingWorkflow.transition);
   const [records, setRecords] = useState<AuthoritativeSapRecord[]>([]);
@@ -89,72 +94,88 @@ export function useSapStagingWorkflow() {
   const [isMutating, setIsMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const load = useCallback(async (showLoading = false) => {
-    if (showLoading) setIsLoading(true);
-    try {
-      const rows = await listSapStaging();
-      if (!mountedRef.current) return;
-      setRecords((Array.isArray(rows) ? rows : []).map(mapRow));
-      setError(null);
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setError(err instanceof Error ? err.message : "Unable to load SAP staging");
-    } finally {
-      if (mountedRef.current) setIsLoading(false);
-    }
-  }, [listSapStaging]);
+  const pulseTimer = useRef<number | null>(null);
+  const refreshRef = useRef<ReturnType<typeof createCoalescedRefreshRunner> | null>(null);
+  const currentIdentity = useRef(identity);
+  currentIdentity.current = identity;
+  const load = useCallback(() => refreshRef.current?.request() ?? Promise.resolve(), []);
 
   useEffect(() => {
     mountedRef.current = true;
-    void load(true);
-
-    const schedule = () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (document.visibilityState !== "visible") return;
-      const delay = 8000 + Math.floor(Math.random() * 4001);
-      timerRef.current = setTimeout(async () => {
-        await load(false);
-        schedule();
-      }, delay);
-    };
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void load(false).finally(schedule);
-      } else if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
+    let active = true;
+    setRecords([]);
+    setError(null);
+    setIsLoading(Boolean(identity));
+    if (!identity) return () => { mountedRef.current = false; };
+    const runner = createCoalescedRefreshRunner(async () => {
+      try {
+        const rows = await listSapStaging();
+        if (!active || currentIdentity.current !== identity) return;
+        setRecords((Array.isArray(rows) ? rows : []).map(mapRow));
+        setError(null);
+      } catch {
+        if (active && currentIdentity.current === identity) setError("Unable to load SAP staging. Please retry.");
+      } finally {
+        if (active && currentIdentity.current === identity) setIsLoading(false);
       }
+    }, { isActive: () => active && currentIdentity.current === identity });
+    refreshRef.current = runner;
+    const scheduler = createRefreshScheduler({
+      requestRefresh: runner.request,
+      isVisible: () => document.visibilityState === "visible",
+      setTimeoutFn: (fn, delay) => window.setTimeout(fn, delay),
+      clearTimeoutFn: (id) => window.clearTimeout(id),
+      minDelayMs: 8000,
+      maxDelayMs: 12000,
+    });
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible" && pulseTimer.current !== null) {
+        window.clearTimeout(pulseTimer.current);
+        pulseTimer.current = null;
+      }
+      scheduler.handleVisibilityChange();
     };
-
-    const onOnline = () => void load(false).finally(schedule);
-    schedule();
+    const onOnline = () => scheduler.handleOnline();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("online", onOnline);
-
+    scheduler.start();
     return () => {
+      active = false;
       mountedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
+      scheduler.dispose();
+      if (refreshRef.current === runner) refreshRef.current = null;
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
     };
-  }, [load]);
+  }, [identity, listSapStaging]);
+
+  useEffect(() => {
+    if (!identity || signal === undefined || document.visibilityState !== "visible") return;
+    // Spread commit fanout without extending the deadline when more commits arrive.
+    if (pulseTimer.current !== null) return;
+    pulseTimer.current = window.setTimeout(() => {
+      pulseTimer.current = null;
+      if (document.visibilityState === "visible") void load();
+    }, 40 + Math.floor(Math.random() * 201));
+  }, [identity, signal?.version, load]);
+  useEffect(() => () => {
+    if (pulseTimer.current !== null) window.clearTimeout(pulseTimer.current);
+    pulseTimer.current = null;
+  }, [identity]);
 
   const transition = useCallback(async (ids: string[], targetStatus: "ready" | "exported") => {
     if (ids.length === 0) return;
     setIsMutating(true);
     setError(null);
-    const correlationId = await deterministicCorrelation(targetStatus, ids);
     try {
+      const correlationId = await deterministicCorrelation(targetStatus, ids);
       const receipt = await transitionAction({ ids, targetStatus, correlationId });
-      await load(false);
+      await load();
       return receipt;
     } catch (err) {
       // A transport failure may happen after the database committed. Reconcile before
       // reporting the error; the deterministic correlation makes a retry idempotent.
-      await load(false);
+      await load();
       const message = err instanceof Error ? err.message : "SAP staging transition failed";
       setError(message);
       throw err;
@@ -168,7 +189,7 @@ export function useSapStagingWorkflow() {
     isLoading,
     isMutating,
     error,
-    refresh: () => load(false),
+    refresh: () => load(),
     markReady: (ids: string[]) => transition(ids, "ready"),
     markExported: (ids: string[]) => transition(ids, "exported"),
   };
