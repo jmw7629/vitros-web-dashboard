@@ -70,49 +70,48 @@ async function listStockRows(
   throw new Error("Inventory match lookup exceeds supported row limit");
 }
 
-async function applyConfirmedReceive(
+async function callReceiptRpc(
   url: string,
   serviceKey: string,
-  args: {
-    partNumber: string;
-    qty: number;
-    actor: string;
-    correlationId: string;
-    batchId?: string;
-  },
+  rpc: string,
+  body: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(
-    `${url}/rest/v1/rpc/apply_inventory_transition`,
-    {
+  let response: Response;
+  try {
+    response = await fetch(`${url}/rest/v1/rpc/${rpc}`, {
       method: "POST",
       headers: {
         apikey: serviceKey,
         Authorization: `Bearer ${serviceKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        p_part_number: args.partNumber,
-        p_mode: "RECEIVE",
-        p_qty: args.qty,
-        p_user: args.actor,
-        p_correlation_id: args.correlationId,
-        p_analyzer_serial: null,
-        p_batch_id: args.batchId ?? null,
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    // The PostgREST/RPC response body is provider-controlled and can contain schema,
-    // constraint, policy, SQL, or other internal diagnostics. Keep browser-visible
-    // failures status-only and never parse or reflect the provider error payload.
-    throw new Error(`Receive failed (${response.status})`);
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("Receipt recovery transport is uncertain");
   }
+  if (!response.ok) {
+    // Never parse/reflect provider diagnostics. Status is sufficient for a safe operator error.
+    throw new Error(`Receipt RPC failed (${response.status})`);
+  }
+  const payload = await response.json();
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    throw new Error("Receipt recovery returned an invalid response");
+  return payload as Record<string, unknown>;
+}
 
-  const body = await response.json();
-  if (!body || typeof body !== "object" || Array.isArray(body))
-    throw new Error("Receive returned an invalid receipt");
-  return body as Record<string, unknown>;
+function requiredAttemptId(payload: Record<string, unknown>): string {
+  const value = payload.attemptId;
+  if (typeof value !== "string" || !value.trim())
+    throw new Error("Receipt recovery returned an invalid attempt identity");
+  return value;
+}
+
+function requiredRevision(payload: Record<string, unknown>): number {
+  const value = payload.revision;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)
+    throw new Error("Receipt recovery returned an invalid revision");
+  return value;
 }
 
 export const reviewPackingListDraft = action({
@@ -188,6 +187,8 @@ export const commitConfirmedReceiveLine = action({
     }
 
     const { url, serviceKey } = getSupabaseConfig();
+    const actor = String(actorId);
+    const canonical = canonicalPartNumber(args.partNumber);
     const stockRows = await listStockRows(url, serviceKey);
     const stockByCanonical = indexStockByCanonical(stockRows);
     const matches = stockByCanonical.get(canonical) ?? [];
@@ -210,14 +211,51 @@ export const commitConfirmedReceiveLine = action({
       sourcePage: args.sourcePage?.trim() || null,
       sourceLineNo: args.sourceLineNo,
     });
-    const receipt = await applyConfirmedReceive(url, serviceKey, {
-      partNumber: match.part_number,
-      qty: args.qty,
-      actor: String(actorId),
-      correlationId,
-      batchId: normalizedBatchRef,
+    const reviewed = await callReceiptRpc(url, serviceKey, "register_incoming_receipt_review", {
+      p_actor: actor,
+      p_document_ref: documentRef,
+      p_source_page: args.sourcePage?.trim() || null,
+      p_source_line_no: args.sourceLineNo,
+      p_part_number: match.part_number,
+      p_qty: args.qty,
+      p_correlation_id: correlationId,
+      p_batch_id: normalizedBatchRef,
     });
-    await publishRealtimePulse(ctx);
+    const attemptId = requiredAttemptId(reviewed);
+    const reviewedState = String(reviewed.state ?? "");
+    if (reviewedState === "conflict")
+      throw new Error("Receipt attempt conflicts with an earlier reviewed request");
+
+    let attempt = reviewed;
+    if (reviewedState !== "accepted") {
+      try {
+        attempt = await callReceiptRpc(url, serviceKey, "execute_incoming_receipt_attempt", {
+          p_attempt_id: attemptId,
+          p_actor: actor,
+          p_expected_revision: requiredRevision(reviewed),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("Receipt RPC failed")) {
+          throw new Error(`Receive failed (${error.message.replace("Receipt RPC failed ", "")})`);
+        }
+        try {
+          const reconciled = await callReceiptRpc(url, serviceKey, "mark_incoming_receipt_attempt_unknown", {
+            p_attempt_id: attemptId,
+            p_actor: actor,
+          });
+          if (String(reconciled.state ?? "") === "accepted") attempt = reconciled;
+          else throw new Error("Receipt result is uncertain. Reload Incoming Stock to reconcile this exact receipt before retrying or changing its reference.");
+        } catch (reconcileError) {
+          if (String((reconcileError as Error)?.message ?? "").includes("Receipt result is uncertain")) throw reconcileError;
+          throw new Error("Receipt result is uncertain. Reload Incoming Stock to reconcile this exact receipt before retrying or changing its reference.");
+        }
+      }
+    }
+    if (String(attempt.state ?? "") !== "accepted" || !attempt.receipt || typeof attempt.receipt !== "object")
+      throw new Error("Receipt result is uncertain. Reload Incoming Stock to reconcile this exact receipt before retrying or changing its reference.");
+    const receipt = attempt.receipt as Record<string, unknown>;
+
+await publishRealtimePulse(ctx);
 
     return {
       success: true,
@@ -232,7 +270,71 @@ export const commitConfirmedReceiveLine = action({
       qtyReceived: args.qty,
       correlationId,
       batchId: normalizedBatchRef,
+      attemptId,
+      attemptRevision: attempt.revision,
       receipt,
     };
+  },
+});
+
+export const getIncomingReceiptRecovery = action({
+  args: {},
+  returns: v.any(),
+  handler: async (ctx) => {
+    const actorId = await requireCapability(ctx, "inventory.write");
+    const { url, serviceKey } = getSupabaseConfig();
+    let response: Response;
+    try {
+      response = await fetch(`${url}/rest/v1/rpc/list_incoming_receipt_recovery`, {
+        method: "POST",
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_actor: String(actorId) }),
+      });
+    } catch {
+      throw new Error("Receipt recovery is temporarily unavailable");
+    }
+    if (!response.ok) throw new Error(`Receipt recovery failed (${response.status})`);
+    const payload = await response.json();
+    if (!Array.isArray(payload)) throw new Error("Receipt recovery returned an invalid response");
+    return payload;
+  },
+});
+
+export const acknowledgeIncomingReceiptAttempt = action({
+  args: { attemptId: v.string() },
+  returns: v.any(),
+  handler: async (ctx, { attemptId }) => {
+    const actorId = await requireCapability(ctx, "inventory.write");
+    if (!attemptId.trim()) throw new Error("Receipt attempt identity is required");
+    const { url, serviceKey } = getSupabaseConfig();
+    return callReceiptRpc(url, serviceKey, "acknowledge_incoming_receipt_attempt", {
+      p_attempt_id: attemptId,
+      p_actor: String(actorId),
+    });
+  },
+});
+
+export const getNextIncomingManualLine = action({
+  args: { documentRef: v.string() },
+  returns: v.number(),
+  handler: async (ctx, { documentRef }) => {
+    const actorId = await requireCapability(ctx, "inventory.write");
+    if (!documentRef.trim()) throw new Error("Document reference is required for manual receipt identity");
+    const { url, serviceKey } = getSupabaseConfig();
+    let response: Response;
+    try {
+      response = await fetch(`${url}/rest/v1/rpc/next_incoming_manual_line`, {
+        method: "POST",
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_actor: String(actorId), p_document_ref: documentRef.trim() }),
+      });
+    } catch {
+      throw new Error("Manual receipt identity is temporarily unavailable");
+    }
+    if (!response.ok) throw new Error(`Manual receipt identity failed (${response.status})`);
+    const value = await response.json();
+    if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_LINES)
+      throw new Error("Manual receipt identity returned an invalid line number");
+    return value as number;
   },
 });
