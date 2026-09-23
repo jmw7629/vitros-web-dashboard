@@ -9,3 +9,8 @@ export function safeAiError(error: unknown): string | null {
   if (kind !== "ai" || typeof code !== "string" || !Object.prototype.hasOwnProperty.call(AI_ERROR_MESSAGES, code)) return null;
   return AI_ERROR_MESSAGES[code as AiErrorCode];
 }
+
+/** OCR parsing/network errors may contain source text; never reflect their message. */
+export function safeOcrError(error: unknown): string {
+  return safeAiError(error) ?? AI_ERROR_MESSAGES.PROVIDER_UNAVAILABLE;
+}

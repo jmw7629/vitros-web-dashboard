@@ -1,5 +1,6 @@
+import { aiPublicErrorCode } from "./aiErrorContract";
 import {query,mutation,internalQuery,internalMutation} from "./_generated/server";
-import {v} from "convex/values";
+import {ConvexError,v} from "convex/values";
 import {requireCapability} from "./authGuard";
 import {AI_DEFAULTS,aiSettingsValidator,aiModelValidator,aiPurposeValidator,validateAiSettings,assertFeature,requireFreeModel,modelForPurpose,requiredInput,CATALOG_TTL} from "./aiContract";
 
@@ -61,6 +62,7 @@ export const saveSettings=mutation({
 export const reserve=internalMutation({
   args:{actor:v.id("users"),purpose:aiPurposeValidator,modelId:v.optional(v.string())},returns:v.any(),
   handler:async(ctx,args)=>{
+    try {
     const row=await settingsRow(ctx),settings=row?.value??AI_DEFAULTS;assertFeature(settings,args.purpose);
     const catalog=await ctx.db.query("aiCatalog").withIndex("by_key",q=>q.eq("key","zen")).unique();
     const now=Date.now();
@@ -75,6 +77,9 @@ export const reserve=internalMutation({
     else await ctx.db.insert("aiUsageDaily",{day,requests:1,succeeded:0,failed:0,inputTokens:0,outputTokens:0});
     const id=await ctx.db.insert("aiRequests",{actor:args.actor,purpose:args.purpose,model:model.id,settingsVersion:row?.version??0,status:"running",startedAt:now,day});
     return {id,settings,model};
+    } catch (error) {
+      throw new ConvexError({kind:"ai",code:aiPublicErrorCode(error)});
+    }
   }
 });
 export const finish=internalMutation({
