@@ -28,6 +28,7 @@ import { useRole } from "../../hooks/useRole";
 import { DhrDeleteDialog } from "../../components/vitros/DhrDeleteDialog";
 import { api } from "../../../convex/_generated/api";
 import { safeDhrError as safeError } from "../../lib/dhrErrors";
+import { safeAiError } from "../../lib/aiErrors";
 
 interface DhrSection {
   id: string;
@@ -598,7 +599,7 @@ export function DhrScanner() {
       setOcrRows(reviewRows);
       showToast(reviewRows.length ? "DHR OCR complete. Review each row before applying it." : "No reviewable DHR part rows were detected.");
     } catch (error) {
-      showToast(safeError(error));
+      showToast(safeAiError(error) ?? safeError(error));
     } finally {
       setOcrBusy(false);
     }

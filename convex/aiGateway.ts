@@ -2,9 +2,10 @@
 // All model calls use the server-controlled OpenCode Zen free gateway.
 // No client-side secrets or API keys.
 import { action } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { requireCapability } from "./authGuard";
 import {runZen} from "./zenRuntime";
+import { aiPublicErrorCode } from "./aiErrorContract";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -13,6 +14,10 @@ const MAX_PROMPT_LENGTH = 10000;
 const MAX_REFERENCE_PARTS = 1000;
 const MAX_PART_NUMBER_LENGTH = 128;
 const MAX_REFERENCE_PART_CHARS = 50000;
+
+function publicAiFailure(error: unknown): never {
+  throw new ConvexError({ kind: "ai", code: aiPublicErrorCode(error) });
+}
 
 function normalizeReferenceParts(partList?: string[]): string[] | undefined {
   if (!partList?.length) return undefined;
@@ -81,7 +86,11 @@ Rules:
 - Confidence must be 0 through 1. Use null for a field that is not actually visible instead of guessing.
 - Never return prose or markdown fences.`;
 
-    return (await runZen(ctx, {actor, purpose:"receiving", system:systemPrompt, prompt, attachment:{image:`data:image/jpeg;base64,${imageBase64}`}})).text;
+    try {
+      return (await runZen(ctx, {actor, purpose:"receiving", system:systemPrompt, prompt, attachment:{image:`data:image/jpeg;base64,${imageBase64}`}})).text;
+    } catch (error) {
+      publicAiFailure(error);
+    }
   },
 });
 
@@ -104,6 +113,10 @@ export const ocrDhrPage = action({
     const systemPrompt = `You are an OCR assistant for DHR (Device History Record) page analysis. Extract structured data from the document image. ${referenceParts?.length ? `Valid part numbers: ${referenceParts.join(", ")}` : ""} Return results as JSON.`;
     const source = imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : imageUrl!;
 
-    return (await runZen(ctx, {actor, purpose:"dhr", system:systemPrompt, prompt, attachment:{image:source}})).text;
+    try {
+      return (await runZen(ctx, {actor, purpose:"dhr", system:systemPrompt, prompt, attachment:{image:source}})).text;
+    } catch (error) {
+      publicAiFailure(error);
+    }
   },
 });

@@ -4,6 +4,7 @@ import { api } from "../../../convex/_generated/api";
 import { Camera, Check, FileImage, Hash, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
+import { safeAiError } from "../../lib/aiErrors";
 
 type MatchStatus =
   | "matched"
@@ -78,6 +79,8 @@ function makeId(prefix: string) {
 }
 
 function safeError(error: unknown) {
+  const aiError = safeAiError(error);
+  if (aiError) return aiError;
   const message = error instanceof Error ? error.message : "Operation failed";
   if (/ambiguous/i.test(message)) return "Part number is ambiguous in Stock Summary. Nothing was received.";
   if (/not present|not found/i.test(message)) return "Part number is not present in Stock Summary. Nothing was received.";
