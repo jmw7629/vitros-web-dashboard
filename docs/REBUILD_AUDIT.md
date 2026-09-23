@@ -497,3 +497,6 @@ Current reviewed main `8b3808ce508753aedfd16a19d8bb1de3b47623f3` is READY with g
 
 ## 2026-09-23 OCR error contract review
 PR 422 head 21fafb4 failed independent review: inherited code-map keys returned non-string values, Incoming Stock OCR catches could reflect malformed provider diagnostics, and internal mutation plain errors lose their exact message across Convex boundaries. Repair is confined to bounded error transport and executable regression coverage; no inventory, SAP, authorization, or provider routing changes. Actual provider/source acceptance remains separate.
+
+## 2026-09-23 SAP staging refresh gap
+Active SapStaging uses a dedicated hook with no shared pulse subscription. Its manual, polling and mutation refreshes can overlap and publish responses out of order; the shared data provider coordinator does not cover this hook. Repair reuses authenticated pulse and coalesced refresh/scheduler primitives. Server writes, staging transitions and table/header structure remain unchanged. Live thirty-user latency remains an acceptance gate.
