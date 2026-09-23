@@ -25,6 +25,10 @@ jobs:
           VITE_CONVEX_URL: ${{ vars.VITE_CONVEX_URL }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+      - name: Install shell metadata and icon integrity
+        run: |
+          node scripts/pwa-shell-check.mjs
+          node scripts/pwa-shell-check.mjs dist
       - name: Secret pattern check
         run: node scripts/check-secrets.mjs
       - name: Browser safe-read boundary check
