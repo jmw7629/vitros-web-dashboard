@@ -49,19 +49,19 @@ begin
  perform pg_temp.assert_cycle((select lines->0->>'countedQty'='4' and lines->0->'incomingQty'='null'::jsonb from public.cycle_count_sessions where id=session),'partial nullable fields are durable');
  response:=public.apply_cycle_count_operation('save',request,'fixture-admin',cid);
  perform pg_temp.assert_cycle((response->>'duplicate')::boolean,'autosave lost-response replay');
- failed:=false;begin perform public.apply_cycle_count_operation('save',request||jsonb_build_object('sortMode','alpha'),'fixture-admin',cid);exception when others then failed:=true;end;
+ failed:=false;begin perform public.apply_cycle_count_operation('save',request||jsonb_build_object('sortMode','alpha'),'fixture-admin',cid);exception when others then failed:=sqlstate='P0001' and sqlerrm='Cycle count operation ID was reused for different data';end;
  perform pg_temp.assert_cycle(failed,'same operation cannot change payload');
  request:=request||jsonb_build_object('expectedRevision',1);
  response:=public.apply_cycle_count_operation('pause',request,'fixture-admin',gen_random_uuid());
  perform pg_temp.assert_cycle(response->>'status'='paused','Save and Exit pauses durably');
  perform pg_temp.assert_cycle((select qty_on_hand=7 from public.stock where part_number='CY-R10'),'Save and Exit never adjusts stock');
  perform pg_temp.assert_cycle((select count(*)=before_audit from public.audit_log) and (select count(*)=before_sap from public.sap_staging),'save and pause create no inventory or SAP events');
- failed:=false;begin perform public.apply_cycle_count_operation('save',request||jsonb_build_object('expectedRevision',2),'fixture-admin',gen_random_uuid());exception when others then failed:=true;end;
+ failed:=false;begin perform public.apply_cycle_count_operation('save',request||jsonb_build_object('expectedRevision',2),'fixture-admin',gen_random_uuid());exception when others then failed:=sqlstate='P0001' and sqlerrm='Cycle count session is not active';end;
  perform pg_temp.assert_cycle(failed,'paused session rejects autosave');
  response:=public.apply_cycle_count_operation('start',jsonb_build_object('id',schedule,'scopeMode','w2w'),'fixture-admin',gen_random_uuid());
  rev:=(response->>'revision')::integer;
  perform pg_temp.assert_cycle((select lines->0->>'countedQty'='4' from public.cycle_count_sessions where id=session),'Play restores saved count');
- failed:=false;begin perform public.apply_cycle_count_operation('save',request,'fixture-admin',gen_random_uuid());exception when others then failed:=true;end;
+ failed:=false;begin perform public.apply_cycle_count_operation('save',request,'fixture-admin',gen_random_uuid());exception when others then failed:=sqlstate='P0001' and sqlerrm like 'Cycle count conflict:%';end;
  perform pg_temp.assert_cycle(failed,'stale session revision cannot overwrite');
  request:=request||jsonb_build_object('expectedRevision',rev,'adjustmentBasis','counted','wipFingerprint',public.read_cycle_count_wip()->>'fingerprint');
  cid:=gen_random_uuid();select count(*) into before_results from public.cycle_results;
@@ -75,7 +75,7 @@ begin
  response:=public.apply_cycle_count_operation('confirm',request,'fixture-admin',cid);
  perform pg_temp.assert_cycle((response->>'duplicate')::boolean,'confirm exact retry returns original receipt');
  perform pg_temp.assert_cycle((select count(*)=before_results+1 from public.cycle_results),'confirmation retry creates no duplicate history');
- failed:=false;begin perform public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());exception when others then failed:=true;end;
+ failed:=false;begin perform public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());exception when others then failed:=sqlstate='P0001' and sqlerrm='Cycle count session is not active';end;
  perform pg_temp.assert_cycle(failed,'closed count cannot adjust again');
  -- Two-line combined adjustment: the second line fails after the first would
  -- have written. PostgreSQL must roll back stock, ledger, history and lifecycle.
@@ -87,14 +87,14 @@ begin
  request:=jsonb_build_object('sessionId',second_session,'expectedRevision',0,'sortMode','alpha','lines',line,'adjustmentBasis','counted_wip_incoming','wipFingerprint',snapshot->>'fingerprint');
  update public.stock set updated_at=clock_timestamp() where part_number='CY-R2';
  select count(*) into before_audit from public.audit_log;select count(*) into before_sap from public.sap_staging;select count(*) into before_results from public.cycle_results;
- failed:=false;begin perform public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());exception when others then failed:=sqlerrm like 'Stock changed during count%';end;
+ failed:=false;begin perform public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());exception when others then failed:=sqlstate='P0001' and sqlerrm like 'Stock changed during count%';end;
  perform pg_temp.assert_cycle(failed,'stock conflict is explicit');
  perform pg_temp.assert_cycle((select qty_on_hand=2 from public.stock where part_number='CY-A1'),'earlier part adjustment rolled back');
  perform pg_temp.assert_cycle((select count(*)=before_audit from public.audit_log) and (select count(*)=before_sap from public.sap_staging) and (select count(*)=before_results from public.cycle_results),'no partial ledger, SAP or result on conflict');
  perform pg_temp.assert_cycle((select status='active' and revision=0 from public.cycle_count_sessions where id=second_session),'failed confirm remains active');
  -- A DHR update after review changes the WIP fingerprint.
  perform public.apply_dhr_scan_transition(dhr_id,'C1','CY-R10',4,4,'required','Cycle fixture required','fixture-admin','cycle-fixture-update',1,'CYCLE-ACTIVE');
- failed:=false;begin perform public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());exception when others then failed:=sqlerrm like 'DHR WIP changed%';end;
+ failed:=false;begin perform public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());exception when others then failed:=sqlstate='P0001' and sqlerrm like 'DHR WIP changed%';end;
  perform pg_temp.assert_cycle(failed,'WIP update requires a new review');
  snapshot:=public.read_cycle_count_wip();
  select jsonb_agg(jsonb_build_object('partNumber',p->>'partNumber','countedQty',5,'incomingQty',1,'stockToken',p->>'stockToken') order by p->>'partNumber') into line from jsonb_array_elements(snapshot->'parts') p where p->>'partNumber' in ('CY-A1','CY-R2');
@@ -108,7 +108,7 @@ begin
  request:=jsonb_build_object('sessionId',session,'expectedRevision',0,'sortMode','alpha','lines',jsonb_build_array(jsonb_build_object('partNumber','CY-R10','countedQty',2,'incomingQty',1,'stockToken',token)),'adjustmentBasis','counted_wip_incoming','wipFingerprint',snapshot->>'fingerprint');
  response:=public.apply_cycle_count_operation('confirm',request,'fixture-admin',gen_random_uuid());
  perform pg_temp.assert_cycle((select qty_on_hand=8 from public.stock where part_number='CY-R10'),'combined = counted 2 + live WIP 5 + incoming 1');
- failed:=false;begin update public.cycle_count_events set actor='tampered' where correlation_id=cid;exception when others then failed:=true;end;
+ failed:=false;begin update public.cycle_count_events set actor='tampered' where correlation_id=cid;exception when others then failed:=sqlstate='P0001' and sqlerrm='Cycle count event history is immutable';end;
  perform pg_temp.assert_cycle(failed,'cycle audit events immutable');
  perform pg_temp.assert_cycle(not has_function_privilege('anon','public.apply_cycle_count_operation(text,jsonb,text,uuid)','execute'),'anonymous RPC execution denied');
  perform pg_temp.assert_cycle(not has_function_privilege('authenticated','public.apply_cycle_count_operation(text,jsonb,text,uuid)','execute'),'direct authenticated RPC execution denied');
