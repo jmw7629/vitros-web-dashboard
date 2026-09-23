@@ -1,7 +1,7 @@
 {
   "name": "REM Command Center",
-  "short_name": "REM Command Center",
-  "description": "REM Command Center — inventory, receiving, DHR, SAP staging, and operational dashboard.",
+  "short_name": "REM",
+  "description": "REM Command Center \u2014 inventory, receiving, DHR, SAP staging, and operational dashboard.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -9,10 +9,17 @@
   "theme_color": "#0c111b",
   "icons": [
     {
-      "src": "/favicon.png",
-      "sizes": "any",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     }
-  ]
+  ],
+  "id": "/"
 }
