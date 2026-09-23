@@ -510,3 +510,14 @@ Active SapStaging uses a dedicated hook with no shared pulse subscription. Its m
 
 ## 2026-09-23 historical scan privacy operation
 Owned dhr-scans bucket is public with eight objects: seven historical JPEGs plus one tiny legacy text test object. Fresh read-only verification reproduced all seven previously recorded JPEG hashes, and a complete eight-object manifest is retained only in the local verification workspace. Current browser has no stored-object read path; OCR uses authenticated actions/base64. Prepared a fixed-project/fixed-bucket API operation with exact complete-inventory/hash guards, preserved authenticated retrieval, public denial checks, and no object writes or automatic public rollback. Storage API credential unavailable; no production change claimed. Synthetic transport behavior tests pass. See SCAN_STORAGE_PRIVACY.md.
+
+
+## 2026-09-23 — issue433 isolated one-shot reconciliation candidate
+
+After the existing OpenCode issue433 run ended without repository changes, prepared a minimal candidate from exact main672c5263061679254362c309b6442f8ad134f335 in a separate code archive. The original bridge worktree/control checkout and all live records were preserved. This is implementer evidence, not independent approval or a production migration.
+
+The forward DO block changes only expected-part J05600 section5.10→5.12 after exact row/metadata/target and session-owned-history guards. No generic mutating helper is created. A separate guarded reverse remains operator-only. The CI driver executes the actual file text with valid isolated UUIDs, transaction rollback, exact exception checks, no-op mutation rejection and unrelated-error propagation.
+
+39/39 native PostgreSQL17.11 assertions pass, including deleted-session matched-result preservation and real controlled-field binding validation. Existing digital-DHR bridge, DHR deletion/lifecycle and Cycle Count SQL regression files also ran successfully against the same disposable schema. Eight existing scanner/canonical/alias/legacy/action/error/deletion/secret checks pass; error-contract9 and deletion-action7 are executable fixture cases, while structural checks are not browser acceptance. App, Node and Convex TypeScript checks and disconnected Vite bundle passed with test public URLs and external networking disabled. Existing mixed-import/large-chunk warnings are retained.
+
+The original test run failed on a fixture UUID collision; corrected fixture namespace then passed. Failure and final logs remain outside source. No Production DHR/SAP row changed; no paid call, credential access, service restart, CI dispatch or deployment. The temporary no-network test container was removed after verifying its exact ID/ownership label; no other container was touched. Independent source review, actual GitHub CI and current guarded production preflight/application/browser acceptance remain required. See docs/REVJ_J05600_RECONCILIATION.md.
