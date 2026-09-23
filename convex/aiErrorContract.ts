@@ -33,7 +33,9 @@ const ZEN_CODE_MAP: Record<string, AiErrorCode> = {
 /** Map only internal, bounded error categories to the public browser contract. */
 export function aiPublicErrorCode(error: unknown): AiErrorCode {
   const tagged = error && typeof error === "object" ? error as TaggedError : null;
-  if (tagged && typeof tagged.code === "string" && ZEN_CODE_MAP[tagged.code]) return ZEN_CODE_MAP[tagged.code];
+  if (tagged && typeof tagged.code === "string" && Object.prototype.hasOwnProperty.call(ZEN_CODE_MAP, tagged.code)) return ZEN_CODE_MAP[tagged.code];
+  const data = error && typeof error === "object" && "data" in error ? error.data : null;
+  if (data && typeof data === "object" && !Array.isArray(data) && "kind" in data && data.kind === "ai" && "code" in data && typeof data.code === "string" && Object.prototype.hasOwnProperty.call(AI_ERROR_MESSAGES, data.code)) return data.code as AiErrorCode;
   const message = error instanceof Error ? error.message : "";
   if (message === "OpenCode Zen key is not configured. Add OPENCODE_ZEN_API_KEY in the server environment.") return "ZEN_NOT_CONFIGURED";
   if (/^(?:Free-model catalog|Could not refresh free models|No supported free Zen models)/.test(message)) return "MODEL_CATALOG_UNAVAILABLE";

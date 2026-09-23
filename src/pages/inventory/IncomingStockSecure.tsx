@@ -4,7 +4,7 @@ import { api } from "../../../convex/_generated/api";
 import { Camera, Check, FileImage, Hash, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
-import { safeAiError } from "../../lib/aiErrors";
+import { safeAiError, safeOcrError } from "../../lib/aiErrors";
 
 type MatchStatus =
   | "matched"
@@ -225,7 +225,7 @@ const mergeReview = (
       const matched = reviewed.filter((line) => line.matchStatus === "matched").length;
       setStatus(`Reviewed ${reviewed.length} line${reviewed.length === 1 ? "" : "s"}: ${matched} exact part-number match${matched === 1 ? "" : "es"}. Human confirmation is required before inventory changes.`);
     } catch (error) {
-      setStatus(`Error: ${safeError(error)}`);
+      setStatus(`Error: ${safeOcrError(error)}`);
     } finally {
       setBusy(false);
     }

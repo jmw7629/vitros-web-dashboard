@@ -17,7 +17,7 @@ function load(name) {
     if (id === "./authGuard") return {requireCapability: guards};
     if (id.startsWith("./")) return load(id.slice(2));
     return require(id);
-  }, process: {get env() {return env}}, Date, setTimeout, clearTimeout, AbortController, fetch: (...args)=>network(...args), console}, {filename:name+".ts"});
+  }, Error, process: {get env() {return env}}, Date, setTimeout, clearTimeout, AbortController, fetch: (...args)=>network(...args), console}, {filename:name+".ts"});
   cache.set(name,out.exports); return out.exports;
 }
 const c = load("aiContract"), runtime = load("zenRuntime"), control = load("aiControl"), admin = load("aiAdminActions");
@@ -81,13 +81,13 @@ await control.finish.handler(ctx,{id:r1.id,status:"succeeded",inputTokens:10,out
 await control.finish.handler(ctx,{id:r1.id,status:"failed"});
 assert.equal((await control.dashboard.handler(ctx)).daily.succeeded,1);
 await control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"});
-await assert.rejects(control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"}),/minute limit/);
+await assert.rejects(control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"}),e=>e.data?.kind==="ai"&&e.data.code==="RATE_LIMIT");
 for(const row of db.rows.values())if(row._table==="aiRequests")row.startedAt-=60000;
 await control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"});
-await assert.rejects(control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"}),/daily limit/);
+await assert.rejects(control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"}),e=>e.data?.kind==="ai"&&e.data.code==="RATE_LIMIT");
 for(const row of db.rows.values())if(row._table==="aiCatalog")row.fetchedAt=0;
 await control.saveSettings.handler(ctx,{...change,value:{...settings,enabled:false},expectedVersion:1,correlationId:"33333333-3333-4333-8333-333333333333"});
-await assert.rejects(control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"}),/paused/);
+await assert.rejects(control.reserve.handler(ctx,{actor:"users:admin",purpose:"assistant"}),e=>e.data?.code==="AI_PAUSED");
 let calls=[], finishes=[];
 const gatewayCtx = {runQuery:async()=>({models,fetchedAt:Date.now()}),runMutation:async(ref,args)=>{
  if(ref==="aiControl.reserve")return {id:"aiRequests:test",settings:c.AI_DEFAULTS,model:models.find(m=>m.id==="big-pickle")};

@@ -4,7 +4,7 @@ import { Check, FileText, Loader2, Upload, X, FileText as FileTextIcon, Hash } f
 import { api } from "../../../convex/_generated/api";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useConvexData } from "../../hooks/useConvexData";
-import { safeAiError } from "../../lib/aiErrors";
+import { safeAiError, safeOcrError } from "../../lib/aiErrors";
 import { IncomingStockSecure } from "./IncomingStockSecure";
 
 type MatchStatus =
@@ -189,7 +189,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
       setStatus(`PDF reviewed: ${reviewed.length} physical line${reviewed.length === 1 ? "" : "s"}, ${matched} exact inventory match${matched === 1 ? "" : "es"}. Nothing changes inventory until you confirm.`);
     } catch (error) {
       setLines([]);
-      setStatus(`Error: ${safeError(error)}`);
+      setStatus(`Error: ${safeOcrError(error)}`);
     } finally {
       setBusy(false);
     }
