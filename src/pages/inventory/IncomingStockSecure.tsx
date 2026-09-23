@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Camera, Check, FileImage, Hash, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
@@ -21,6 +21,20 @@ type ConfirmedReceiveRequest = {
   sourcePage?: string; sourceLineNo: number;
 };
 const receiptReference = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
+
+type RecoveryAttempt = {
+  attemptId: string;
+  state: "reviewed" | "attempted" | "accepted" | "unknown" | "conflict";
+  revision: number;
+  documentRef: string;
+  sourcePage: string | null;
+  sourceLineNo: number;
+  partNumber: string;
+  qty: number;
+  correlationId: string;
+  batchId: string;
+  receipt?: Record<string, unknown> | null;
+};
 
 interface ReviewLine {
   lineNo: number;
@@ -76,6 +90,8 @@ interface IncomingLine {
   message: string | null;
   sourcePage: string | null;
   deterministicIdentity: string | null;
+  attemptId?: string;
+  attemptRevision?: number;
 }
 
 function makeId(prefix: string) {
@@ -138,6 +154,10 @@ export function IncomingStockSecure() {
   const ocrPackingList = useAction(api.aiGateway.ocrPackingList);
   const reviewPackingListDraft = useAction(api.incomingStockActions.reviewPackingListDraft);
   const commitConfirmedReceiveLine = useAction(api.incomingStockActions.commitConfirmedReceiveLine);
+  const getIncomingReceiptRecovery = useAction(api.incomingStockActions.getIncomingReceiptRecovery);
+  const acknowledgeIncomingReceiptAttempt = useAction(api.incomingStockActions.acknowledgeIncomingReceiptAttempt);
+  const reserveIncomingManualReceiptReview = useAction(api.incomingStockActions.reserveIncomingManualReceiptReview);
+  const resolveIncomingReceiptAttempt = useAction(api.incomingStockActions.resolveIncomingReceiptAttempt);
 
   const cameraInput = useRef<HTMLInputElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -152,11 +172,80 @@ export function IncomingStockSecure() {
   const reviewGuard = useRef(false);
   const attemptedRequests = useRef(new Map<string, ConfirmedReceiveRequest>());
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const recovered = await getIncomingReceiptRecovery({}) as unknown as RecoveryAttempt[];
+        if (cancelled || recovered.length === 0) return;
+        const restored: IncomingLine[] = [];
+        let firstRef = "";
+        for (const attempt of recovered) {
+          if (!attempt?.attemptId || !attempt.documentRef || !Number.isSafeInteger(attempt.sourceLineNo)) continue;
+          firstRef ||= attempt.documentRef;
+          const lineId = `recovery-${attempt.attemptId}`;
+          const request: ConfirmedReceiveRequest = Object.freeze({
+            partNumber: attempt.partNumber,
+            qty: attempt.qty,
+            confirmationId: attempt.correlationId || attempt.attemptId,
+            documentRef: attempt.documentRef,
+            sourcePage: attempt.sourcePage ?? undefined,
+            sourceLineNo: attempt.sourceLineNo,
+          });
+          let acknowledged = false;
+          if (attempt.state === "accepted") {
+            try {
+              await acknowledgeIncomingReceiptAttempt({ attemptId: attempt.attemptId });
+              acknowledged = true;
+            } catch {
+              // Keep it recovery-bound if acknowledgement cannot be persisted.
+            }
+          }
+          if (!acknowledged) attemptedRequests.current.set(lineId, request);
+          restored.push({
+            id: lineId,
+            confirmationId: attempt.correlationId || attempt.attemptId,
+            reviewedDocumentRef: attempt.documentRef,
+            sourceLineNo: attempt.sourceLineNo,
+            partNumber: attempt.partNumber,
+            description: "Recovered persisted receipt attempt",
+            qty: attempt.qty,
+            orderedQty: null,
+            confidence: null,
+            matchStatus: attempt.state === "conflict" ? "needs_review" : "matched",
+            resolvedPartNumber: attempt.partNumber,
+            stockDescription: null,
+            qtyOnHand: null,
+            selected: !["accepted", "conflict"].includes(attempt.state),
+            commitStatus: attempt.state === "accepted" ? "received" : attempt.state === "conflict" ? "failed" : "idle",
+            message: attempt.state === "accepted"
+              ? "Recovered accepted receipt from the server; no second inventory movement was made."
+              : attempt.state === "conflict"
+                ? "Persisted receipt conflict requires review before any new RECEIVE."
+                : "Recovered persisted receipt attempt. Retry this exact line to reconcile the authoritative result.",
+            sourcePage: attempt.sourcePage,
+            deterministicIdentity: attempt.correlationId,
+            attemptId: attempt.attemptId,
+            attemptRevision: attempt.revision,
+          });
+        }
+        if (cancelled || restored.length === 0) return;
+        setDocumentRef((current) => current || firstRef);
+        setLines((current) => current.length ? current : restored);
+        setStatus("Recovered an unfinished Incoming Stock receipt from the server. Reconcile these exact physical lines before starting a different receipt.");
+      } catch {
+        if (!cancelled) setStatus("Receipt recovery is temporarily unavailable. Do not retry an uncertain receipt under a different reference.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [acknowledgeIncomingReceiptAttempt, getIncomingReceiptRecovery]);
+
   const changeDocumentRef = (value: string) => {
     if (commitGuard.current || reviewGuard.current) return;
     const next = value.slice(0, 200);
-    if (attemptedRequests.current.size && receiptReference(next) !== receiptReference(documentRef)) {
-      setStatus("This receipt has already been attempted. Keep its original reference for retry; reconcile any uncertain result before starting a different receipt.");
+    const hasUnresolvedPersistedAttempt = lines.some((line) => line.attemptId && line.commitStatus !== "received");
+    if ((attemptedRequests.current.size || hasUnresolvedPersistedAttempt) && receiptReference(next) !== receiptReference(documentRef)) {
+      setStatus("This receipt has a persisted review or attempt. Resolve it under its original reference before starting a different receipt.");
       return;
     }
     if (receiptReference(next) !== receiptReference(documentRef)) {
@@ -166,7 +255,6 @@ export function IncomingStockSecure() {
     }
     setDocumentRef(next);
   };
-  const manualSequence = useRef(0);
   const [manualPart, setManualPart] = useState("");
   const [manualQty, setManualQty] = useState("1");
   const [manualDescription, setManualDescription] = useState("");
@@ -270,29 +358,79 @@ const mergeReview = (
 
   const addManual = async () => {
     if (commitGuard.current || reviewGuard.current) return;
-    if (manualSequence.current >= 500) {
-      setStatus("This receipt has reached 500 manual lines. Reconcile it before starting another receipt.");
-      return;
-    }
     const qty = Number(manualQty);
     if (!manualPart.trim() || !Number.isInteger(qty) || qty <= 0) {
       setStatus("Enter an exact part number and a positive whole-number quantity.");
       return;
     }
+    if (!documentRef.trim()) {
+      setStatus("Enter the receipt reference before adding a manual line so its physical identity can be recovered after reload.");
+      return;
+    }
     reviewGuard.current = true;
     setBusy(true);
     try {
-      const draft = [{ partNumber: manualPart.trim(), description: manualDescription.trim(), qty,
-        page: "MANUAL", lineNo: ++manualSequence.current }];
-      const reviewed = await serverReview(draft);
-      setLines((previous) => [...previous, ...reviewed]);
+      const reservation = await reserveIncomingManualReceiptReview({
+        documentRef: documentRef.trim(),
+        partNumber: manualPart.trim(),
+        qty,
+      }) as unknown as {
+        attemptId: string; revision: number; documentRef: string; sourcePage: string;
+        sourceLineNo: number; partNumber: string; canonicalPartNumber: string;
+        correlationId: string; stockDescription?: string | null; qtyOnHand?: number | null;
+      };
+      const line: IncomingLine = {
+        id: `recovery-${reservation.attemptId}`,
+        confirmationId: reservation.correlationId,
+        reviewedDocumentRef: reservation.documentRef,
+        sourceLineNo: reservation.sourceLineNo,
+        partNumber: reservation.partNumber,
+        description: manualDescription.trim() || reservation.stockDescription || "",
+        qty,
+        orderedQty: null,
+        confidence: null,
+        matchStatus: "matched",
+        resolvedPartNumber: reservation.partNumber,
+        stockDescription: reservation.stockDescription ?? null,
+        qtyOnHand: reservation.qtyOnHand ?? null,
+        selected: true,
+        commitStatus: "idle",
+        message: "Manual physical line reserved on the server. Human confirmation is still required before inventory changes.",
+        sourcePage: "MANUAL",
+        deterministicIdentity: reservation.correlationId,
+        attemptId: reservation.attemptId,
+        attemptRevision: reservation.revision,
+      };
+      setLines((previous) => [...previous, line]);
       setManualPart("");
       setManualQty("1");
       setManualDescription("");
-      setStatus(reviewed[0]?.matchStatus === "matched"
-        ? "Manual line matched by canonical part number. Confirm it before receiving."
-        : "Manual line needs correction before it can be received.");
+      setStatus("Manual line identity was atomically reserved and matched by canonical part number. Confirm it before receiving.");
     } catch (error) {
+      setStatus(`Error: ${safeError(error)}`);
+    } finally {
+      reviewGuard.current = false;
+      setBusy(false);
+    }
+  };
+
+  const resolvePersistedLine = async (line: IncomingLine) => {
+    if (commitGuard.current || reviewGuard.current || !line.attemptId || !line.attemptRevision) return;
+    reviewGuard.current = true;
+    setBusy(true);
+    try {
+      const resolved = await resolveIncomingReceiptAttempt({
+        attemptId: line.attemptId,
+        expectedRevision: line.attemptRevision,
+      }) as unknown as { state?: string };
+      if (resolved.state !== "abandoned") throw new Error("Receipt conflict was not resolved");
+      attemptedRequests.current.delete(line.id);
+      setLines((previous) => previous.filter((candidate) => candidate.id !== line.id));
+      setStatus("Persisted receipt review was safely abandoned with no inventory movement. You may now review a corrected physical line.");
+    } catch (error) {
+      setLines((previous) => previous.map((candidate) => candidate.id === line.id
+        ? { ...candidate, commitStatus: "failed", message: safeError(error) }
+        : candidate));
       setStatus(`Error: ${safeError(error)}`);
     } finally {
       reviewGuard.current = false;
@@ -362,14 +500,30 @@ const mergeReview = (
           sourceLineNo: line.sourceLineNo,
         });
         attemptedRequests.current.set(line.id, request);
-        const result = await commitConfirmedReceiveLine({...request}) as unknown as { receipt?: Record<string, unknown>; correlationId?: string };
+        const result = await commitConfirmedReceiveLine({...request}) as unknown as {
+          receipt?: Record<string, unknown>; correlationId?: string; attemptId?: string;
+        };
         const duplicate = Boolean(result.receipt?.duplicate);
+        let acknowledgementPending = false;
+        if (result.attemptId) {
+          try {
+            await acknowledgeIncomingReceiptAttempt({ attemptId: result.attemptId });
+            attemptedRequests.current.delete(line.id);
+          } catch {
+            acknowledgementPending = true;
+          }
+        }
         setLines((previous) => previous.map((candidate) => candidate.id === line.id
           ? {
               ...candidate,
               selected: false,
               commitStatus: "received",
-              message: duplicate ? "Already received earlier — idempotent retry made no second movement." : "Received atomically and staged through the inventory transition path.",
+              attemptId: result.attemptId ?? candidate.attemptId,
+              message: acknowledgementPending
+                ? "Received atomically. Server acknowledgement is still pending, so this exact receipt will remain recoverable after reload."
+                : duplicate
+                  ? "Already received earlier — idempotent retry made no second movement."
+                  : "Received atomically and staged through the inventory transition path.",
             }
           : candidate));
         succeeded += 1;
@@ -496,7 +650,7 @@ const mergeReview = (
               </div>
             ) : lines.map((line) => {
               const presentation = statusPresentation(line.matchStatus);
-              const editable = !busy && !commitBusy && !attemptedRequests.current.has(line.id) && line.commitStatus !== "received";
+              const editable = !busy && !commitBusy && !attemptedRequests.current.has(line.id) && !line.attemptId && line.commitStatus !== "received";
               return (
                 <div key={line.id} className="grid grid-cols-[42px_58px_80px_60px_150px_85px_1fr_110px_110px_130px_110px] items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: theme.cardBorder, backgroundColor: line.selected ? `${theme.accentBlue}0d` : undefined }}>
                   <button
@@ -522,9 +676,11 @@ const mergeReview = (
                     {line.matchStatus === "needs_review" && editable && (
                       <button onClick={() => void reReviewLine(line)} disabled={busy} className="rounded p-1.5" title="Re-run server exact-match review" aria-label={`Review corrected line ${line.sourceLineNo}`}><RefreshCw className="h-3.5 w-3.5" style={{ color: theme.accentBlue }} /></button>
                     )}
-                    {line.commitStatus !== "received" && (
+                    {line.attemptId && line.commitStatus !== "received" ? (
+                      <button disabled={busy || commitBusy} onClick={() => void resolvePersistedLine(line)} className="rounded p-1.5" title="Resolve and abandon this persisted review only when no inventory movement exists" aria-label={`Resolve persisted line ${line.sourceLineNo}`}><Trash2 className="h-3.5 w-3.5" style={{ color: "#ef4444" }} /></button>
+                    ) : line.commitStatus !== "received" ? (
                       <button disabled={!editable} onClick={() => { if (commitGuard.current || reviewGuard.current || attemptedRequests.current.has(line.id)) return; setLines((previous) => previous.filter((candidate) => candidate.id !== line.id)); }} className="rounded p-1.5" title="Remove draft line" aria-label={`Remove draft line ${line.sourceLineNo}`}><Trash2 className="h-3.5 w-3.5" style={{ color: "#ef4444" }} /></button>
-                    )}
+                    ) : null}
                     {line.commitStatus === "committing" && <Loader2 className="h-4 w-4 animate-spin" style={{ color: theme.accentBlue }} />}
                   </div>
                   {line.orderedQty != null && line.orderedQty !== line.qty && (

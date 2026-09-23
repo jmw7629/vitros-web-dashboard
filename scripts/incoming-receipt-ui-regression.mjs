@@ -27,7 +27,7 @@ function fixture() {
             { id: 'fixture-b', part_number: 'TEST-B', description: 'Fixture beta', qty_on_hand: 20 }],
     ocr: [{ partNumber: 'TEST-A', shippedQuantity: 2, orderedQuantity: 9, page: '1', lineNo: 1, documentRef: 'FIXTURE-DOC' },
           { partNumber: 'TEST-B', shippedQuantity: 3, page: '1', lineNo: 2, documentRef: 'FIXTURE-DOC' }],
-    rpcBehavior: null, refreshes: 0 };
+    attempts: new Map(), acknowledged: new Set(), rpcBehavior: null, refreshes: 0 };
 }
 function loader(f) {
   const cache = new Map();
@@ -54,6 +54,10 @@ function loader(f) {
           const reply = await actions.reviewPackingListDraft.handler({}, args); f.reviews.push(clean(reply)); return reply;
         }
         if (ref === 'incomingStockActions:commitConfirmedReceiveLine') return actions.commitConfirmedReceiveLine.handler({}, args);
+        if (ref === 'incomingStockActions:getIncomingReceiptRecovery') return actions.getIncomingReceiptRecovery.handler({}, args);
+        if (ref === 'incomingStockActions:acknowledgeIncomingReceiptAttempt') return actions.acknowledgeIncomingReceiptAttempt.handler({}, args);
+        if (ref === 'incomingStockActions:reserveIncomingManualReceiptReview') return actions.reserveIncomingManualReceiptReview.handler({}, args);
+        if (ref === 'incomingStockActions:resolveIncomingReceiptAttempt') return actions.resolveIncomingReceiptAttempt.handler({}, args);
         throw Error(`Unexpected synthetic action ${ref}`);
       } };
       if (name.endsWith('/hooks/useConvexData')) return { useConvexData: () => ({
@@ -79,10 +83,68 @@ function loader(f) {
           const offset = Number(u.searchParams.get('offset')); const limit = Number(u.searchParams.get('limit'));
           return { ok: true, json: async () => f.stock.slice(offset, offset + limit) };
         }
-        assert.equal(u.pathname, '/rest/v1/rpc/apply_inventory_transition'); assert.equal(options.method, 'POST');
-        const payload = JSON.parse(options.body); f.rpc.push(payload);
-        if (f.rpcBehavior) return f.rpcBehavior(payload, f.rpc.length);
-        return { ok: true, json: async () => ({ duplicate: false, fixture: true, correlationId: payload.p_correlation_id }) };
+        assert.equal(options.method, 'POST');
+        const payload = JSON.parse(options.body);
+        const rpcName = u.pathname.split('/').at(-1);
+        if (rpcName === 'list_incoming_receipt_recovery') {
+          const rows = [...f.attempts.values()].filter(a => a.actor === payload.p_actor && !f.acknowledged.has(a.attemptId) && a.state !== 'abandoned');
+          return { ok: true, json: async () => rows.map(clean) };
+        }
+        if (rpcName === 'reserve_incoming_manual_receipt_review') {
+          const doc = String(payload.p_document_ref ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+          const otherOpen = [...f.attempts.values()].find(a => a.batchId === doc && a.actor !== payload.p_actor && a.state !== 'abandoned' && !f.acknowledged.has(a.attemptId));
+          if (otherOpen) return { ok: false, status: 409, json: async () => ({ ignored: 'diagnostic' }) };
+          const used = [...f.attempts.values()].filter(a => a.batchId === doc && a.sourcePage === 'MANUAL').map(a => a.sourceLineNo);
+          const sourceLineNo = used.length ? Math.max(...used) + 1 : 1;
+          const correlationId = `incoming:${doc}|MANUAL|${sourceLineNo}`;
+          const attempt = { attemptId: `attempt-${f.attempts.size + 1}`, state: 'reviewed', revision: 1, actor: payload.p_actor,
+            documentRef: String(payload.p_document_ref).trim(), sourcePage: 'MANUAL', sourceLineNo, partNumber: payload.p_part_number,
+            qty: payload.p_qty, correlationId, batchId: doc, receipt: null };
+          f.attempts.set(attempt.attemptId, attempt);
+          return { ok: true, json: async () => clean(attempt) };
+        }
+        if (rpcName === 'register_incoming_receipt_review') {
+          const correlationId = payload.p_correlation_id;
+          let attempt = [...f.attempts.values()].find(a => a.correlationId === correlationId);
+          if (!attempt) {
+            attempt = { attemptId: `attempt-${f.attempts.size + 1}`, state: 'reviewed', revision: 1, actor: payload.p_actor,
+              documentRef: payload.p_document_ref, sourcePage: payload.p_source_page ?? null, sourceLineNo: payload.p_source_line_no,
+              partNumber: payload.p_part_number, qty: payload.p_qty, correlationId, batchId: payload.p_batch_id, receipt: null };
+            f.attempts.set(attempt.attemptId, attempt);
+          }
+          return { ok: true, json: async () => clean(attempt) };
+        }
+        if (rpcName === 'execute_incoming_receipt_attempt') {
+          const attempt = f.attempts.get(payload.p_attempt_id); assert(attempt, 'Synthetic receipt attempt exists');
+          const movement = { p_part_number: attempt.partNumber, p_mode: 'RECEIVE', p_qty: attempt.qty, p_user: attempt.actor,
+            p_correlation_id: attempt.correlationId, p_expected_revision: null, p_batch_id: attempt.batchId };
+          f.rpc.push(movement);
+          const response = f.rpcBehavior ? await f.rpcBehavior(movement, f.rpc.length)
+            : { ok: true, json: async () => ({ duplicate: false, fixture: true, correlationId: movement.p_correlation_id }) };
+          if (!response.ok) return response;
+          const receipt = await response.json();
+          attempt.state = 'accepted'; attempt.revision += 2; attempt.receipt = receipt;
+          return { ok: true, json: async () => clean(attempt) };
+        }
+        if (rpcName === 'mark_incoming_receipt_attempt_unknown') {
+          const attempt = f.attempts.get(payload.p_attempt_id); assert(attempt, 'Synthetic receipt attempt exists');
+          if (attempt.state !== 'accepted') { attempt.state = 'unknown'; attempt.revision += 1; }
+          return { ok: true, json: async () => clean(attempt) };
+        }
+        if (rpcName === 'acknowledge_incoming_receipt_attempt') {
+          const attempt = f.attempts.get(payload.p_attempt_id); assert(attempt, 'Synthetic receipt attempt exists');
+          f.acknowledged.add(attempt.attemptId); attempt.revision += 1;
+          return { ok: true, json: async () => clean(attempt) };
+        }
+        if (rpcName === 'resolve_incoming_receipt_attempt') {
+          const attempt = f.attempts.get(payload.p_attempt_id); assert(attempt, 'Synthetic receipt attempt exists');
+          if (attempt.actor !== payload.p_actor || attempt.revision !== payload.p_expected_revision || !['reviewed','conflict'].includes(attempt.state))
+            return { ok: false, status: 409, json: async () => ({ ignored: 'diagnostic' }) };
+          if (attempt.receipt) return { ok: false, status: 409, json: async () => ({ ignored: 'diagnostic' }) };
+          attempt.state = 'abandoned'; attempt.revision += 1;
+          return { ok: true, json: async () => clean(attempt) };
+        }
+        throw Error(`Unexpected synthetic RPC ${rpcName}`);
       },
     }, { filename, timeout: 10000 });
     return module.exports;
@@ -150,7 +212,8 @@ await test('Actual action uses server actor, canonical PN and stable request ide
   const actions = loader(f)('convex/incomingStockActions.ts');
   const first = await actions.commitConfirmedReceiveLine.handler({}, args({ partNumber: ' test-a ', documentRef: ' fixture-doc ' }));
   const second = await actions.commitConfirmedReceiveLine.handler({}, args({ confirmationId: 'new-presentation-key' }));
-  assert.equal(first.correlationId, second.correlationId); assert.equal(f.rpc.length, 2);
+  assert.equal(first.correlationId, second.correlationId);
+  assert.equal(f.rpc.length, 1, 'Accepted same-correlation replay must not create a second inventory movement');
   assert.equal(f.rpc[0].p_part_number, 'TEST-A'); assert.equal(f.rpc[0].p_user, 'fixture-server-actor');
   assert.equal(f.rpc[0].p_mode, 'RECEIVE'); assert.equal(f.rpc[0].p_batch_id, 'FIXTURE-DOC');
   assert.equal(f.rpc[0].p_qty, 2); assert.equal(f.pulses, 2);
@@ -185,10 +248,14 @@ await test('Mounted actual PDF UI reviews without RPC and receives only on expli
     assert.notEqual(f.rpc[0].p_correlation_id, f.rpc[1].p_correlation_id);
   }, true);
 });
-await test('Two separately added manual physical lines must not share one receipt identity', async f => {
+await test('Two separately added manual physical lines are persisted with distinct server-reserved identities before RECEIVE', async f => {
   await withUI(f, async h => {
     await h.change(h.doc(), 'FIXTURE-MANUAL'); await h.manual('TEST-A', '2'); await h.manual('TEST-B', '3');
-    assert.equal(f.reviews.length, 2); assert.equal(f.rpc.length, 0);
+    assert.equal(f.rpc.length, 0);
+    const reserved = [...f.attempts.values()].filter(a => a.batchId === 'FIXTURE-MANUAL' && a.sourcePage === 'MANUAL');
+    assert.equal(reserved.length, 2);
+    assert.deepEqual(reserved.map(a => a.sourceLineNo).sort((a,b) => a-b), [1,2]);
+    assert.notEqual(reserved[0].correlationId, reserved[1].correlationId);
     await h.click(h.confirm()); assert.equal(f.rpc.length, 2);
     assert.notEqual(f.rpc[0].p_correlation_id, f.rpc[1].p_correlation_id,
       'Two different manually appended physical lines reused the same authoritative correlation ID');
@@ -265,6 +332,96 @@ await test('Captured image queued selection removal and edit handlers cannot cha
    release();await h.settle();assert.equal(f.rpc.length,2);assert.equal(f.rpc[1].p_part_number,'TEST-B');assert.equal(f.rpc[1].p_qty,3);
   } finally {release();await h.settle();}
  });
+});
+
+
+await test('Recovered conflict exposes audited safe resolution and never performs RECEIVE while resolving', async f => {
+  f.attempts.set('attempt-conflict', { attemptId: 'attempt-conflict', state: 'conflict', revision: 2, actor: 'fixture-server-actor',
+    documentRef: 'CONFLICT-DOC', sourcePage: '1', sourceLineNo: 1, partNumber: 'TEST-A', qty: 2,
+    correlationId: 'incoming:CONFLICT-DOC|1|1', batchId: 'CONFLICT-DOC', receipt: null });
+  await withUI(f, async h => {
+    await h.settle();
+    const resolve = h.buttons().find(b => b.props['aria-label'] === 'Resolve persisted line 1');
+    assert(resolve && !resolve.props.disabled, 'Recovered conflict has an explicit resolution control');
+    await h.click(resolve);
+    assert.equal(f.rpc.length, 0, 'Resolving a review conflict never runs inventory RECEIVE');
+    assert.equal(f.attempts.get('attempt-conflict').state, 'abandoned');
+    assert.equal(h.buttons().some(b => b.props['aria-label'] === 'Resolve persisted line 1'), false);
+  });
+});
+
+await test('Recovered PDF conflict has the same fail-closed server resolution path', async f => {
+  f.attempts.set('attempt-pdf-conflict', { attemptId: 'attempt-pdf-conflict', state: 'conflict', revision: 2, actor: 'fixture-server-actor',
+    documentRef: 'PDF-CONFLICT-DOC', sourcePage: '2', sourceLineNo: 7, partNumber: 'TEST-A', qty: 1,
+    correlationId: 'incoming:PDF-CONFLICT-DOC|2|7', batchId: 'PDF-CONFLICT-DOC', receipt: null });
+  await withUI(f, async h => {
+    await h.click(h.buttons().find(b => b.props['aria-label'] === 'Open Incoming Stock PDF packing-list intake'));
+    await h.settle();
+    const resolve = h.buttons().find(b => b.props['aria-label'] === 'Resolve persisted PDF line 7');
+    assert(resolve && !resolve.props.disabled, 'Recovered PDF conflict has an explicit resolution control');
+    await h.click(resolve);
+    assert.equal(f.rpc.length, 0);
+    assert.equal(f.attempts.get('attempt-pdf-conflict').state, 'abandoned');
+  }, true);
+});
+
+await test('Persisted unknown image attempt survives remount and retries only the original correlation', async f => {
+  f.rpcBehavior = async (_movement, count) => {
+    if (count === 1) throw Error('Fixture lost acknowledgement before authoritative reply');
+    return { ok: true, json: async () => ({ fixture: true, duplicate: false }) };
+  };
+  const actions = loader(f)('convex/incomingStockActions.ts');
+  await assert.rejects(
+    actions.commitConfirmedReceiveLine.handler({}, args({ documentRef: 'RECOVER-DOC', sourcePage: 'MANUAL', sourceLineNo: 1 })),
+    /uncertain/i,
+  );
+  assert.equal(f.attempts.size, 1);
+  const persisted = [...f.attempts.values()][0];
+  assert.equal(persisted.state, 'unknown');
+  const originalCorrelation = persisted.correlationId;
+
+  await withUI(f, async h => {
+    await h.settle();
+    assert.equal(h.doc().props.value, 'RECOVER-DOC');
+    await h.change(h.doc(), 'CHANGED-DOC');
+    assert.equal(h.doc().props.value, 'RECOVER-DOC', 'Recovered uncertain receipt reference must stay frozen');
+    assert.equal(f.rpc.length, 1);
+    await h.click(h.confirm());
+    assert.equal(f.rpc.length, 2);
+    assert.equal(f.rpc[1].p_correlation_id, originalCorrelation, 'Remount retry must use the persisted correlation');
+    assert.equal([...f.attempts.values()][0].state, 'accepted');
+  });
+});
+
+await test('Partial batch remount acknowledges accepted lines and retries only the unresolved physical line', async f => {
+  const actions = loader(f)('convex/incomingStockActions.ts');
+  f.rpcBehavior = async movement => {
+    if (movement.p_correlation_id === 'incoming:PARTIAL-DOC|1|2') throw Error('Fixture line 2 acknowledgement lost');
+    return { ok: true, json: async () => ({ fixture: true, duplicate: false }) };
+  };
+  const first = await actions.commitConfirmedReceiveLine.handler({}, args({
+    documentRef: 'PARTIAL-DOC', sourcePage: '1', sourceLineNo: 1, confirmationId: 'partial-1',
+  }));
+  await assert.rejects(actions.commitConfirmedReceiveLine.handler({}, args({
+    documentRef: 'PARTIAL-DOC', sourcePage: '1', sourceLineNo: 2, confirmationId: 'partial-2',
+  })), /uncertain/i);
+  assert.equal(first.correlationId, 'incoming:PARTIAL-DOC|1|1');
+  assert.equal(f.rpc.length, 2);
+  const states = [...f.attempts.values()].map(a => [a.correlationId, a.state]);
+  assert(states.some(([id, state]) => id === 'incoming:PARTIAL-DOC|1|1' && state === 'accepted'));
+  assert(states.some(([id, state]) => id === 'incoming:PARTIAL-DOC|1|2' && state === 'unknown'));
+
+  f.rpcBehavior = async () => ({ ok: true, json: async () => ({ fixture: true, duplicate: false }) });
+  await withUI(f, async h => {
+    await h.settle();
+    assert(f.acknowledged.size >= 1, 'Recovered accepted line is acknowledged server-side');
+    const confirm = h.confirm();
+    assert(confirm && !confirm.props.disabled);
+    await h.click(confirm);
+    assert.equal(f.rpc.length, 3, 'Only the unresolved line is re-executed after remount');
+    assert.equal(f.rpc[2].p_correlation_id, 'incoming:PARTIAL-DOC|1|2');
+    assert.equal([...f.attempts.values()].filter(a => a.state === 'accepted').length, 2);
+  });
 });
 
 const summary = { source_revision: 'Use the exact checked-out CI commit; no live endpoint tested',

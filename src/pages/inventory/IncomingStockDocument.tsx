@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { Check, FileText, Loader2, Upload, X, FileText as FileTextIcon, Hash } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
@@ -22,6 +22,20 @@ type ConfirmedReceiveRequest = {
   sourcePage?: string; sourceLineNo: number;
 };
 const receiptReference = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
+
+type RecoveryAttempt = {
+  attemptId: string;
+  state: "reviewed" | "attempted" | "accepted" | "unknown" | "conflict";
+  revision: number;
+  documentRef: string;
+  sourcePage: string | null;
+  sourceLineNo: number;
+  partNumber: string;
+  qty: number;
+  correlationId: string;
+  batchId: string;
+  receipt?: Record<string, unknown> | null;
+};
 
 interface ReviewLine {
   lineNo: number;
@@ -63,6 +77,8 @@ interface PdfReviewLine extends ReviewLine {
   selected: boolean;
   commitStatus: CommitStatus;
   message: string | null;
+  attemptId?: string;
+  attemptRevision?: number;
 }
 
 const MAX_PDF_BYTES = 8 * 1024 * 1024;
@@ -131,6 +147,9 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
   const ocrPackingListPdf = useAction(api.incomingStockPdfOcr.ocrPackingListPdf);
   const reviewPackingListDraft = useAction(api.incomingStockActions.reviewPackingListDraft);
   const commitConfirmedReceiveLine = useAction(api.incomingStockActions.commitConfirmedReceiveLine);
+  const getIncomingReceiptRecovery = useAction(api.incomingStockActions.getIncomingReceiptRecovery);
+  const acknowledgeIncomingReceiptAttempt = useAction(api.incomingStockActions.acknowledgeIncomingReceiptAttempt);
+  const resolveIncomingReceiptAttempt = useAction(api.incomingStockActions.resolveIncomingReceiptAttempt);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [documentRef, setDocumentRef] = useState("");
@@ -142,6 +161,75 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
   const commitGuard = useRef(false);
   const reviewGuard = useRef(false);
   const attemptedRequests = useRef(new Map<string, ConfirmedReceiveRequest>());
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const recovered = await getIncomingReceiptRecovery({}) as unknown as RecoveryAttempt[];
+        if (cancelled || recovered.length === 0) return;
+        const restored: PdfReviewLine[] = [];
+        let firstRef = "";
+        for (const attempt of recovered) {
+          if (!attempt?.attemptId || !attempt.documentRef || !Number.isSafeInteger(attempt.sourceLineNo)) continue;
+          firstRef ||= attempt.documentRef;
+          const lineId = `pdf-recovery-${attempt.attemptId}`;
+          const request: ConfirmedReceiveRequest = Object.freeze({
+            partNumber: attempt.partNumber,
+            qty: attempt.qty,
+            confirmationId: attempt.correlationId || attempt.attemptId,
+            documentRef: attempt.documentRef,
+            sourcePage: attempt.sourcePage ?? undefined,
+            sourceLineNo: attempt.sourceLineNo,
+          });
+          let acknowledged = false;
+          if (attempt.state === "accepted") {
+            try {
+              await acknowledgeIncomingReceiptAttempt({ attemptId: attempt.attemptId });
+              acknowledged = true;
+            } catch {
+              // Keep it recovery-bound if acknowledgement cannot be persisted.
+            }
+          }
+          if (!acknowledged) attemptedRequests.current.set(lineId, request);
+          restored.push({
+            id: lineId,
+            confirmationId: attempt.correlationId || attempt.attemptId,
+            reviewedDocumentRef: attempt.documentRef,
+            lineNo: attempt.sourceLineNo,
+            partNumberOcr: attempt.partNumber,
+            descriptionOcr: "Recovered persisted receipt attempt",
+            qtyOcr: attempt.qty,
+            confidence: null,
+            matchStatus: attempt.state === "conflict" ? "needs_review" : "matched",
+            resolvedPartNumber: attempt.partNumber,
+            stockDescription: null,
+            qtyOnHand: null,
+            sourcePage: attempt.sourcePage,
+            sourceLineNo: attempt.sourceLineNo,
+            deterministicIdentity: attempt.correlationId,
+            orderedQty: null,
+            selected: !["accepted", "conflict"].includes(attempt.state),
+            commitStatus: attempt.state === "accepted" ? "received" : attempt.state === "conflict" ? "failed" : "idle",
+            message: attempt.state === "accepted"
+              ? "Recovered accepted receipt from the server; no second inventory movement was made."
+              : attempt.state === "conflict"
+                ? "Persisted receipt conflict requires review before any new RECEIVE."
+                : "Recovered persisted receipt attempt. Retry this exact line to reconcile the authoritative result.",
+            attemptId: attempt.attemptId,
+            attemptRevision: attempt.revision,
+          });
+        }
+        if (cancelled || restored.length === 0) return;
+        setDocumentRef((current) => current || firstRef);
+        setLines((current) => current.length ? current : restored);
+        setStatus("Recovered an unfinished receipt from the server. Reconcile these exact physical lines before replacing the PDF or changing its reference.");
+      } catch {
+        if (!cancelled) setStatus("Receipt recovery is temporarily unavailable. Do not retry an uncertain receipt under a different reference.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [acknowledgeIncomingReceiptAttempt, getIncomingReceiptRecovery]);
 
   const changeDocumentRef = (value: string) => {
     if (commitGuard.current || reviewGuard.current) return;
@@ -230,6 +318,30 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const resolvePersistedLine = async (line: PdfReviewLine) => {
+    if (commitGuard.current || reviewGuard.current || !line.attemptId || !line.attemptRevision) return;
+    reviewGuard.current = true;
+    setBusy(true);
+    try {
+      const resolved = await resolveIncomingReceiptAttempt({
+        attemptId: line.attemptId,
+        expectedRevision: line.attemptRevision,
+      }) as unknown as { state?: string };
+      if (resolved.state !== "abandoned") throw new Error("Receipt conflict was not resolved");
+      attemptedRequests.current.delete(line.id);
+      setLines((previous) => previous.filter((candidate) => candidate.id !== line.id));
+      setStatus("Persisted receipt conflict was safely abandoned with no inventory movement. Re-open the PDF and perform a fresh human review for any corrected physical line.");
+    } catch (error) {
+      setLines((previous) => previous.map((candidate) => candidate.id === line.id
+        ? { ...candidate, commitStatus: "failed", message: safeError(error) }
+        : candidate));
+      setStatus(`Error: ${safeError(error)}`);
+    } finally {
+      reviewGuard.current = false;
+      setBusy(false);
+    }
+  };
+
   const commitSelected = async () => {
     if (commitGuard.current || reviewGuard.current) return;
     if (selected.length === 0) {
@@ -260,16 +372,30 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
           sourceLineNo: line.sourceLineNo,
         });
         attemptedRequests.current.set(line.id, request);
-        const result = await commitConfirmedReceiveLine({...request}) as unknown as { receipt?: Record<string, unknown> };
+        const result = await commitConfirmedReceiveLine({...request}) as unknown as {
+          receipt?: Record<string, unknown>; attemptId?: string;
+        };
         const duplicate = Boolean(result.receipt?.duplicate);
+        let acknowledgementPending = false;
+        if (result.attemptId) {
+          try {
+            await acknowledgeIncomingReceiptAttempt({ attemptId: result.attemptId });
+            attemptedRequests.current.delete(line.id);
+          } catch {
+            acknowledgementPending = true;
+          }
+        }
         setLines((previous) => previous.map((candidate) => candidate.id === line.id
           ? {
               ...candidate,
               selected: false,
               commitStatus: "received",
-              message: duplicate
-                ? "Already received earlier — idempotent retry made no second movement."
-                : "Received atomically and staged through the inventory transition path.",
+              attemptId: result.attemptId ?? candidate.attemptId,
+              message: acknowledgementPending
+                ? "Received atomically. Server acknowledgement is still pending, so this exact receipt will remain recoverable after reload."
+                : duplicate
+                  ? "Already received earlier — idempotent retry made no second movement."
+                  : "Received atomically and staged through the inventory transition path.",
             }
           : candidate));
         succeeded += 1;
@@ -388,9 +514,16 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
                   <span className="truncate text-xs" title={line.stockDescription ?? line.descriptionOcr} style={{ color: theme.textSecondary }}>{(line.stockDescription ?? line.descriptionOcr) || "—"}</span>
                   <span className="text-xs font-bold" style={{ color: theme.textPrimary }}>{line.qtyOnHand ?? "—"}</span>
                   <span className="text-xs" style={{ color: theme.textSecondary }}>{line.confidence == null ? "—" : `${Math.round(line.confidence * 100)}%`}</span>
-                  <span className="text-[10px] font-bold" style={{ color: line.commitStatus === "failed" ? "#ef4444" : presentation.color }}>
-                    {line.commitStatus === "committing" ? "RECEIVING…" : line.commitStatus === "received" ? "RECEIVED" : line.commitStatus === "failed" ? "FAILED" : presentation.label}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold" style={{ color: line.commitStatus === "failed" ? "#ef4444" : presentation.color }}>
+                      {line.commitStatus === "committing" ? "RECEIVING…" : line.commitStatus === "received" ? "RECEIVED" : line.commitStatus === "failed" ? "FAILED" : presentation.label}
+                    </span>
+                    {line.commitStatus === "failed" && line.attemptId && (
+                      <button type="button" disabled={busy || commitBusy} onClick={() => void resolvePersistedLine(line)} aria-label={`Resolve persisted PDF line ${line.sourceLineNo}`} className="rounded px-1.5 py-1 text-[9px] font-bold disabled:opacity-40" style={{ border: `1px solid ${theme.cardBorder}`, color: "#ef4444" }}>
+                        Resolve
+                      </button>
+                    )}
+                  </div>
                   {line.orderedQty != null && line.qtyOcr != null && line.orderedQty !== line.qtyOcr && (
                     <div className="col-span-10 text-[10px]" style={{ color: "#f59e0b" }}>Ordered {line.orderedQty}, shipped {line.qtyOcr}. RECEIVE uses shipped quantity.</div>
                   )}

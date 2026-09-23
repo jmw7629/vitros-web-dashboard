@@ -3,6 +3,7 @@ import fs from "node:fs";
 const server = fs.readFileSync("convex/incomingStockPdfOcr.ts", "utf8");
 const review = fs.readFileSync("convex/incomingStockActions.ts", "utf8");
 const reviewModule = fs.readFileSync("convex/incomingStockReview.ts", "utf8");
+const receiptRecovery = fs.readFileSync("supabase/migrations/20260923143000_incoming_receipt_attempt_recovery.sql", "utf8");
 const ui = fs.readFileSync("src/pages/inventory/IncomingStockDocument.tsx", "utf8");
 const imageUi = fs.readFileSync("src/pages/inventory/IncomingStockSecure.tsx", "utf8");
 const app = fs.readFileSync("src/App.tsx", "utf8");
@@ -47,10 +48,20 @@ requireTokens(review, "Incoming Stock reviewed receive boundary", [
   'requireCapability(ctx, "inventory.write")',
   'canonical_part_number_only',
   'descriptionUsedForIdentity: false',
-  'apply_inventory_transition',
-  'p_mode: "RECEIVE"',
+  'register_incoming_receipt_review',
+  'execute_incoming_receipt_attempt',
   'canonicalReceiptLineIdentity',
-  'actor: String(actorId)',
+  'p_actor: actor',
+]);
+requireTokens(receiptRecovery, "Incoming Stock persisted atomic receipt boundary", [
+  'public.apply_inventory_transition(',
+  "'RECEIVE'",
+  'grant execute on function public.execute_incoming_receipt_attempt',
+  'to service_role',
+]);
+forbidTokens(receiptRecovery, "Incoming Stock browser authority boundary", [
+  'grant execute on function public.execute_incoming_receipt_attempt(uuid,text,bigint) to authenticated',
+  'grant select on public.incoming_receipt_attempts to authenticated',
 ]);
 
 requireTokens(reviewModule, "Incoming Stock packing-list review", [

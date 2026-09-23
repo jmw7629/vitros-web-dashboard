@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 const source = fs.readFileSync("convex/incomingStockActions.ts", "utf8");
+const receiptMigration = fs.readFileSync("supabase/migrations/20260923143000_incoming_receipt_attempt_recovery.sql", "utf8");
 const failures = [];
 
 function segment(start, end) {
@@ -10,20 +11,20 @@ function segment(start, end) {
   return source.slice(startIndex, endIndex);
 }
 
-const receive = segment("async function applyConfirmedReceive", "export const reviewPackingListDraft");
+const receive = segment("async function callReceiptRpc", "function requiredAttemptId");
 if (!receive) {
-  failures.push("confirmed RECEIVE boundary is missing");
+  failures.push("persisted receipt RPC transport boundary is missing");
 } else {
   const branch = receive.match(/if \(!response\.ok\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
-  if (!branch) failures.push("confirmed RECEIVE non-2xx boundary is missing");
+  if (!branch) failures.push("persisted receipt RPC non-2xx boundary is missing");
   if (/response\.(?:json|text|arrayBuffer|blob|formData)\s*\(/.test(branch)) {
-    failures.push("confirmed RECEIVE must never read provider-controlled error bodies");
+    failures.push("receipt RPC must never read provider-controlled error bodies");
   }
-  if (!branch.includes("Receive failed (${response.status})")) {
-    failures.push("confirmed RECEIVE must use the allowlisted status-only failure");
+  if (!branch.includes("new ReceiptRpcHttpError(response.status)")) {
+    failures.push("receipt RPC must use the allowlisted status-only failure");
   }
   if (/\.message|\.error/.test(branch)) {
-    failures.push("confirmed RECEIVE must not reflect provider error fields");
+    failures.push("receipt RPC must not reflect provider error fields");
   }
 }
 
@@ -41,8 +42,8 @@ if (!review.includes('requiresHumanConfirmation: true')) {
 if (!review.includes('identityRule: "canonical_part_number_only"') || !review.includes('descriptionUsedForIdentity: false')) {
   failures.push("packing-list identity must remain canonical part-number only");
 }
-if (!receive.includes('p_mode: "RECEIVE"') || !commit.includes("applyConfirmedReceive")) {
-  failures.push("confirmed line must keep using the atomic RECEIVE boundary");
+if (!commit.includes('"execute_incoming_receipt_attempt"') || !receiptMigration.includes("public.apply_inventory_transition(") || !receiptMigration.includes("'RECEIVE'")) {
+  failures.push("confirmed line must keep using persisted attempt -> atomic RECEIVE boundary");
 }
 if (!source.includes("SUPABASE_SERVICE_ROLE_KEY") || /VITE_[A-Z0-9_]*SERVICE/i.test(source)) {
   failures.push("Supabase service credential must remain server-only");
