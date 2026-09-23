@@ -27,7 +27,7 @@ function fixture() {
             { id: 'fixture-b', part_number: 'TEST-B', description: 'Fixture beta', qty_on_hand: 20 }],
     ocr: [{ partNumber: 'TEST-A', shippedQuantity: 2, orderedQuantity: 9, page: '1', lineNo: 1, documentRef: 'FIXTURE-DOC' },
           { partNumber: 'TEST-B', shippedQuantity: 3, page: '1', lineNo: 2, documentRef: 'FIXTURE-DOC' }],
-    rpcBehavior: null, refreshes: 0 };
+    attempts: new Map(), acknowledged: new Set(), re_reviewed_events: 0, rpcBehavior: null, refreshes: 0 };
 }
 function loader(f) {
   const cache = new Map();
@@ -54,6 +54,24 @@ function loader(f) {
           const reply = await actions.reviewPackingListDraft.handler({}, args); f.reviews.push(clean(reply)); return reply;
         }
         if (ref === 'incomingStockActions:commitConfirmedReceiveLine') return actions.commitConfirmedReceiveLine.handler({}, args);
+        if (ref === 'incomingStockActions:reReviewIncomingReceiptAttempt') {
+          const correlationId = payload.p_correlation_id;
+          let attempt = [...f.attempts.values()].find(a => a.correlationId === correlationId);
+          if (!attempt) {
+            attempt = { attemptId: `attempt-${f.attempts.size + 1}`, state: 'reviewed', revision: 1, actor: payload.p_actor,
+              documentRef: payload.p_document_ref, sourcePage: payload.p_source_page ?? null, sourceLineNo: payload.p_source_line_no,
+              partNumber: payload.p_part_number, qty: payload.p_qty, correlationId, batchId: payload.p_batch_id, receipt: null };
+            f.attempts.set(attempt.attemptId, attempt);
+          }
+          // On re-review of an abandoned attempt, transition state to reviewed with incremented revision
+          if (attempt.state === 'abandoned') {
+            attempt.state = 'reviewed';
+            attempt.revision += 1;
+            // Append re_reviewed event tracking
+            attempt.re_reviewed_events = (attempt.re_reviewed_events || 0) + 1;
+          }
+          return { ok: true, json: async () => clean(attempt) };
+        }
         throw Error(`Unexpected synthetic action ${ref}`);
       } };
       if (name.endsWith('/hooks/useConvexData')) return { useConvexData: () => ({
@@ -79,10 +97,31 @@ function loader(f) {
           const offset = Number(u.searchParams.get('offset')); const limit = Number(u.searchParams.get('limit'));
           return { ok: true, json: async () => f.stock.slice(offset, offset + limit) };
         }
-        assert.equal(u.pathname, '/rest/v1/rpc/apply_inventory_transition'); assert.equal(options.method, 'POST');
-        const payload = JSON.parse(options.body); f.rpc.push(payload);
+        const rpcName = u.pathname.split('/').at(-1);
+        assert.equal(options.method, 'POST');
+        const payload = JSON.parse(options.body);
+        f.rpc.push(payload);
         if (f.rpcBehavior) return f.rpcBehavior(payload, f.rpc.length);
-        return { ok: true, json: async () => ({ duplicate: false, fixture: true, correlationId: payload.p_correlation_id }) };
+        if (rpcName === 'apply_inventory_transition') {
+          return { ok: true, json: async () => ({ duplicate: false, fixture: true, correlationId: payload.p_correlation_id }) };
+        }
+        if (rpcName === 'register_incoming_receipt_review') {
+          const correlationId = payload.p_correlation_id;
+          let attempt = [...f.attempts.values()].find(a => a.correlationId === correlationId);
+          if (!attempt) {
+            attempt = { attemptId: `attempt-${f.attempts.size + 1}`, state: 'reviewed', revision: 1, actor: payload.p_actor,
+              documentRef: payload.p_document_ref, sourcePage: payload.p_source_page ?? null, sourceLineNo: payload.p_source_line_no,
+              partNumber: payload.p_part_number, qty: payload.p_qty, correlationId, batchId: payload.p_batch_id, receipt: null };
+            f.attempts.set(attempt.attemptId, attempt);
+          }
+          // On re-review of an abandoned attempt, transition state to reviewed with incremented revision
+          if (attempt.state === 'abandoned') {
+            attempt.state = 'reviewed';
+            attempt.revision += 1;
+          }
+          return { ok: true, json: async () => clean(attempt) };
+        }
+        return { ok: true, json: async () => ({ fixture: true }) };
       },
     }, { filename, timeout: 10000 });
     return module.exports;

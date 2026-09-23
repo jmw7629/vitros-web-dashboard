@@ -236,3 +236,61 @@ export const commitConfirmedReceiveLine = action({
     };
   },
 });
+
+export const reReviewIncomingReceiptAttempt = action({
+  args: {
+    correlationId: v.string(),
+    partNumber: v.string(),
+    sourcePage: v.optional(v.string()),
+    sourceLineNo: v.number(),
+    documentRef: v.optional(v.string()),
+    qty: v.number(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const actorId = await requireCapability(ctx, "inventory.write");
+    if (!args.correlationId.trim()) throw new Error("Correlation ID is required");
+    if (!args.partNumber.trim()) throw new Error("Part number is required");
+    if (!Number.isInteger(args.qty) || args.qty <= 0)
+      throw new Error("Receive quantity must be a positive integer");
+    if (args.sourceLineNo <= 0 || args.sourceLineNo > MAX_LINES) {
+      throw new Error("Source line number is invalid");
+    }
+    if (args.sourcePage && args.sourcePage.length > MAX_SOURCE_PAGE_CHARS) {
+      throw new Error("Source page is too long");
+    }
+
+    const { url, serviceKey } = getSupabaseConfig();
+    const normalizedBatchRef = normalizeDocumentRef(args.documentRef ?? args.correlationId);
+    const payload = {
+      p_actor: String(actorId),
+      p_document_ref: args.documentRef?.trim() || '',
+      p_source_page: args.sourcePage?.trim() || 'MANUAL',
+      p_source_line_no: args.sourceLineNo,
+      p_part_number: args.partNumber,
+      p_qty: args.qty,
+      p_correlation_id: args.correlationId,
+      p_batch_id: normalizedBatchRef,
+    };
+
+    const response = await fetch(
+      `${url}/rest/v1/rpc/register_incoming_receipt_review`,
+      {
+        method: "POST",
+        headers: {
+          apikey: serviceKey,
+          Authorization: `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`Re-review RPC failed (${response.status}): ${errBody}`);
+    }
+    const result = await response.json();
+    return result as Record<string, unknown>;
+  },
+});
