@@ -12,9 +12,16 @@ type MatchStatus =
   | "unknown_part"
   | "ambiguous_part"
   | "invalid_part_number"
-  | "invalid_quantity";
+  | "invalid_quantity"
+  | "needs_review";
 
 type CommitStatus = "idle" | "committing" | "received" | "failed";
+
+type ConfirmedReceiveRequest = {
+  partNumber: string; qty: number; confirmationId: string; documentRef: string;
+  sourcePage?: string; sourceLineNo: number;
+};
+const receiptReference = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
 
 interface ReviewLine {
   lineNo: number;
@@ -51,6 +58,7 @@ interface ReviewResponse {
 interface PdfReviewLine extends ReviewLine {
   id: string;
   confirmationId: string;
+  reviewedDocumentRef: string;
   orderedQty: number | null;
   selected: boolean;
   commitStatus: CommitStatus;
@@ -114,6 +122,7 @@ function statusLabel(status: MatchStatus) {
     case "ambiguous_part": return { label: "AMBIGUOUS", color: "#ef4444" };
     case "invalid_part_number": return { label: "INVALID PART", color: "#f59e0b" };
     case "invalid_quantity": return { label: "INVALID QTY", color: "#f59e0b" };
+    case "needs_review": return { label: "REVIEW REQUIRED", color: "#f59e0b" };
   }
 }
 
@@ -130,6 +139,24 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [commitBusy, setCommitBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const commitGuard = useRef(false);
+  const reviewGuard = useRef(false);
+  const attemptedRequests = useRef(new Map<string, ConfirmedReceiveRequest>());
+
+  const changeDocumentRef = (value: string) => {
+    if (commitGuard.current || reviewGuard.current) return;
+    const next = value.slice(0, 200);
+    if (attemptedRequests.current.size && receiptReference(next) !== receiptReference(documentRef)) {
+      setStatus("This receipt has already been attempted. Keep its original reference for retry; reconcile any uncertain result before starting a different receipt.");
+      return;
+    }
+    if (receiptReference(next) !== receiptReference(documentRef)) {
+      setLines(previous => previous.map(line => ({...line, selected: false, matchStatus: "needs_review", message: null})));
+      setReview(null);
+      if (lines.length) setStatus("Reference changed. Choose the PDF again to review it under the corrected reference before confirming.");
+    }
+    setDocumentRef(next);
+  };
 
   const partList = useMemo(() => data.parts.map((part) => part.partNumber), [data.parts]);
   const selected = useMemo(
@@ -138,10 +165,16 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
   );
 
   const onPdf = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (commitGuard.current || reviewGuard.current) return;
+    if (attemptedRequests.current.size) {
+      setStatus("This PDF receipt has already been attempted. Retry its original lines or reconcile the outcome before replacing the receipt.");
+      return;
+    }
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
 
+    reviewGuard.current = true;
     setBusy(true);
     setStatus("Reading every page of the packing-list PDF…");
     try {
@@ -177,6 +210,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
           id: makeId("pdf-line"),
           // confirmationId is now a presentation key only; deterministic identity comes from server
           confirmationId: line.deterministicIdentity ?? makeId("pdf-confirm"),
+          reviewedDocumentRef: effectiveRef.slice(0, 200),
           orderedQty: numberOrNull(source.orderedQuantity ?? source.ordered_quantity ?? source.orderedQty ?? source.ordered_qty),
           selected: line.matchStatus === "matched",
           commitStatus: "idle",
@@ -191,15 +225,22 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
       setLines([]);
       setStatus(`Error: ${safeOcrError(error)}`);
     } finally {
+      reviewGuard.current = false;
       setBusy(false);
     }
   };
 
   const commitSelected = async () => {
+    if (commitGuard.current || reviewGuard.current) return;
     if (selected.length === 0) {
       setStatus("Select at least one matched PDF line to confirm receiving.");
       return;
     }
+    if (!documentRef.trim() || selected.some(line => !attemptedRequests.current.has(line.id) && receiptReference(line.reviewedDocumentRef) !== receiptReference(documentRef))) {
+      setStatus("Enter the receipt reference and re-review the PDF before confirmation. An attempted line cannot be rebound to another receipt.");
+      return;
+    }
+    commitGuard.current = true;
     setCommitBusy(true);
     setStatus("Applying human-confirmed PDF RECEIVE movements…");
     let succeeded = 0;
@@ -210,14 +251,16 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
         ? { ...candidate, commitStatus: "committing", message: null }
         : candidate));
       try {
-        const result = await commitConfirmedReceiveLine({
+        const request = attemptedRequests.current.get(line.id) ?? Object.freeze({
           partNumber: line.resolvedPartNumber ?? line.partNumberOcr,
           qty: line.qtyOcr ?? 0,
           confirmationId: line.confirmationId,
-          documentRef: documentRef.trim() || undefined,
+          documentRef: line.reviewedDocumentRef,
           sourcePage: line.sourcePage ?? undefined,
           sourceLineNo: line.sourceLineNo,
-        }) as unknown as { receipt?: Record<string, unknown> };
+        });
+        attemptedRequests.current.set(line.id, request);
+        const result = await commitConfirmedReceiveLine({...request}) as unknown as { receipt?: Record<string, unknown> };
         const duplicate = Boolean(result.receipt?.duplicate);
         setLines((previous) => previous.map((candidate) => candidate.id === line.id
           ? {
@@ -240,6 +283,7 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
 
     await data.refresh().catch(() => undefined);
     setStatus(`PDF receive complete: ${succeeded} accepted, ${failed} failed. Accepted lines are idempotent and server-authoritative.`);
+    commitGuard.current = false;
     setCommitBusy(false);
   };
 
@@ -266,13 +310,14 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
             <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider" style={{ color: theme.textMuted }}>Document / Delivery / PO reference</span>
             <input
               value={documentRef}
-              onChange={(event) => setDocumentRef(event.target.value.slice(0, 200))}
+              disabled={busy || commitBusy}
+              onChange={(event) => changeDocumentRef(event.target.value)}
               placeholder="Required for deterministic receipt identity"
               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
               style={{ backgroundColor: theme.inputBg, border: `1px solid ${theme.cardBorder}`, color: theme.textPrimary }}
             />
           </label>
-          <button disabled={busy || commitBusy} onClick={() => fileInput.current?.click()} className="flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: theme.accentBlue }}>
+          <button disabled={busy || commitBusy || attemptedRequests.current.size > 0} onClick={() => fileInput.current?.click()} className="flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: theme.accentBlue }}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             {busy ? "Reading PDF…" : "Choose PDF"}
           </button>
@@ -322,13 +367,13 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
               </div>
             ) : lines.map((line) => {
               const presentation = statusLabel(line.matchStatus);
-              const selectable = line.matchStatus === "matched" && line.commitStatus !== "received" && line.commitStatus !== "committing";
+              const selectable = !busy && !commitBusy && line.matchStatus === "matched" && line.commitStatus !== "received";
               return (
                 <div key={line.id} className="grid grid-cols-[42px_58px_80px_60px_160px_90px_1fr_100px_105px_135px] items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: theme.cardBorder, backgroundColor: line.selected ? `${theme.accentBlue}0d` : undefined }}>
                   <button
                     type="button"
                     disabled={!selectable}
-                    onClick={() => setLines((previous) => previous.map((candidate) => candidate.id === line.id ? { ...candidate, selected: !candidate.selected } : candidate))}
+                    onClick={() => { if (commitGuard.current || reviewGuard.current) return; setLines((previous) => previous.map((candidate) => candidate.id === line.id ? { ...candidate, selected: !candidate.selected } : candidate)); }}
                     aria-label={`Select PDF line ${line.lineNo} for receiving`}
                     className="flex h-5 w-5 items-center justify-center rounded border-2 disabled:opacity-30"
                     style={{ borderColor: line.selected ? theme.accentBlue : theme.cardBorder, backgroundColor: line.selected ? theme.accentBlue : "transparent" }}
