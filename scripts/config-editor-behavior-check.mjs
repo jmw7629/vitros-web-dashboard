@@ -92,6 +92,39 @@ await test('Invalid advanced JSON cannot save or preview an older valid value', 
   assert(h.button('Save draft').props.disabled); assert(h.button('Preview in this tab').props.disabled);
   assert.equal(h.f.calls.length, 0); await h.close();
 });
+await test('Clearing a structured application title preserves its input and saves the replacement', async () => {
+  const f = fixture();
+  f.mutation = async (ref, args) => { assert.equal(ref, 'configActions:updateDraft'); return { ...f.drafts[0], value: args.value, revision: 3 }; };
+  const h = await editor(f);
+  const title = h.renderer.root.findAllByType('input').find(node => node.props.value === 'Reviewed title');
+  await act(async () => title.props.onChange({ target: { value: '' } }));
+  assert.equal(title.props.value, ''); // The same mounted control survives.
+  assert(h.button('Save draft').props.disabled); assert(h.button('Preview in this tab').props.disabled);
+  assert(h.button('Review publication').props.disabled); assert.equal(f.calls.length, 0);
+  await act(async () => title.props.onChange({ target: { value: 'Replacement title' } }));
+  await h.click('Save draft'); assert.equal(f.calls[0].args.value, 'Replacement title'); await h.close();
+});
+await test('Engineer title stays editable when empty while incompatible advanced JSON stays blocked', async () => {
+  const f = fixture(); f.drafts = [];
+  f.mutation = async (ref, args) => { assert.equal(ref, 'configActions:createDraft'); return { draftId: 'configDrafts:engineer', key: args.key, value: args.value, revision: 1, baseVersion: 0 }; };
+  const h = await editor(f); await h.click('Customize Engineer view');
+  const title = h.renderer.root.findAllByType('input').find(node => node.props.value === 'Engineer Dashboard');
+  await act(async () => title.props.onChange({ target: { value: '' } }));
+  assert.equal(title.props.value, '');
+  assert.equal(h.renderer.root.findAllByProps({ 'aria-label': 'Engineer view controls' }).length, 1);
+  assert(h.button('Save draft').props.disabled); assert(h.button('Preview in this tab').props.disabled);
+  assert(h.button('Review publication').props.disabled); assert.equal(f.calls.length, 0);
+  await act(async () => title.props.onChange({ target: { value: 'Bench dashboard' } }));
+  await h.click('Save draft'); assert.equal(f.calls[0].args.value.title, 'Bench dashboard');
+  await act(async () => title.props.onChange({ target: { value: '' } }));
+  for (const raw of ['{', 'null', '[]', '{}', '{"title":"Title","cards":null}']) {
+    await h.edit(raw);
+    assert.equal(h.renderer.root.findAllByProps({ 'aria-label': 'Engineer view controls' }).length, 0);
+    assert(h.button('Save draft').props.disabled); assert(h.button('Preview in this tab').props.disabled);
+    assert(h.button('Review publication').props.disabled);
+  }
+  assert.equal(f.calls.length, 1); await h.close();
+});
 await test('Save updates the selected draft using its loaded revision', async () => {
   const f = fixture(); f.mutation = async (ref, args) => { assert.equal(ref, 'configActions:updateDraft'); f.drafts = [{ ...f.drafts[0], value: args.value, revision: 3 }]; return f.drafts[0]; };
   const h = await editor(f); await h.edit('"Edited title"'); await h.click('Save draft');
