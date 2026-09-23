@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { Check, FileText, Loader2, Upload, X, FileText as FileTextIcon, Hash } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
@@ -22,6 +22,20 @@ type ConfirmedReceiveRequest = {
   sourcePage?: string; sourceLineNo: number;
 };
 const receiptReference = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
+
+type RecoveryAttempt = {
+  attemptId: string;
+  state: "reviewed" | "attempted" | "accepted" | "unknown" | "conflict";
+  revision: number;
+  documentRef: string;
+  sourcePage: string | null;
+  sourceLineNo: number;
+  partNumber: string;
+  qty: number;
+  correlationId: string;
+  batchId: string;
+  receipt?: Record<string, unknown> | null;
+};
 
 interface ReviewLine {
   lineNo: number;
@@ -63,6 +77,8 @@ interface PdfReviewLine extends ReviewLine {
   selected: boolean;
   commitStatus: CommitStatus;
   message: string | null;
+  attemptId?: string;
+  attemptRevision?: number;
 }
 
 const MAX_PDF_BYTES = 8 * 1024 * 1024;
@@ -131,6 +147,8 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
   const ocrPackingListPdf = useAction(api.incomingStockPdfOcr.ocrPackingListPdf);
   const reviewPackingListDraft = useAction(api.incomingStockActions.reviewPackingListDraft);
   const commitConfirmedReceiveLine = useAction(api.incomingStockActions.commitConfirmedReceiveLine);
+  const getIncomingReceiptRecovery = useAction(api.incomingStockActions.getIncomingReceiptRecovery);
+  const acknowledgeIncomingReceiptAttempt = useAction(api.incomingStockActions.acknowledgeIncomingReceiptAttempt);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [documentRef, setDocumentRef] = useState("");
@@ -142,6 +160,75 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
   const commitGuard = useRef(false);
   const reviewGuard = useRef(false);
   const attemptedRequests = useRef(new Map<string, ConfirmedReceiveRequest>());
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const recovered = await getIncomingReceiptRecovery({}) as unknown as RecoveryAttempt[];
+        if (cancelled || recovered.length === 0) return;
+        const restored: PdfReviewLine[] = [];
+        let firstRef = "";
+        for (const attempt of recovered) {
+          if (!attempt?.attemptId || !attempt.documentRef || !Number.isSafeInteger(attempt.sourceLineNo)) continue;
+          firstRef ||= attempt.documentRef;
+          const lineId = `pdf-recovery-${attempt.attemptId}`;
+          const request: ConfirmedReceiveRequest = Object.freeze({
+            partNumber: attempt.partNumber,
+            qty: attempt.qty,
+            confirmationId: attempt.correlationId || attempt.attemptId,
+            documentRef: attempt.documentRef,
+            sourcePage: attempt.sourcePage ?? undefined,
+            sourceLineNo: attempt.sourceLineNo,
+          });
+          let acknowledged = false;
+          if (attempt.state === "accepted") {
+            try {
+              await acknowledgeIncomingReceiptAttempt({ attemptId: attempt.attemptId });
+              acknowledged = true;
+            } catch {
+              // Keep it recovery-bound if acknowledgement cannot be persisted.
+            }
+          }
+          if (!acknowledged) attemptedRequests.current.set(lineId, request);
+          restored.push({
+            id: lineId,
+            confirmationId: attempt.correlationId || attempt.attemptId,
+            reviewedDocumentRef: attempt.documentRef,
+            lineNo: attempt.sourceLineNo,
+            partNumberOcr: attempt.partNumber,
+            descriptionOcr: "Recovered persisted receipt attempt",
+            qtyOcr: attempt.qty,
+            confidence: null,
+            matchStatus: attempt.state === "conflict" ? "needs_review" : "matched",
+            resolvedPartNumber: attempt.partNumber,
+            stockDescription: null,
+            qtyOnHand: null,
+            sourcePage: attempt.sourcePage,
+            sourceLineNo: attempt.sourceLineNo,
+            deterministicIdentity: attempt.correlationId,
+            orderedQty: null,
+            selected: !["accepted", "conflict"].includes(attempt.state),
+            commitStatus: attempt.state === "accepted" ? "received" : attempt.state === "conflict" ? "failed" : "idle",
+            message: attempt.state === "accepted"
+              ? "Recovered accepted receipt from the server; no second inventory movement was made."
+              : attempt.state === "conflict"
+                ? "Persisted receipt conflict requires review before any new RECEIVE."
+                : "Recovered persisted receipt attempt. Retry this exact line to reconcile the authoritative result.",
+            attemptId: attempt.attemptId,
+            attemptRevision: attempt.revision,
+          });
+        }
+        if (cancelled || restored.length === 0) return;
+        setDocumentRef((current) => current || firstRef);
+        setLines((current) => current.length ? current : restored);
+        setStatus("Recovered an unfinished receipt from the server. Reconcile these exact physical lines before replacing the PDF or changing its reference.");
+      } catch {
+        if (!cancelled) setStatus("Receipt recovery is temporarily unavailable. Do not retry an uncertain receipt under a different reference.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [acknowledgeIncomingReceiptAttempt, getIncomingReceiptRecovery]);
 
   const changeDocumentRef = (value: string) => {
     if (commitGuard.current || reviewGuard.current) return;
@@ -260,16 +347,30 @@ function PdfIntakeModal({ onClose }: { onClose: () => void }) {
           sourceLineNo: line.sourceLineNo,
         });
         attemptedRequests.current.set(line.id, request);
-        const result = await commitConfirmedReceiveLine({...request}) as unknown as { receipt?: Record<string, unknown> };
+        const result = await commitConfirmedReceiveLine({...request}) as unknown as {
+          receipt?: Record<string, unknown>; attemptId?: string;
+        };
         const duplicate = Boolean(result.receipt?.duplicate);
+        let acknowledgementPending = false;
+        if (result.attemptId) {
+          try {
+            await acknowledgeIncomingReceiptAttempt({ attemptId: result.attemptId });
+            attemptedRequests.current.delete(line.id);
+          } catch {
+            acknowledgementPending = true;
+          }
+        }
         setLines((previous) => previous.map((candidate) => candidate.id === line.id
           ? {
               ...candidate,
               selected: false,
               commitStatus: "received",
-              message: duplicate
-                ? "Already received earlier — idempotent retry made no second movement."
-                : "Received atomically and staged through the inventory transition path.",
+              attemptId: result.attemptId ?? candidate.attemptId,
+              message: acknowledgementPending
+                ? "Received atomically. Server acknowledgement is still pending, so this exact receipt will remain recoverable after reload."
+                : duplicate
+                  ? "Already received earlier — idempotent retry made no second movement."
+                  : "Received atomically and staged through the inventory transition path.",
             }
           : candidate));
         succeeded += 1;
