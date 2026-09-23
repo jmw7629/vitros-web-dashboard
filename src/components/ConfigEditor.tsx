@@ -111,7 +111,12 @@ function EntryPanel({ entry, published, drafts }: { entry: ConfigEntryDef; publi
   const config = useConfigContext();
   const [draft, setDraft] = useState<Draft | null>(() => drafts[0] ? structuredClone(drafts[0]) : null);
   const [base, setBase] = useState(() => ({ version: published?.version ?? 0, value: published?.value ?? entry.defaultValue }));
-  const [text, setText] = useState(() => display(drafts[0]?.value ?? published?.value ?? entry.defaultValue));
+  const [edit, setEdit] = useState(() => ({ text: display(drafts[0]?.value ?? published?.value ?? entry.defaultValue), structured: false }));
+  const { text } = edit;
+  const setText = (text: string) => setEdit({ text, structured: false });
+  // Structured controls preserve the loaded shape even while a required field
+  // is empty. Advanced JSON must validate before it can mount these controls.
+  const changeStructuredValue = (value: unknown) => setEdit({ text: display(value), structured: true });
   const [review, setReview] = useState<Review | null>(null);
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
@@ -157,7 +162,7 @@ function EntryPanel({ entry, published, drafts }: { entry: ConfigEntryDef; publi
     {drafts.length > 0 && <label className="block min-w-0 text-sm">Saved drafts<select className={`${fieldClass} mt-1`} style={fieldStyle} disabled={busy} value={draft?.draftId ?? ""} onChange={event => load(drafts.find(row => row.draftId === event.target.value) ?? null)}>
       <option value="">Start a new draft</option>{drafts.map(row => <option key={row.draftId} value={row.draftId}>Revision {row.revision} · {new Date(row.updatedAt).toLocaleString()}</option>)}
     </select></label>}
-    {!invalid && (entry.key === "engineer.view" ? <EngineerFields value={value as EngineerViewConfig} disabled={busy || !entry.editable} change={next => setText(display(next))} /> : <ValueFields name={entry.valueType === "json" ? entry.label : entry.key} value={value} disabled={busy || !entry.editable} change={next => setText(display(next))} />)}
+    {(!invalid || edit.structured) && (entry.key === "engineer.view" ? <EngineerFields value={value as EngineerViewConfig} disabled={busy || !entry.editable} change={changeStructuredValue} /> : <ValueFields name={entry.valueType === "json" ? entry.label : entry.key} value={value} disabled={busy || !entry.editable} change={changeStructuredValue} />)}
     <details open={Boolean(invalid)}><summary className="cursor-pointer text-sm font-semibold">Advanced value editor</summary><label className="mt-2 block text-sm">{entry.label} value<textarea className={`${fieldClass} mt-1 font-mono`} style={fieldStyle} rows={8} value={text} onChange={event => setText(event.target.value)} disabled={busy || !entry.editable} aria-invalid={Boolean(invalid)} aria-describedby={invalid ? "config-value-error" : undefined} /></label></details>
     {invalid && <p id="config-value-error" role="alert" className="text-sm text-red-400">{invalid}</p>}
     <div className="flex flex-wrap gap-2">
