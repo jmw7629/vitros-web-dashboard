@@ -475,3 +475,10 @@ Open limitations: no Zen app key is configured (`OPENCODE_ZEN_API_KEY` missing f
 mapping are fully covered instead. No production fixtures were inserted. Native client
 (PR5) and macOS packaging are owned elsewhere and untouched. Deployment of the additive
 Convex functions/schema follows only after merge and green required checks.
+
+## REM progress rejection fixture — 2026-09-23
+
+- Base inspected: `1e6b216b92f0e81cf13db9ba04e88cb4de6572df`. The REM progress SQL fixture caught its own missing-rejection assertions for idempotency conflicts, stale revisions, and inactive engineers because their messages matched the expected RPC error substrings.
+- All six negative cases now record an expected RPC rejection inside the handler and raise the missing-rejection assertion after leaving that handler. Unexpected database errors still propagate. Production functions, grants, RLS, and business records are unchanged.
+- Disposable PGlite 0.3.14 executed the full REM operational bootstrap/import/progress migration chain used by the native PostgreSQL CI job, then passed the updated rollback-only progress fixture. The old fixture incorrectly passed three mutations replacing the rejected calls with successful no-ops; the repaired fixture rejected all six no-op mutations and propagated all six unrelated-error mutations.
+- Verification is local embedded PostgreSQL evidence, not native PostgreSQL CI, live Supabase, or browser acceptance. The existing `rem-operational-database` CI job executes the updated fixture on PostgreSQL 17. No production connection or fixture was used.
