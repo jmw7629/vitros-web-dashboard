@@ -27,4 +27,5 @@ f=fixture({publicLeak:true});await assert.rejects(privatizeScans({key:'synthetic
 f=fixture({failUpdate:true});await assert.rejects(privatizeScans({key:'synthetic-key',manifest,apply:true,fetchFn:f.fetchFn}),e=>e.message==='Storage request rejected (HTTP 500).');
 f=fixture();await assert.rejects(privatizeScans({manifest,key:'',fetchFn:f.fetchFn}),/required/);assert.equal(f.calls.length,0);
 await assert.rejects(privatizeScans({key:'synthetic-key',manifest:[{...manifest[0],file:'../other.jpg'}],fetchFn:f.fetchFn}),/Invalid/);assert.equal(f.calls.length,0);
-console.log('SCAN_STORAGE_PRIVACY_CHECK=PASS audit-only default, exact manifest, retained bytes, private-only update, safe failure, no credential reflection');
+f=fixture();await assert.rejects(privatizeScans({key:'synthetic-key',manifest:[{...manifest[0],file:'test.txt'}],fetchFn:f.fetchFn}),e=>e.message==='Object inventory differs from the reviewed manifest.');
+console.log('SCAN_STORAGE_PRIVACY_CHECK=PASS audit-only default, exact manifest, retained bytes, reviewed legacy test object allowed, private-only update, safe failure, no credential reflection');

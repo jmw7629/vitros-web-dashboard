@@ -12,7 +12,7 @@ export async function privatizeScans({ key, manifest, apply = false, fetchFn = f
   if (!Array.isArray(manifest) || !manifest.length || manifest.length > 100) fail('A bounded source manifest is required.');
   const names = new Set();
   for (const row of manifest) {
-    if (!row || !/^(?:scan|incoming)_\d+\.jpg$/.test(row.file) || names.has(row.file) ||
+    if (!row || !/^(?:(?:scan|incoming)_\d+\.jpg|test\.txt)$/.test(row.file) || names.has(row.file) ||
       !/^[a-f0-9]{64}$/.test(row.sha256) || !Number.isSafeInteger(row.bytes) || row.bytes < 1 || row.bytes > 14_000_000) fail('Invalid source manifest.');
     names.add(row.file);
   }
