@@ -497,3 +497,6 @@ Current reviewed main `8b3808ce508753aedfd16a19d8bb1de3b47623f3` is READY with g
 
 ## 2026-09-23 OCR error contract review
 PR 422 head 21fafb4 failed independent review: inherited code-map keys returned non-string values, Incoming Stock OCR catches could reflect malformed provider diagnostics, and internal mutation plain errors lose their exact message across Convex boundaries. Repair is confined to bounded error transport and executable regression coverage; no inventory, SAP, authorization, or provider routing changes. Actual provider/source acceptance remains separate.
+
+## 2026-09-23 historical scan privacy operation
+Owned dhr-scans bucket is public with seven historical JPEGs. Current browser has no stored-object read path; OCR uses authenticated actions/base64. Prepared a fixed-project/fixed-bucket API operation with exact object-manifest/hash guards, preserved authenticated retrieval, public denial checks, and no object writes or automatic public rollback. Storage API credential unavailable; no production change claimed. Synthetic transport behavior tests pass. See SCAN_STORAGE_PRIVACY.md.
