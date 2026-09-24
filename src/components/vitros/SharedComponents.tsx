@@ -293,18 +293,24 @@ export function modeColor(mode: string): string {
 
 // ─── CSV Export Utility ───
 
+export function escapeField(val: any): string {
+  let str = String(val ?? "");
+  // Neutralize formula-leading text (but not pure JS numbers)
+  if (typeof val !== "number" && /^[=\+\@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
+  // RFC-style CSV quoting: wrap in double quotes if contains comma, quote, or newline
+  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
 export function downloadCSV(data: Record<string, any>[], filename: string) {
   if (data.length === 0) return;
   const headers = Object.keys(data[0]);
-  const escapeField = (val: any) => {
-    const str = String(val ?? "");
-    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-      return '"' + str.replace(/"/g, '""') + '"';
-    }
-    return str;
-  };
   const csvRows = [
-    headers.join(","),
+    headers.map(escapeField).join(","),
     ...data.map(row => headers.map(h => escapeField(row[h])).join(","))
   ];
   const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
