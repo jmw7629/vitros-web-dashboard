@@ -190,6 +190,59 @@ jobs:
           psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f scripts/rem-progress-db-test.sql -c 'ROLLBACK'
 
 
+  incoming-receipt-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_test_only
+          POSTGRES_DB: incoming_receipt_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d incoming_receipt_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Durable Incoming receipt serial, concurrency, and guarded reverse
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: disposable_test_only
+          PGDATABASE: incoming_receipt_test
+          VITROS_DISPOSABLE_DATABASE: "1"
+        run: |
+          psql -v ON_ERROR_STOP=1 -f database/tests/incoming_receipt_bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260830_vitros_atomic_inventory_transition.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260909_extend_inventory_operations_with_material_request.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260924034500_incoming_receipt_durable_recovery.sql
+          psql -v ON_ERROR_STOP=1 -f database/tests/incoming_receipt_durable_recovery.sql
+          bash scripts/incoming-receipt-durable-concurrency-check.sh
+
+          set +e
+          psql -v ON_ERROR_STOP=1 -f database/rollbacks/20260924034500_incoming_receipt_durable_recovery.sql > /tmp/incoming-reverse-history.log 2>&1
+          reverse_rc=$?
+          set -e
+          test "$reverse_rc" -ne 0
+          grep -q "Rollback blocked: incoming receipt event history exists" /tmp/incoming-reverse-history.log
+
+          psql -d postgres -v ON_ERROR_STOP=1 -c "drop database incoming_receipt_test with (force)" -c "create database incoming_receipt_test"
+          psql -v ON_ERROR_STOP=1 -f database/tests/incoming_receipt_bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260830_vitros_atomic_inventory_transition.sql
+          psql -v ON_ERROR_STOP=1 -f database/migrations/20260909_extend_inventory_operations_with_material_request.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260924034500_incoming_receipt_durable_recovery.sql
+          psql -v ON_ERROR_STOP=1 -f database/rollbacks/20260924034500_incoming_receipt_durable_recovery.sql
+          test "$(psql -Atv ON_ERROR_STOP=1 -c "select to_regclass('public.incoming_receipt_attempts') is null")" = "t"
+          test "$(psql -Atv ON_ERROR_STOP=1 -c "select to_regprocedure('public.apply_inventory_transition(text,text,integer,text,text,text,text)') is not null")" = "t"
+
   dhr-document-database:
     runs-on: ubuntu-latest
     timeout-minutes: 15
