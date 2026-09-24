@@ -293,21 +293,12 @@ export function modeColor(mode: string): string {
 
 // ─── CSV Export Utility ───
 
+import { serializeCsv } from "../../lib/csv.mjs";
+
 export function downloadCSV(data: Record<string, any>[], filename: string) {
   if (data.length === 0) return;
-  const headers = Object.keys(data[0]);
-  const escapeField = (val: any) => {
-    const str = String(val ?? "");
-    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-      return '"' + str.replace(/"/g, '""') + '"';
-    }
-    return str;
-  };
-  const csvRows = [
-    headers.join(","),
-    ...data.map(row => headers.map(h => escapeField(row[h])).join(","))
-  ];
-  const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const csv = serializeCsv(data);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
