@@ -10,7 +10,8 @@ begin;
 -- Extend inventory_operations with new nullable material request columns
 alter table public.inventory_operations
   add column if not exists requested_batch_id text,
-  add column if not exists requested_analyzer_serial text;
+  add column if not exists requested_analyzer_serial text,
+  add column if not exists receipt_id text;
 
 -- Replace the function with updated version that persists and validates the new fields
 create or replace function public.apply_inventory_transition(
