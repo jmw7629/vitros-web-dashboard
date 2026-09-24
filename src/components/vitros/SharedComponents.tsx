@@ -297,7 +297,13 @@ export function downloadCSV(data: Record<string, any>[], filename: string) {
   if (data.length === 0) return;
   const headers = Object.keys(data[0]);
   const escapeField = (val: any) => {
+    if (typeof val === "number") {
+      return String(val);
+    }
     const str = String(val ?? "");
+    if (/^[=\+\@\t\r]/.test(str)) {
+      str = "'" + str;
+    }
     if (str.includes(",") || str.includes('"') || str.includes("\n")) {
       return '"' + str.replace(/"/g, '""') + '"';
     }
