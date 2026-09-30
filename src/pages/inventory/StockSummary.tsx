@@ -18,7 +18,7 @@ type ViewMode = "all" | "plan";
 // Both header and rows use the same bounded tracks, including on narrow screens.
 const STOCK_COLUMN_WIDTHS: Record<string, number> = {
   partNumber: 100, description: 240, type: 120, qoh: 64,
-  minQty: 56, maxQty: 56, status: 104, onPlan: 64, module: 240, supportedModels: 150, subassemblyCodes: 110, systemSide: 100,
+  minQty: 56, maxQty: 56, status: 104, onPlan: 64, module: 240, supportedModels: 150, subassemblyCodes: 110, systemSide: 100, qtyUsed5600: 88, qtyUsed7600: 88, qtyUsed3600: 88, bomSection: 76,
 };
 const STOCK_COLUMN_GAP = 12;
 const STOCK_ACTION_WIDTH = 72;
