@@ -223,7 +223,7 @@ export const REM_VIEWS = ["dashboard", "kanban", "gantt", "morning"] as const;
 
 export const STOCK_SUMMARY_COLUMN_KEYS = [
   "partNumber", "description", "type", "qoh", "minQty", "maxQty",
-  "status", "onPlan", "binLocation", "module", "supportedModels", "subassemblyCodes", "systemSide",
+  "status", "onPlan", "binLocation", "module", "supportedModels", "subassemblyCodes", "systemSide",\n  "qtyUsed5600", "qtyUsed7600", "qtyUsed3600", "bomSection",
 ] as const;
 
 export const TRANSACTION_SEARCH_FIELD_KEYS = [
