@@ -27,7 +27,6 @@ export function csvCell(value: unknown): string {
 export function stockCsv(parts: Array<Record<string, any>>): string {
  const headers=["Part #","Description","Models","Subassembly","Subcode","Dry / Wet","Qty / 5600","Qty / 7600","Qty / 3600","Section","Type","QOH","Min","Max","Status","On Plan"];
  const rows=parts.map(p=>[p.partNumber,p.description,listDisplay(p.supportedModels),p.module||"Not verified",listDisplay(p.subassemblyCodes),p.systemSide||"Not mapped",p.qtyUsed5600??0,p.qtyUsed7600??0,p.qtyUsed3600??0,p.bomSection||"",p.type,p.qoh,p.minQty,p.maxQty,p.qoh===0?"STOCKOUT":p.minQty>0&&p.qoh<p.minQty?"LOW":"OK",p.onPlan?"Yes":"No"]);
- return [headers,...rows].map(row=>row.map(csvCell).join(",")).join("\r
-");
+ return [headers,...rows].map(row=>row.map(csvCell).join(",")).join("\\r\\n");
 }
 export function parseMetadataList(value: string): string[] { return [...new Set(value.split(/[;/]/).map(v=>v.trim()).filter(Boolean))]; }
