@@ -26,6 +26,7 @@ import { MorningSnapshot } from "./pages/rem/MorningSnapshot";
 import { KanbanBoard } from "./pages/rem/KanbanBoard";
 import { GanttTimeline } from "./pages/rem/GanttTimeline";
 import { EngineerKiosk } from "./pages/rem/EngineerKiosk";
+import { VisionTracker } from "./pages/rem/VisionTracker";
 import { Analyzers } from "./pages/rem/Analyzers";
 import { LvccTracker } from "./pages/rem/LvccTracker";
 import { ProductionPlan } from "./pages/rem/ProductionPlan";
@@ -164,6 +165,7 @@ function App() {
             </RoleGuard>
           } />
           <Route path="/rem/analyzers" element={<Analyzers />} />
+          <Route path="/rem/vision" element={<VisionTracker />} />
           <Route path="/rem/lvcc" element={<LvccTracker />} />
           <Route path="/rem/production-plan" element={<ProductionPlan />} />
           <Route path="/rem/field-status" element={<FieldStatus />} />

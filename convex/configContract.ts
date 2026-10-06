@@ -165,6 +165,7 @@ export const KNOWN_ROUTES = [
   "/rem/gantt",
   "/rem/kiosk",
   "/rem/analyzers",
+  "/rem/vision",
   "/rem/lvcc",
   "/rem/production-plan",
   "/rem/field-status",

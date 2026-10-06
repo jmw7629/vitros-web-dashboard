@@ -1,4 +1,4 @@
-export type RemKind = 'analyzer' | 'lvcc';
+export type RemKind = 'analyzer' | 'vision' | 'lvcc';
 export const REM_STAGES = [
   { key: 'procurementPct', column: 'procurement_pct', label: 'Procurement' },
   { key: 'cleaningPct', column: 'cleaning_pct', label: 'Cleaning' },
@@ -16,8 +16,10 @@ export const LVCC_STAGES = [
   { key: 'qaReleasePct', column: 'qa_release_pct', label: 'QA Release' },
   { key: 'sapReleasePct', column: 'sap_release_pct', label: 'SAP Release' },
 ];
+export const VISION_STAGES = [REM_STAGES[2], REM_STAGES[3], REM_STAGES[5], REM_STAGES[4], REM_STAGES[6], REM_STAGES[7]];
+export const analyzerKind = (type: string): RemKind => type.toUpperCase() === 'VISION' ? 'vision' : 'analyzer';
 export const LVCC_TYPES = ['Electrometer', 'IR Wash — Pump', 'IR Wash — Module', 'IR Wash'] as const;
-export const progressStages = (kind: RemKind) => kind === 'analyzer' ? REM_STAGES : LVCC_STAGES;
+export const progressStages = (kind: RemKind) => kind === 'analyzer' ? REM_STAGES : kind === 'vision' ? VISION_STAGES : LVCC_STAGES;
 /** Moving into a known stage confirms the preceding tasks are complete. */
 export function completePriorStages(kind: RemKind, progress: Record<string, number | null>, stage: string) {
   const stages = progressStages(kind);

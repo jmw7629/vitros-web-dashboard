@@ -19,20 +19,22 @@ import React,{useState}from'react';
 const stages=['procurementPct','cleaningPct','servicePct','finalLinePct','packagingPct','releaseTestingPct','qaReleasePct','sapReleasePct'];
 let progress=Object.fromEntries(stages.map(k=>[k,k==='servicePct'?25:0]));let revision=0;let saved=[];let history=[];
 let record={id:'unit-1',serialNumber:'SYNTHETIC-5600',itemType:'5600',currentStage:'Service',revision,notes:'',progress,updatedAt:null,engineerName:null};
-let lvcc=[];
+let lvcc=[];let registered=[];
+const visionKeys=['servicePct','finalLinePct','packagingPct','releaseTestingPct','qaReleasePct','sapReleasePct'];
+const visionExisting={_id:'vision-existing',serialNumber:'SYNTHETIC-VISION',analyzerType:'VISION',currentStage:'Service',isComplete:false,stageProgress:Object.fromEntries(visionKeys.map(k=>[k,k==='servicePct'?25:null]))};
 window.__remTest={saved,history};
 const directory=[{id:'engineer-1',name:'Test Engineer',initials:'TE'}];
-const actions={getDetail:async()=>({record:{...record,revision,progress:{...progress}},engineers:directory,history:[...history],canWrite:true}),listEngineers:async()=>directory,updateProgress:async(a)=>{
+const actions={getDetail:async(a)=>({record:a.recordId==='unit-1'?{...record,revision,progress:{...progress}}:{id:a.recordId,serialNumber:registered.find(r=>r._id===a.recordId)?.serialNumber??'SYNTHETIC-VISION',itemType:a.kind==='vision'?'VISION':'5600',currentStage:'Unassigned',revision:0,notes:'',progress:Object.fromEntries((a.kind==='vision'?visionKeys:stages).map(k=>[k,null])),updatedAt:'2026-10-06T17:00:00Z',engineerName:'Test Engineer'},engineers:directory,history:a.recordId==='unit-1'?[...history]:[],canWrite:true}),listEngineers:async()=>directory,updateProgress:async(a)=>{
  saved.push(a);if(window.__remTest.failOnce){window.__remTest.failOnce=false;throw Error('Network response lost; retry same update');}
  if(window.__remTest.conflict){throw Error('REM revision conflict');}
  if(!a.engineerId)throw Error('Choose an active engineer');
  revision++;progress={...a.progress};record={...record,currentStage:a.stage,notes:a.notes,progress,revision,engineerName:'Test Engineer',updatedAt:'2026-09-17T12:00:00Z'};
  history.unshift({id:'event-'+revision,engineerName:'Test Engineer',createdAt:'2026-09-17T12:00:00Z',stage:a.stage,progress,notes:a.notes});
  return {duplicate:false,record,createdAt:'2026-09-17T12:00:00Z',eventId:'event-'+revision};
- },createLvcc:async(a)=>{saved.push(a);const r={_id:'lvcc-1',serialNumber:a.serialNumber,itemType:a.itemType,currentStage:'Build',isComplete:false,buildPct:0,testPct:0,packagingPct:0,qaReleasePct:0,sapReleasePct:0};lvcc=[r];return{record:{id:r._id,serialNumber:r.serialNumber}};}};
-export const api={remProgressActions:{getDetail:'getDetail',updateProgress:'updateProgress',listEngineers:'listEngineers',createLvcc:'createLvcc'}};
+ },createAnalyzer:async(a)=>{saved.push(a);if(window.__remTest.registrationFailOnce){window.__remTest.registrationFailOnce=false;throw Error('Registration response lost');}const r={_id:'registered-'+a.serialNumber,serialNumber:a.serialNumber,analyzerType:a.analyzerType,currentStage:'Unassigned',isComplete:false,stageProgress:Object.fromEntries((a.family==='VISION'?visionKeys:stages).map(k=>[k,null]))};registered=[...registered,r];return{record:{id:r._id,serialNumber:r.serialNumber}};},createLvcc:async(a)=>{saved.push(a);const r={_id:'lvcc-1',serialNumber:a.serialNumber,itemType:a.itemType,currentStage:'Build',isComplete:false,buildPct:0,testPct:0,packagingPct:0,qaReleasePct:0,sapReleasePct:0};lvcc=[r];return{record:{id:r._id,serialNumber:r.serialNumber}};}};
+export const api={remProgressActions:{getDetail:'getDetail',updateProgress:'updateProgress',listEngineers:'listEngineers',createLvcc:'createLvcc',createAnalyzer:'createAnalyzer'}};
 export const useAction=(name)=>actions[name];
-export function useRemCoreData(){const[,refresh]=useState(0);return{analyzers:[{_id:'unit-1',serialNumber:'SYNTHETIC-5600',analyzerType:'5600',currentStage:record.currentStage,isComplete:false,overallPct:null,daysInStage:null,slaDays:null,stageProgress:progress,...progress}],lvccItems:lvcc,weeklyNotes:[],isLoading:false,error:null,refresh:async()=>refresh(x=>x+1)}};
+export function useRemCoreData(){const[,refresh]=useState(0);return{analyzers:[{_id:'unit-1',serialNumber:'SYNTHETIC-5600',analyzerType:'5600',currentStage:record.currentStage,isComplete:false,overallPct:null,daysInStage:null,slaDays:null,stageProgress:progress,...progress},visionExisting,...registered],lvccItems:lvcc,weeklyNotes:[],isLoading:false,error:null,refresh:async()=>refresh(x=>x+1)}};
 export function RemOperationalRecords(){return <p>Source review records</p>}
 `);
 await build({root:dir,configFile:false,logLevel:'warn',plugins:[{name:'mock-rem-boundaries',enforce:'pre',resolveId(source){if(source==='convex/react'||source.endsWith('/_generated/api')||source.endsWith('/hooks/useRemCoreData')||source.endsWith('/RemOperationalRecords')||source==='./RemOperationalRecords')return path.join(dir,'mock.tsx');}},react(),tailwind()],resolve:{alias:{'@':path.join(root,'src')}},build:{outDir:path.join(dir,'dist'),emptyOutDir:true}});
@@ -68,6 +70,43 @@ try{
   await page.getByRole('button',{name:'Register LVCC unit'}).click();await modal.getByRole('combobox',{name:'Engineer',exact:true}).waitFor();assert.equal(await modal.getByRole('button',{name:'Register unit',exact:true}).isDisabled(),true);
   await modal.getByLabel('Serial / unit identifier').fill('SYNTHETIC-LVCC');await modal.getByRole('combobox',{name:'Engineer',exact:true}).selectOption('engineer-1');await modal.getByRole('button',{name:'Register unit',exact:true}).click();
   assert.equal((await page.evaluate(()=>window.__remTest.saved)).at(-1).engineerId,'engineer-1');assert.deepEqual(errors,[]);
-  await page.close();console.log(`REM progress browser ${width}px: percentage validation, engineer gate, stable retry, history, Kanban parity, conflicts, LVCC registration passed.`);
+  await page.keyboard.press('Escape');
+  // Product controls and view controls remain separate at both viewport sizes.
+  await page.getByRole('button',{name:'VISION',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'Kanban',exact:true}).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.getByRole('button',{name:/SYNTHETIC-5600.*Open progress/}).count(),0);
+  await page.getByRole('button',{name:/SYNTHETIC-VISION.*Open progress/}).waitFor();
+  const productBox=await page.getByRole('button',{name:'VISION',exact:true}).boundingBox();
+  const viewBox=await page.getByRole('button',{name:'Tracker',exact:true}).boundingBox();
+  assert.ok(viewBox.y>=productBox.y+productBox.height-1 || viewBox.x>=productBox.x+productBox.width,'Product/view controls overlap');
+  await page.getByRole('button',{name:'Register VISION analyzer',exact:true}).click();
+  await modal.getByLabel('Serial number',{exact:true}).fill('VISION-NEW');
+  assert.equal(await modal.getByRole('button',{name:'Register analyzer',exact:true}).isDisabled(),true);
+  await modal.getByRole('combobox',{name:'Engineer',exact:true}).selectOption('engineer-1');
+  await page.evaluate(()=>window.__remTest.registrationFailOnce=true);
+  await modal.getByRole('button',{name:'Register analyzer',exact:true}).click();
+  await modal.getByRole('button',{name:'Retry registration',exact:true}).click();
+  const registrationCalls=await page.evaluate(()=>window.__remTest.saved.filter(x=>x.family==='VISION'));
+  assert.equal(registrationCalls.length,2);assert.equal(registrationCalls[0].correlationId,registrationCalls[1].correlationId);assert.equal(registrationCalls[0].productionOrder,null);
+  await modal.getByRole('spinbutton',{name:'Service percentage',exact:true}).waitFor();
+  assert.equal(await modal.getByRole('spinbutton',{name:'Cleaning percentage',exact:true}).count(),0);
+  assert.equal(await modal.getByRole('spinbutton',{name:'Service percentage',exact:true}).inputValue(),'');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:/VISION-NEW.*Open progress/}).waitFor();
+  await page.getByRole('button',{name:'VITROS',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:/VISION-NEW.*Open progress/}).count(),0);
+  await page.getByRole('button',{name:'Register VITROS analyzer',exact:true}).click();
+  await modal.getByLabel('Model',{exact:true}).selectOption('5600');
+  await modal.getByLabel('Serial number',{exact:true}).fill('36001234');
+  await modal.getByRole('combobox',{name:'Engineer',exact:true}).selectOption('engineer-1');
+  assert.equal(await modal.getByRole('button',{name:'Register analyzer',exact:true}).isDisabled(),true);
+  await modal.getByLabel('Serial number',{exact:true}).fill('56001234');
+  await modal.getByRole('button',{name:'Register analyzer',exact:true}).click();
+  await modal.getByRole('spinbutton',{name:'Cleaning percentage',exact:true}).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:/56001234.*Open progress/}).waitFor();
+  await page.screenshot({path:path.join(artifacts,`products-${width}.png`),fullPage:false});
+  assert.deepEqual(errors,[]);
+  await page.close();console.log(`REM progress browser ${width}px: percentage validation, engineer gate, stable retry, history, Kanban parity, conflicts, LVCC/VITROS/VISION registration, product isolation and view controls passed.`);
  }
 }finally{await browser.close();server.close();}

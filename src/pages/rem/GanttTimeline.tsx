@@ -1,20 +1,23 @@
-import { REM_STAGES, reportedOverall } from "../../../convex/remProgressContract";
+import { progressStages, reportedOverall } from "../../../convex/remProgressContract";
 import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
 
-const STAGES = REM_STAGES.map(s => s.label);
 const STAGE_COLORS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6", "#6366f1"];
 
 export function GanttTimeline() {
+  const [family,setFamily] = useState<"VITROS"|"VISION">("VITROS");
+  const kind = family === "VISION" ? "vision" : "analyzer";
+  const stagesForFamily = progressStages(kind);
+  const STAGES = stagesForFamily.map(s=>s.label);
   const data = useRemCoreData();
 
   const activeAnalyzers = useMemo(() => {
     return data.analyzers
-      .filter((analyzer) => !analyzer.isComplete)
+      .filter((analyzer) => !analyzer.isComplete && (family === "VISION" ? analyzer.analyzerType === "VISION" : analyzer.analyzerType !== "VISION"))
       .sort((a, b) => (a.startDate || "").localeCompare(b.startDate || ""));
-  }, [data.analyzers]);
+  }, [data.analyzers, family]);
 
   const { inspect, dialog } = useRemInspection();
 
@@ -27,6 +30,8 @@ export function GanttTimeline() {
         </div>
         {!data.isLoading && !data.error && <span className="text-[10px] font-bold" style={{ color: theme.statusOk }}>LIVE · SUPABASE</span>}
       </div>
+
+      <div role="group" aria-label="Product" className="grid grid-cols-2 gap-2">{(["VITROS","VISION"] as const).map(p=><button key={p} type="button" aria-pressed={family===p} onClick={()=>setFamily(p)} className={`rounded-lg border p-2 ${family===p?'border-indigo-400 bg-indigo-500/20':'border-slate-600'}`}>{p}</button>)}</div>
 
       {data.error && (
         <WebCard className="p-4">
@@ -53,8 +58,8 @@ export function GanttTimeline() {
         ) : !data.error ? (
           <div className="space-y-3" style={{ minWidth: 500 }}>
             {activeAnalyzers.map((analyzer) => {
-              const stages = REM_STAGES.map(s => ({name: s.label, pct: analyzer.stageProgress?.[s.key] ?? null}));
-              const overall = reportedOverall('analyzer', analyzer.stageProgress ?? {});
+              const stages = stagesForFamily.map(s => ({name: s.label, pct: analyzer.stageProgress?.[s.key] ?? null}));
+              const overall = reportedOverall(kind, analyzer.stageProgress ?? {});
               return (
                 <button type="button" onClick={() => inspect(analyzer.serialNumber, [analyzer])} key={analyzer.serialNumber} className="w-full text-left flex items-center gap-3">
                   <div className="w-[80px] shrink-0">

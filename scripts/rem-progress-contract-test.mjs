@@ -24,3 +24,13 @@ assert.equal(reportedOverall('analyzer',Object.fromEntries(REM_STAGES.map(s=>[s.
 const packaging=completePriorStages('analyzer',unknown,'Packaging');
 assert.equal(packaging.releaseTestingPct,100);assert.equal(packaging.qaReleasePct,null);
 console.log('REM precedence and unknown overall regressions passed.');
+
+const {VISION_STAGES,analyzerKind}=context.exports;
+assert.equal(analyzerKind('VISION'),'vision');assert.equal(analyzerKind('5600'),'analyzer');
+assert.deepEqual(Array.from(VISION_STAGES,s=>s.key),['servicePct','finalLinePct','packagingPct','releaseTestingPct','qaReleasePct','sapReleasePct']);
+const visionEmpty=Object.fromEntries(VISION_STAGES.map(s=>[s.key,null]));
+const visionPack=completePriorStages('vision',{...visionEmpty,packagingPct:20},'Packaging');
+assert.equal(visionPack.servicePct,100);assert.equal(visionPack.finalLinePct,100);assert.equal(visionPack.packagingPct,20);assert.equal(visionPack.releaseTestingPct,null);
+assert.equal('cleaningPct' in visionPack,false);validateProgress('vision',visionPack,'Packaging');
+assert.equal(reportedOverall('vision',visionPack),null);
+console.log('VISION stage order, prior completion, irrelevant-stage exclusion and null overall passed.');
