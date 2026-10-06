@@ -5,7 +5,7 @@ declare rows jsonb; tracker jsonb; plan jsonb; staff jsonb; targets jsonb; notes
  legacy_note_id uuid:=gen_random_uuid();
  receipt jsonb; row_data public.rem_analyzers; old_id uuid:=gen_random_uuid();
  engineer uuid:=gen_random_uuid(); progress jsonb; updated jsonb; before_count int;
- rejected boolean:=false;
+ rejected boolean:=false; manual_id uuid;
 begin
  insert into public.convex_employees(id,name,initials,active) values(engineer,'Workbook test engineer','WT',true);
  insert into public.rem_analyzers(id,serial_number,analyzer_type,start_date,overall_pct) values(old_id,'56009999','5600','2020-01-01',80);
@@ -20,15 +20,17 @@ begin
  targets:='[{"sourceKey":"2026:target:VITROS","year":2026,"targetType":"VITROS","targetValue":1,"actualValue":0,"data":{}}]';
  notes:='[{"sourceKey":"2026:notes:1","year":2026,"weekNumber":1,"quarter":"Q1","notes":{"vitros":"Current year source"}}]';
  insert into public.rem_weekly_notes(id,plan_year,week_start,week_number,quarter,notes) values(legacy_note_id,2025,'2025-01-01',1,'Q1','[{"product":"VITROS","content":"Prior year"}]');
- execute 'set local role service_role';
- receipt:=public.apply_rem_authoritative_workbook_import(repeat('c',64),'synthetic.xlsx',2026,'WIP test',41,'test',rows,tracker,plan,staff,notes,targets);
- if (receipt->>'schema_version')::int<>3 then raise exception 'Wrong import schema';end if;
  begin
   insert into public.rem_authoritative_import_runs(file_hash,schema_version,file_name,plan_year,source_sheet,actor,section_counts,result)
   values(repeat('f',64),4,'invalid.xlsx',2026,'WIP test','test','{}','{}');
   raise exception 'Unsupported receipt version accepted';
  exception when check_violation then null;
  end;
+ execute 'set local role service_role';
+ manual_id:=(public.create_rem_analyzer_record('VITROS','56009998','5600',null,engineer,'New registration','test','manual-during-import-test')->'record'->>'id')::uuid;
+ receipt:=public.apply_rem_authoritative_workbook_import(repeat('c',64),'synthetic.xlsx',2026,'WIP test',41,'test',rows,tracker,plan,staff,notes,targets);
+ if not exists(select 1 from public.rem_analyzers where id=manual_id and workbook_current and registration_origin='manual') then raise exception 'Workbook hid manual registration';end if;
+ if (receipt->>'schema_version')::int<>3 then raise exception 'Wrong import schema';end if;
  select * into row_data from public.rem_analyzers where serial_number='56009901';
  if row_data.current_stage<>'Service' or row_data.cleaning_pct<>100 or row_data.procurement_pct<>100 or row_data.service_pct<>50
  or row_data.final_line_pct is not null or row_data.qa_release_pct is not null or row_data.sap_release_pct is not null
@@ -72,4 +74,7 @@ begin
  if (select overall_pct from public.rem_analyzers where id=row_data.id) is not null then raise exception 'Missing tasks counted as zero';end if;
  updated:=public.apply_rem_progress_update('analyzer',row_data.id,row_data.progress_revision,engineer,'Service',progress,'test','test','workbook-test-progress');
  if not (updated->>'duplicate')::boolean then raise exception 'Normalization broke idempotency';end if;
+ rows:=jsonb_set(rows,'{0,serialNumber}','"56009998"');
+ receipt:=public.apply_rem_authoritative_workbook_import(repeat('9',64),'adopt.xlsx',2026,'WIP test',42,'test',rows,tracker,plan,staff,notes,targets);
+ if not exists(select 1 from public.rem_analyzers where id=manual_id and workbook_current and registration_origin='workbook' and service_pct=50) then raise exception 'Workbook failed to adopt the registered identity';end if;
 end $$;

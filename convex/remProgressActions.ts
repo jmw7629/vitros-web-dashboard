@@ -2,10 +2,10 @@ import { ConvexError, v } from 'convex/values';
 import { action } from './_generated/server';
 import { requireCapability } from './authGuard';
 import { publishRealtimePulse } from './realtimePulsePublisher';
-import { LVCC_TYPES, recordSnapshot, validateProgress } from './remProgressContract';
+import { analyzerKind, LVCC_TYPES, recordSnapshot, validateProgress } from './remProgressContract';
 
 declare const process: { env: Record<string, string | undefined> };
-const kind = v.union(v.literal('analyzer'), v.literal('lvcc'));
+const kind = v.union(v.literal('analyzer'), v.literal('vision'), v.literal('lvcc'));
 const progress = v.record(v.string(), v.union(v.number(), v.null()));
 const record = v.object({startDate:v.union(v.string(),v.null()),endDate:v.union(v.string(),v.null()),id:v.string(),serialNumber:v.string(),itemType:v.string(),currentStage:v.string(),revision:v.number(),notes:v.string(),progress,updatedAt:v.union(v.string(),v.null()),engineerName:v.union(v.string(),v.null())});
 const engineer = v.object({id:v.string(),name:v.string(),initials:v.string()});
@@ -35,9 +35,10 @@ export const getDetail = action({
   handler:async(ctx,args)=>{
     await requireCapability(ctx,'rem.read'); uuid(args.recordId);
     let canWrite=true; try { await requireCapability(ctx,'rem.write'); } catch(e) { if(!/capability|role policy/i.test(String(e))) throw e; canWrite=false; }
-    const table=args.kind==='analyzer'?'rem_analyzers':'rem_lvcc';
+    const table=args.kind==='lvcc'?'rem_lvcc':'rem_analyzers';
     const [rows,staff,events]=await Promise.all([request(`${table}?id=eq.${args.recordId}&select=*&limit=1`),engineers(),request(`rem_progress_events?kind=eq.${args.kind}&record_id=eq.${args.recordId}&select=id,engineer_name,created_at,after_value&order=revision.desc&limit=50`)]);
     if(!Array.isArray(rows)||rows.length!==1||!Array.isArray(events)) throw new ConvexError('REM record not found');
+    if(args.kind !== 'lvcc' && analyzerKind(String(rows[0].analyzer_type)) !== args.kind) throw new ConvexError('REM record not found');
     return {record:recordSnapshot(args.kind,rows[0]),engineers:staff,canWrite,history:events.map(e=>({id:String(e.id),engineerName:String(e.engineer_name),createdAt:String(e.created_at),stage:String(e.after_value.currentStage),progress:e.after_value.progress,notes:String(e.after_value.notes??'')}))};
   }
 });
@@ -59,6 +60,21 @@ export const createLvcc=action({
     const actor=await requireCapability(ctx,'rem.write'); uuid(args.engineerId);
     if(!args.serialNumber.trim()||args.serialNumber.length>120||args.batchNumber.length>120||args.notes.length>4000||!(LVCC_TYPES as readonly string[]).includes(args.itemType)||! /^[A-Za-z0-9:._-]{1,180}$/.test(args.correlationId)) throw new ConvexError('Invalid LVCC record');
     const result=await request('rpc/create_rem_lvcc_record',{p_serial:args.serialNumber.trim(),p_type:args.itemType,p_batch:args.batchNumber.trim(),p_engineer_id:args.engineerId,p_notes:args.notes,p_actor:actor,p_correlation_id:args.correlationId});
+    await publishRealtimePulse(ctx);return result;
+  }
+});
+
+export const createAnalyzer=action({
+  args:{family:v.union(v.literal('VITROS'),v.literal('VISION')),serialNumber:v.string(),analyzerType:v.string(),productionOrder:v.union(v.number(),v.null()),engineerId:v.string(),notes:v.string(),correlationId:v.string()},returns:receipt,
+  handler:async(ctx,args)=>{
+    const actor=await requireCapability(ctx,'rem.write'); uuid(args.engineerId);
+    const serial=args.serialNumber.trim().toUpperCase();
+    const validModel=args.family==='VISION'?args.analyzerType==='VISION':['3600','5600','7600'].includes(args.analyzerType);
+    if(!validModel || !/^[A-Z0-9][A-Z0-9._-]{0,119}$/.test(serial)
+      || args.family==='VITROS' && (!/^\d{8}$/.test(serial)||!serial.startsWith(args.analyzerType))
+      || args.productionOrder!==null && (!Number.isSafeInteger(args.productionOrder)||args.productionOrder<0||args.productionOrder>1_000_000)
+      || args.notes.length>4000 || !/^[A-Za-z0-9:._-]{1,180}$/.test(args.correlationId)) throw new ConvexError('Invalid analyzer registration');
+    const result=await request('rpc/create_rem_analyzer_record',{p_family:args.family,p_serial:serial,p_type:args.analyzerType,p_production_order:args.productionOrder,p_engineer_id:args.engineerId,p_notes:args.notes,p_actor:actor,p_correlation_id:args.correlationId});
     await publishRealtimePulse(ctx);return result;
   }
 });

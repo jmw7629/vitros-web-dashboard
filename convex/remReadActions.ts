@@ -221,7 +221,7 @@ export const listCore = action({
     const analyzers = analyzerRows.map((raw) => {
       const row = raw as Record<string, unknown>;
       return {
-        stageProgress: recordSnapshot("analyzer", row).progress,
+        stageProgress: recordSnapshot(row.analyzer_type === "VISION" ? "vision" : "analyzer", row).progress,
         progressUpdatedAt: row.progress_updated_at == null ? null : String(row.progress_updated_at),
         progressEngineerName: row.progress_engineer_name == null ? null : String(row.progress_engineer_name),
         _id: String(row.id ?? ""),

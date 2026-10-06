@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';import ts from 'typescript';import vm from 'node:vm';
+import {v,ConvexError} from 'convex/values';
+let calls=[],pulses=0,deny=false,reply={},status=200;
+const compile=(file,require,extra={})=>{const out={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:out.exports,require,...extra});return out.exports;};
+const contract=compile('convex/remProgressContract.ts',()=>{});
+const module=compile('convex/remProgressActions.ts',name=>{
+ if(name==='convex/values')return{v,ConvexError};
+ if(name==='./_generated/server')return{action:x=>x};
+ if(name==='./authGuard')return{requireCapability:async(_,cap)=>{assert.equal(cap,'rem.write');if(deny)throw Error('Not authorized');return 'server-actor';}};
+ if(name==='./realtimePulsePublisher')return{publishRealtimePulse:async()=>{pulses++;}};
+ if(name==='./remProgressContract')return contract;throw Error(name);
+},{process:{env:{SUPABASE_URL:'https://synthetic.invalid',SUPABASE_SERVICE_ROLE_KEY:'test-only'}},fetch:async(url,init)=>{calls.push({url,body:JSON.parse(init.body)});return{ok:status===200,status,json:async()=>reply,text:async()=>JSON.stringify(reply)};}});
+const base={family:'VITROS',analyzerType:'5600',serialNumber:'56001234',productionOrder:null,engineerId:'11111111-1111-4111-8111-111111111111',notes:'',correlationId:'register:test'};
+const run=x=>module.createAnalyzer.handler({},x);
+deny=true;await assert.rejects(run(base),/authorized/);assert.equal(calls.length,0);deny=false;
+for(const patch of [{family:'VITROS',analyzerType:'VISION'},{family:'VISION',analyzerType:'5600'},{serialNumber:'36001234'},{serialNumber:'5600BAD'},{productionOrder:-1},{productionOrder:1.5},{productionOrder:NaN},{productionOrder:1000001},{notes:'x'.repeat(4001)},{engineerId:'invalid'},{correlationId:'bad request'}])await assert.rejects(run({...base,...patch}));
+assert.equal(calls.length,0);
+reply={duplicate:false,record:{id:'test'}};await run(base);assert.equal(calls.length,1);assert.equal(calls[0].body.p_actor,'server-actor');assert.equal(calls[0].body.p_production_order,null);assert.equal(pulses,1);
+await run({...base,family:'VISION',analyzerType:'VISION',serialNumber:' vision-123 ',productionOrder:45});assert.equal(calls[1].body.p_serial,'VISION-123');assert.equal(calls[1].body.p_family,'VISION');
+status=409;reply={message:'Analyzer serial already exists'};await assert.rejects(run(base),/already exists/);assert.equal(pulses,2);
+status=500;reply={message:'private database diagnostic sentinel'};await assert.rejects(run(base),e=>String(e).includes('500')&&!String(e).includes('sentinel'));
+console.log('REM registration action: auth before I/O, family/model/serial/order validation, server actor, normalized identity, pulse and safe error boundaries PASS');
