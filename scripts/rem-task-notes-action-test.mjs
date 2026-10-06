@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import {v,ConvexError} from 'convex/values';
+const compile=(file,require,extra={})=>{const out={exports:{}};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:out.exports,require,...extra});return out.exports;};
+const contract=compile('convex/remProgressContract.ts',()=>{});let denied=false,readonly=false,pulses=0,calls=[],status=200,reply={};
+const actions=compile('convex/remProgressActions.ts',name=>{
+ if(name==='convex/values')return{v,ConvexError};if(name==='./_generated/server')return{action:x=>x};
+ if(name==='./authGuard')return{requireCapability:async(_,cap)=>{if(denied||readonly&&cap==='rem.write')throw Error('capability denied');return 'server-actor';}};
+ if(name==='./realtimePulsePublisher')return{publishRealtimePulse:async()=>pulses++};if(name==='./remProgressContract')return contract;throw Error(name);
+},{process:{env:{SUPABASE_URL:'https://synthetic.invalid',SUPABASE_SERVICE_ROLE_KEY:'test-only'}},fetch:async(url,init)=>{calls.push({url,body:init.body?JSON.parse(init.body):null});const value=typeof reply==='function'?reply(url):reply;return{ok:status===200,status,json:async()=>value,text:async()=>JSON.stringify(value)};}});
+const id='11111111-1111-4111-8111-111111111111',eid='22222222-2222-4222-8222-222222222222',nid='33333333-3333-4333-8333-333333333333';
+const add={kind:'vision',recordId:id,stage:'Service',content:' Service note ',engineerId:eid,correlationId:'note:one'};
+const ack={kind:'vision',recordId:id,noteId:nid,engineerId:eid,correlationId:'note:ack'};
+const run=(name,args)=>actions[name].handler({},args);
+denied=true;for(const [name,args] of [['addTaskNote',add],['acknowledgeTaskNote',ack],['listTaskNotes',{kind:'vision',recordId:id}]])await assert.rejects(run(name,args),/denied/);assert.equal(calls.length,0);denied=false;
+for(const patch of [{recordId:'invalid'},{engineerId:'invalid'},{stage:''},{stage:'x'.repeat(121)},{content:'  '},{content:'x'.repeat(4001)},{correlationId:'bad request'}])await assert.rejects(run('addTaskNote',{...add,...patch}));
+await assert.rejects(run('acknowledgeTaskNote',{...ack,noteId:'invalid'}));assert.equal(calls.length,0);
+reply={duplicate:false,note:{id:nid}};await run('addTaskNote',add);assert.equal(calls[0].body.p_actor,'server-actor');assert.equal(calls[0].body.p_content,'Service note');assert.equal(calls[0].body.p_stage,'Service');
+await run('acknowledgeTaskNote',ack);assert.equal(calls[1].body.p_note_id,nid);assert.equal(calls[1].body.p_record_id,id);assert.equal(calls[1].body.p_engineer_id,eid);assert.equal(pulses,2);
+status=409;reply={message:'Note already acknowledged'};await assert.rejects(run('acknowledgeTaskNote',ack),/already acknowledged/);assert.equal(pulses,2);
+status=500;reply={message:'private-diagnostic-sentinel'};await assert.rejects(run('addTaskNote',add),e=>String(e).includes('500')&&!String(e).includes('sentinel'));
+status=200;readonly=true;reply=url=>url.includes('rem_analyzers?')?[{id,analyzer_type:'VISION'}]:url.includes('convex_employees?')?[{id:eid,name:'Author',initials:'AU'}]:[{id:nid,stage:'Service',content:'Saved note',engineer_name:'Author',created_at:'2026-10-06T12:00:00Z',acknowledged_at:'2026-10-06T13:00:00Z',acknowledged_by:'Acknowledger'}];
+const detail=await run('listTaskNotes',{kind:'vision',recordId:id});assert.equal(detail.canWrite,false);assert.equal(detail.notes[0].content,'Saved note');assert.equal(detail.notes[0].acknowledgedBy,'Acknowledger');assert.equal(detail.notes[0].engineerName,'Author');
+await assert.rejects(run('listTaskNotes',{kind:'analyzer',recordId:id}),/not found/);
+console.log('REM task note actions: auth before I/O, bounds, exact task/note/engineer identity, server actor, pulse, safe errors, read-only history and family isolation PASS');

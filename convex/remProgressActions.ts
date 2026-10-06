@@ -17,7 +17,7 @@ async function request(resource:string, body?:unknown) {
   const response=await fetch(`${url.replace(/\/$/,'')}/rest/v1/${resource}`,{method:body===undefined?'GET':'POST',headers:{apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
   if(!response.ok) {
     const raw=await response.text();
-    const safe=['revision conflict','idempotency conflict','Choose an active engineer','already exists','Complete requires','Invalid REM stage','REM record not found'];
+    const safe=['revision conflict','idempotency conflict','Choose an active engineer','already exists','Complete requires','Invalid REM stage','REM record not found','Note already acknowledged','Task note not found','Invalid task note'];
     const match=safe.find(s=>raw.includes(s));
     throw new ConvexError(match ? `REM ${match}. Reload the record if needed.` : `REM progress request failed (${response.status})`);
   }
@@ -75,6 +75,41 @@ export const createAnalyzer=action({
       || args.productionOrder!==null && (!Number.isSafeInteger(args.productionOrder)||args.productionOrder<0||args.productionOrder>1_000_000)
       || args.notes.length>4000 || !/^[A-Za-z0-9:._-]{1,180}$/.test(args.correlationId)) throw new ConvexError('Invalid analyzer registration');
     const result=await request('rpc/create_rem_analyzer_record',{p_family:args.family,p_serial:serial,p_type:args.analyzerType,p_production_order:args.productionOrder,p_engineer_id:args.engineerId,p_notes:args.notes,p_actor:actor,p_correlation_id:args.correlationId});
+    await publishRealtimePulse(ctx);return result;
+  }
+});
+
+const taskNote = v.object({id:v.string(),stage:v.string(),content:v.string(),engineerName:v.string(),createdAt:v.string(),acknowledgedAt:v.union(v.string(),v.null()),acknowledgedBy:v.union(v.string(),v.null())});
+const taskNoteReceipt = v.object({duplicate:v.boolean(),note:taskNote});
+function noteSnapshot(r:Record<string,unknown>){return {id:String(r.id),stage:String(r.stage),content:String(r.content),engineerName:String(r.engineer_name),createdAt:String(r.created_at),acknowledgedAt:r.acknowledged_at==null?null:String(r.acknowledged_at),acknowledgedBy:r.acknowledged_by==null?null:String(r.acknowledged_by)};}
+function noteRequest(recordId:string,engineerId:string,correlationId:string){uuid(recordId);uuid(engineerId);if(!/^[A-Za-z0-9:._-]{1,180}$/.test(correlationId))throw new ConvexError('Invalid task note request');}
+export const listTaskNotes=action({
+  args:{kind,recordId:v.string()},returns:v.object({notes:v.array(taskNote),engineers:v.array(engineer),canWrite:v.boolean()}),
+  handler:async(ctx,args)=>{
+    await requireCapability(ctx,'rem.read');uuid(args.recordId);
+    const table=args.kind==='lvcc'?'rem_lvcc':'rem_analyzers';
+    const rows=await request(`${table}?id=eq.${args.recordId}&select=id${args.kind==='lvcc'?'':',analyzer_type'}&limit=1`);
+    if(!Array.isArray(rows)||rows.length!==1||args.kind!=='lvcc'&&analyzerKind(String(rows[0].analyzer_type))!==args.kind)throw new ConvexError('REM record not found');
+    let canWrite=true;try{await requireCapability(ctx,'rem.write');}catch(e){if(!/capability|role policy/i.test(String(e)))throw e;canWrite=false;}
+    const [notes,staff]=await Promise.all([request(`rem_task_notes?kind=eq.${args.kind}&record_id=eq.${args.recordId}&select=id,stage,content,engineer_name,created_at,acknowledged_at,acknowledged_by&order=acknowledged_at.desc.nullsfirst,created_at.desc&limit=200`),engineers()]);
+    if(!Array.isArray(notes))throw new ConvexError('Task notes unavailable');
+    return {notes:notes.map(noteSnapshot),engineers:staff,canWrite};
+  }
+});
+export const addTaskNote=action({
+  args:{kind,recordId:v.string(),stage:v.string(),content:v.string(),engineerId:v.string(),correlationId:v.string()},returns:taskNoteReceipt,
+  handler:async(ctx,args)=>{
+    const actor=await requireCapability(ctx,'rem.write');noteRequest(args.recordId,args.engineerId,args.correlationId);
+    if(!args.stage.trim()||args.stage.length>120||!args.content.trim()||args.content.length>4000)throw new ConvexError('Invalid task note');
+    const result=await request('rpc/add_rem_task_note',{p_kind:args.kind,p_record_id:args.recordId,p_stage:args.stage,p_content:args.content.trim(),p_engineer_id:args.engineerId,p_actor:actor,p_correlation_id:args.correlationId});
+    await publishRealtimePulse(ctx);return result;
+  }
+});
+export const acknowledgeTaskNote=action({
+  args:{kind,recordId:v.string(),noteId:v.string(),engineerId:v.string(),correlationId:v.string()},returns:taskNoteReceipt,
+  handler:async(ctx,args)=>{
+    const actor=await requireCapability(ctx,'rem.write');noteRequest(args.recordId,args.engineerId,args.correlationId);uuid(args.noteId);
+    const result=await request('rpc/acknowledge_rem_task_note',{p_kind:args.kind,p_record_id:args.recordId,p_note_id:args.noteId,p_engineer_id:args.engineerId,p_actor:actor,p_correlation_id:args.correlationId});
     await publishRealtimePulse(ctx);return result;
   }
 });
