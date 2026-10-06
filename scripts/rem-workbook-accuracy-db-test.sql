@@ -23,6 +23,12 @@ begin
  execute 'set local role service_role';
  receipt:=public.apply_rem_authoritative_workbook_import(repeat('c',64),'synthetic.xlsx',2026,'WIP test',41,'test',rows,tracker,plan,staff,notes,targets);
  if (receipt->>'schema_version')::int<>3 then raise exception 'Wrong import schema';end if;
+ begin
+  insert into public.rem_authoritative_import_runs(file_hash,schema_version,file_name,plan_year,source_sheet,actor,section_counts,result)
+  values(repeat('f',64),4,'invalid.xlsx',2026,'WIP test','test','{}','{}');
+  raise exception 'Unsupported receipt version accepted';
+ exception when check_violation then null;
+ end;
  select * into row_data from public.rem_analyzers where serial_number='56009901';
  if row_data.current_stage<>'Service' or row_data.cleaning_pct<>100 or row_data.procurement_pct<>100 or row_data.service_pct<>50
  or row_data.final_line_pct is not null or row_data.qa_release_pct is not null or row_data.sap_release_pct is not null
