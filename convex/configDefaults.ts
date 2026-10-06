@@ -58,7 +58,7 @@ export const NAV_DEFAULTS = {
     { label: "REM Gantt", icon: "📊", path: "/rem/gantt", iconBg: "from-teal-500 to-teal-700", visible: true, order: 3 },
     { label: "REM Kiosk", icon: "📷", path: "/rem/kiosk", iconBg: "from-indigo-500 to-indigo-700", visible: true, order: 4 },
     { label: "VITROS", icon: "🔬", path: "/rem/analyzers", iconBg: "from-indigo-400 to-indigo-600", visible: true, order: 5 },
-    { label: "VISION", icon: "🔬", path: "/rem/vision", iconBg: "from-violet-400 to-violet-600", visible: true, order: 6 },
+    { label: "VISION", icon: "🔬", path: "/rem/vision", iconBg: "from-violet-500 to-violet-700", visible: true, order: 6 },
     { label: "LVCC Tracker", icon: "💻", path: "/rem/lvcc", iconBg: "from-cyan-500 to-cyan-700", visible: true, order: 7 },
     { label: "Production Plan", icon: "📅", path: "/rem/production-plan", iconBg: "from-amber-500 to-amber-700", visible: true, order: 8 },
     { label: "Field Status", icon: "🌍", path: "/rem/field-status", iconBg: "from-emerald-500 to-emerald-700", visible: true, order: 9 },
