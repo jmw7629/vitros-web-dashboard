@@ -142,19 +142,19 @@ export interface REMAnalyzer {
   startDate?: string;
   targetDate?: string;
   productionOrder?: number;
-  procurementPct: number;
-  cleaningPct: number;
-  servicePct: number;
-  finalLinePct: number;
-  packagingPct: number;
-  releaseTestingPct: number;
-  qaReleasePct: number;
-  sapReleasePct: number;
-  currentPct: number;
-  overallPct: number;
+  procurementPct: number | null;
+  cleaningPct: number | null;
+  servicePct: number | null;
+  finalLinePct: number | null;
+  packagingPct: number | null;
+  releaseTestingPct: number | null;
+  qaReleasePct: number | null;
+  sapReleasePct: number | null;
+  currentPct: number | null;
+  overallPct: number | null;
   isComplete: boolean;
-  daysInStage: number;
-  slaDays: number;
+  daysInStage: number | null;
+  slaDays: number | null;
   notes?: string;
 }
 
@@ -170,11 +170,11 @@ export interface LVCCItem {
   startDate?: string;
   endDate?: string;
   isComplete?: boolean;
-  buildPct: number;
-  testPct: number;
-  packagingPct: number;
-  qaReleasePct: number;
-  sapReleasePct: number;
+  buildPct: number | null;
+  testPct: number | null;
+  packagingPct: number | null;
+  qaReleasePct: number | null;
+  sapReleasePct: number | null;
 }
 
 export type StaffMember = RemStaffPlanningRow;

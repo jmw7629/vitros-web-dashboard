@@ -4,11 +4,11 @@ export type AnalyzerImportRow = {
   serialNumber: string;
   analyzerType: string;
   productionOrder?: number;
-  cleaningPct: number;
-  servicePct: number;
-  finalLinePct: number;
-  releaseTestingPct: number;
-  packagingPct: number;
+  cleaningPct: number | null;
+  servicePct: number | null;
+  finalLinePct: number | null;
+  releaseTestingPct: number | null;
+  packagingPct: number | null;
 };
 
 export type TrackerWeeklyImportRow = {
@@ -124,8 +124,8 @@ function nonNegative(value: unknown, field: string, max = 1_000_000): number | u
   return n;
 }
 
-function percent(value: unknown, field?: string): number {
-  if (isBlank(value)) return 0;
+function percent(value: unknown, field?: string): number | null {
+  if (isBlank(value)) return null;
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) {
     const label = field ? `${field}: ` : "";
@@ -213,42 +213,42 @@ function inferPlanYear(workbook: XLSX.WorkBook) {
   throw new Error("REM workbook year could not be established from its internal summary sheet");
 }
 
+function wipLabel(value: unknown) {
+  const label = normalize(value);
+  return ({"productionorder":"production order", "serial number":"wip", "serial":"wip", "cleaning":"clean", "service/repair":"service", "final line":"fl", "release / clean":"release/clean", "release testing":"release/clean", "packaging":"pack", "this week":"this wk"} as Record<string,string>)[label] ?? label;
+}
+function wipHeader(row: unknown[]) {
+  const cells = row.map(wipLabel);
+  return ["production order", "wip", "clean", "service", "fl", "release/clean", "pack"].every(label => cells.includes(label));
+}
 function latestVitrosWip(workbook: XLSX.WorkBook) {
-  const candidates = workbook.SheetNames
-    .map((name) => {
-      const match = normalize(name).match(/^wip productivity vitros wk\s*(\d{1,2})$/);
-      return match ? { name, week: Number(match[1]) } : null;
-    })
-    .filter((value): value is { name: string; week: number } => Boolean(value))
-    .filter(({ week }) => Number.isInteger(week) && week >= 1 && week <= 53)
-    .sort((a, b) => b.week - a.week);
-
-  if (candidates[0]) return candidates[0];
-  const fallback = workbook.SheetNames.find((name) => normalize(name).startsWith("wip productivity vitros"));
-  if (!fallback) throw new Error("REM VITROS WIP sheet was not found");
-  return { name: fallback, week: undefined };
+  const candidates = workbook.SheetNames.flatMap(name => {
+    if (!matrix(workbook.Sheets[name]).slice(0,100).some(wipHeader)) return [];
+    const match = normalize(name).match(/(?:wk|week)\s*(\d{1,2})(?:\D|$)/);
+    const week = match ? Number(match[1]) : undefined;
+    if (week !== undefined && (week < 1 || week > 53)) return [];
+    return [{name, week}];
+  });
+  const dated = candidates.filter(x => x.week !== undefined).sort((a,b) => b.week! - a.week!);
+  if (dated.length) {
+    if (dated.filter(x => x.week === dated[0].week).length > 1) throw new Error("Ambiguous latest REM WIP worksheet");
+    return dated[0];
+  }
+  if (candidates.length !== 1) throw new Error(candidates.length ? "Ambiguous REM WIP worksheet" : "REM VITROS WIP sheet was not found");
+  return candidates[0];
 }
 
 function parseAnalyzers(sheet: XLSX.WorkSheet, sheetName: string) {
   const rows = matrix(sheet);
-  const headerIndex = rows.findIndex((row) => {
-    const cells = row.map(normalize);
-    return cells.includes("production order")
-      && cells.includes("wip")
-      && cells.includes("clean")
-      && cells.includes("service")
-      && cells.includes("fl")
-      && cells.includes("release/clean")
-      && cells.includes("pack");
-  });
+  const headerIndex = rows.findIndex(wipHeader);
   if (headerIndex < 0) throw new Error("REM WIP headers were not found");
 
-  const header = rows[headerIndex].map(normalize);
+  const header = rows[headerIndex].map(wipLabel);
   const productionOrderCol = header.indexOf("production order");
   const serialCol = header.indexOf("wip");
   // Some workbooks have an FL operator column before the FL progress group.
   // The second header row identifies the current-week numeric progress column.
-  const subheader = (rows[headerIndex + 1] ?? []).map(normalize);
+  const subheader = (rows[headerIndex + 1] ?? []).map(wipLabel);
   const stageColumn = (label: string) => {
     const matches = header.flatMap((value, index) => value === label ? [index] : []);
     const current = matches.filter(index => subheader[index] === "this wk");
@@ -292,24 +292,29 @@ function parseAnalyzers(sheet: XLSX.WorkSheet, sheetName: string) {
       skippedRows += 1;
       continue;
     }
-    const poValue = productionOrder ?? 0;
+
     if (serials.has(serial)) throw new Error(`Duplicate WIP serial found in workbook: ${serial}`);
     serials.add(serial);
     const pctField = (col: number, label: string) => `${label} for ${serial} at ${sheetName}!${XLSX.utils.encode_cell({ r, c: col })}`;
-    ensureFormulaCache(sheet, sheetName, r, cleanCol, pctField(cleanCol, "CleaningPct"));
-    ensureFormulaCache(sheet, sheetName, r, serviceCol, pctField(serviceCol, "ServicePct"));
-    ensureFormulaCache(sheet, sheetName, r, finalLineCol, pctField(finalLineCol, "FinalLinePct"));
-    ensureFormulaCache(sheet, sheetName, r, releaseCol, pctField(releaseCol, "ReleasePct"));
-    ensureFormulaCache(sheet, sheetName, r, packCol, pctField(packCol, "PackPct"));
+    const progressAt = (col: number, label: string) => {
+      try {
+        ensureFormulaCache(sheet, sheetName, r, col, pctField(col, label));
+        return percent(row[col], pctField(col, label));
+      } catch (error) {
+        warnings.push(`${pctField(col, label)}: unavailable progress left unreported (${error instanceof Error ? error.message : "invalid value"}).`);
+        return null;
+      }
+    };
+
     analyzers.push({
       serialNumber: serial,
       analyzerType: analyzerTypeFromSerial(serial),
-      productionOrder: poValue,
-      cleaningPct: percent(row[cleanCol], pctField(cleanCol, "CleaningPct")),
-      servicePct: percent(row[serviceCol], pctField(serviceCol, "ServicePct")),
-      finalLinePct: percent(row[finalLineCol], pctField(finalLineCol, "FinalLinePct")),
-      releaseTestingPct: percent(row[releaseCol], pctField(releaseCol, "ReleasePct")),
-      packagingPct: percent(row[packCol], pctField(packCol, "PackPct")),
+      ...(productionOrder === undefined ? {} : {productionOrder}),
+      cleaningPct: progressAt(cleanCol, "CleaningPct"),
+      servicePct: progressAt(serviceCol, "ServicePct"),
+      finalLinePct: progressAt(finalLineCol, "FinalLinePct"),
+      releaseTestingPct: progressAt(releaseCol, "ReleasePct"),
+      packagingPct: progressAt(packCol, "PackPct"),
     });
   }
 
@@ -442,7 +447,42 @@ function parseBuildPlan(sheet: XLSX.WorkSheet, sheetName: string, year: number) 
   });
   if (headerIndex < 0) throw new Error("REM Build Plan headers were not found");
 
-  const col = (letters: string) => XLSX.utils.decode_col(letters);
+  const headings = rows[headerIndex].map(normalize);
+  const mapping: Record<string, [string, number?]> = {
+    B:["week"], D:["3600",0], E:["5600",0], F:["7600",0], G:["vision",0], H:["electrometer",0], I:["ir",0], J:["total"],
+    K:["meets"], L:["exceeds"], M:["capacity"], N:["cap delta"], O:["head count"], P:["onboarding"], Q:["in-training (50%)"], R:["holidays"], S:["pto days"],
+    U:["3600",1], V:["5600",1], W:["7600",1], X:["vs plan",0], Y:["qtd cumulative vs plan",0], Z:["wip mon"], AA:["clean"], AB:["service",0], AC:["final"], AD:["release"], AE:["pack",0], AF:["qc"], AG:["fg waiting to ship",0],
+    AI:["vision",1], AJ:["vs plan",1], AK:["qtd cumulative vs plan",1], AL:["service",1], AM:["final line"], AN:["pack",1], AO:["fg waiting to ship",1],
+    AQ:["electrometer",1], AR:["elec vs plan"], AS:["qtd cumulative vs plan",2], AT:["vs fc",0], AU:["ir",1], AV:["ir vs plan"], AW:["qtd cumulative vs plan",3], AX:["vs fc",1], AY:["elec wip"], AZ:["ir wip"], BA:["fg waiting to ship",2],
+    BF:["3600",2], BG:["5600",2], BH:["7600",2], BI:["vision",2], BJ:["lvcc"],
+  };
+  const groupTitles = (rows[headerIndex - 1] ?? []).map(normalize);
+  const deliveryStart = groupTitles.findIndex(label => label === "delivery");
+  const actualStart = groupTitles.findIndex(label => /prod.*actual/.test(label));
+  const planningStart = groupTitles.findIndex(label => /fte hours.*planning/.test(label));
+  const groupStarts = [deliveryStart, actualStart, planningStart].filter(index => index >= 0).sort((a,b)=>a-b);
+  const groupOf: Record<string, number> = Object.fromEntries([
+    ...["D","E","F","G","H","I","J"].map(key=>[key,deliveryStart]),
+    ...["U","V","W","AI","AQ","AU"].map(key=>[key,actualStart]),
+    ...["BF","BG","BH","BI","BJ"].map(key=>[key,planningStart]),
+  ]);
+  const canonical = (label: string) => label.replace(/\s*\(j\d+p?\)/g, "").replace(/[\\]+$/, "").trim();
+  const col = (letters: string) => {
+    const week = headings.indexOf("week");
+    if (letters === "A") return headings.includes("quarter") ? headings.indexOf("quarter") : week - 1;
+    if (letters === "C") return headings.includes("date") ? headings.indexOf("date") : week + 1;
+    const spec = mapping[letters];
+    if (!spec) return -1;
+    const matches = headings.flatMap((label,index) => canonical(label) === spec[0] ? [index] : []);
+    const start = groupOf[letters];
+    if (start !== undefined && start >= 0) {
+      const end = groupStarts.find(index => index > start) ?? headings.length;
+      const inGroup = matches.filter(index => index >= start && index < end);
+      if (inGroup.length > 1) throw new Error(`Ambiguous Build Plan ${spec[0]} in ${sheetName}`);
+      return inGroup[0] ?? -1;
+    }
+    return matches[spec[1] ?? 0] ?? -1;
+  };
   const buildPlan: BuildPlanImportRow[] = [];
   const seen = new Set<string>();
 
@@ -463,6 +503,7 @@ function parseBuildPlan(sheet: XLSX.WorkSheet, sheetName: string, year: number) 
     seen.add(sourceKey);
     const nAt = (letters: string, label: string, max = 1_000_000) => {
       const c = col(letters);
+      if (c < 0) return undefined;
       const addr = XLSX.utils.encode_cell({ r, c });
       const field = `${label} at ${sheetName}!${addr}`;
       ensureFormulaCache(sheet, sheetName, r, c, field);
@@ -470,6 +511,7 @@ function parseBuildPlan(sheet: XLSX.WorkSheet, sheetName: string, year: number) 
     };
     const signedAt = (letters: string, label: string) => {
       const c = col(letters);
+      if (c < 0) return undefined;
       const addr = XLSX.utils.encode_cell({ r, c });
       const field = `${label} at ${sheetName}!${addr}`;
       ensureFormulaCache(sheet, sheetName, r, c, field);
@@ -614,6 +656,11 @@ function parseWeeklyNotes(sheet: XLSX.WorkSheet, sheetName: string, year: number
   if (headerIndex < 0) throw new Error("REM Notes week column was not found");
   const header = rows[headerIndex].map(normalize);
   const weekCol = header.indexOf("week");
+  const productHeaders = header.some(x => canonicalProduct(x)) ? header : (rows[headerIndex - 1] ?? []).map(normalize);
+  const productCol = (product: string) => productHeaders.findIndex(label => canonicalProduct(label) === product);
+  const quarterCol = header.includes("quarter") ? header.indexOf("quarter") : weekCol - 1;
+  const dateCol = header.includes("date") ? header.indexOf("date") : weekCol + 1;
+  const columns = [quarterCol,dateCol,productCol("VITROS"),productCol("VISION"),productCol("LVCC_ELECTROMETER"),productCol("LVCC_IR_WASH")];
   const weeklyNotes: WeeklyNoteImportRow[] = [];
   const seen = new Set<string>();
 
@@ -623,22 +670,22 @@ function parseWeeklyNotes(sheet: XLSX.WorkSheet, sheetName: string, year: number
     ensureFormulaCache(sheet, sheetName, r, weekCol, weekField);
     const week = numberValue(row[weekCol]);
     if (week === undefined || !Number.isInteger(week) || week < 1 || week > 53) continue;
-    for (const c of [0, 2, 3, 4, 5, 6]) {
+    for (const c of columns) {
       ensureFormulaCache(sheet, sheetName, r, c, "Weekly note");
     }
-    const quarterRaw = optionalText(row[0], 8)?.toUpperCase();
+    const quarterRaw = optionalText(row[quarterCol], 8)?.toUpperCase();
     const quarter = quarterRaw && /^Q[1-4]$/.test(quarterRaw) ? quarterRaw : quarterFromWeek(week);
     const notes = {
-      vitros: optionalText(row[3], 10_000),
-      vision: optionalText(row[4], 10_000),
-      lvccElectrometer: optionalText(row[5], 10_000),
-      lvccIrWash: optionalText(row[6], 10_000),
+      vitros: optionalText(row[productCol("VITROS")], 10_000),
+      vision: optionalText(row[productCol("VISION")], 10_000),
+      lvccElectrometer: optionalText(row[productCol("LVCC_ELECTROMETER")], 10_000),
+      lvccIrWash: optionalText(row[productCol("LVCC_IR_WASH")], 10_000),
     };
     if (!Object.values(notes).some(Boolean)) continue;
     const sourceKey = `${year}:notes:${week}`;
     if (seen.has(sourceKey)) throw new Error(`Duplicate REM Notes week: ${week}`);
     seen.add(sourceKey);
-    weeklyNotes.push({ sourceKey, year, weekStart: toIsoDate(row[2]), weekNumber: week, quarter, notes });
+    weeklyNotes.push({ sourceKey, year, weekStart: toIsoDate(row[dateCol]), weekNumber: week, quarter, notes });
   }
   return weeklyNotes;
 }
@@ -648,19 +695,20 @@ export function parseAuthoritativeRemWorkbook(
   fileHash: string,
   workbook: XLSX.WorkBook,
 ): AuthoritativeRemImportPreview {
-  const normalizedNames = new Map(workbook.SheetNames.map((name) => [normalize(name), name]));
-  const required = ["tracker", "build plan", "staff", "notes - issues"];
-  const missing = required.filter((name) => !normalizedNames.has(name));
-  if (missing.length) {
-    throw new Error(`This file is not recognized as the REM production workbook. Missing internal sheet signatures: ${missing.join(", ")}`);
-  }
-
+  const resolve = (name: string, signature: (row: unknown[]) => boolean) => {
+    const named = workbook.SheetNames.filter(n => normalize(n) === name);
+    if (named.length === 1 && matrix(workbook.Sheets[named[0]]).slice(0,100).some(signature)) return named[0];
+    const matches = workbook.SheetNames.filter(n => matrix(workbook.Sheets[n]).slice(0,100).some(signature));
+    if (matches.length !== 1) throw new Error(`REM ${name}: ${matches.length ? "ambiguous worksheet role" : "required internal headers missing"}`);
+    return matches[0];
+  };
+  const has = (row: unknown[], labels: string[]) => labels.every(label => row.map(normalize).includes(label));
   const planYear = inferPlanYear(workbook);
   const wip = latestVitrosWip(workbook);
-  const trackerSheet = normalizedNames.get("tracker")!;
-  const buildPlanSheet = normalizedNames.get("build plan")!;
-  const staffSheet = normalizedNames.get("staff")!;
-  const notesSheet = normalizedNames.get("notes - issues")!;
+  const trackerSheet = resolve("tracker", row => row.filter(x => normalize(x) === "product").length >= 4);
+  const buildPlanSheet = resolve("build plan", row => has(row,["week","3600","5600","7600","head count"]));
+  const staffSheet = resolve("staff", row => has(row,["wwid","name","role","fte","cleaning","dhr"]));
+  const notesSheet = resolve("notes - issues", row => has(row,["week"]) && !has(row,["product"]) && !has(row,["3600"]) && !has(row,["total"]) && row.filter(x => !isBlank(x)).length <= 8);
   const importedSheets = [trackerSheet, buildPlanSheet, staffSheet, notesSheet, wip.name];
   const recognizedSheets = [...importedSheets];
   const unimportedSheets = workbook.SheetNames.filter((name) => !importedSheets.includes(name));

@@ -1,7 +1,7 @@
 import { useAction } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../../convex/_generated/api';
-import { progressStages, validateProgress, type RemKind } from '../../../convex/remProgressContract';
+import { completePriorStages, progressStages, validateProgress, type RemKind } from '../../../convex/remProgressContract';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { theme } from './SharedComponents';
 
@@ -31,7 +31,7 @@ export function RemProgressDialog({kind,recordId,title,onClose,onSaved}:{kind:Re
     saving.current=true;setBusy(true);setError('');setMessage('');
     try {
       validateProgress(kind,progress,stage);
-      const command=pending??{kind,recordId,expectedRevision:detail.record.revision,engineerId,stage,progress,notes,correlationId:`rem-progress:${crypto.randomUUID()}`};
+      const command=pending??{kind,recordId,expectedRevision:detail.record.revision,engineerId,stage,progress:completePriorStages(kind,progress,stage),notes,correlationId:`rem-progress:${crypto.randomUUID()}`};
       setPending(command);
       const receipt=await update(command);
       if(!alive.current)return;
@@ -52,9 +52,9 @@ export function RemProgressDialog({kind,recordId,title,onClose,onSaved}:{kind:Re
       <fieldset disabled={!canEdit} className="space-y-4 disabled:opacity-70">
         <label className="block text-sm font-semibold">Engineer (required)<select aria-label="Engineer" required className="block w-full rounded-lg p-3 mt-1" style={remInputStyle} value={engineerId} onChange={e=>setEngineerId(e.target.value)}><option value="">Select engineer…</option>{detail.engineers.map(e=><option key={e.id} value={e.id}>{e.name} ({e.initials})</option>)}</select></label>
         {detail.engineers.length===0&&<p role="alert">No active engineers are available. An administrator must activate an engineer.</p>}
-        <label className="block text-sm font-semibold">Current stage<select aria-label="Current stage" className="block w-full rounded-lg p-3 mt-1" style={remInputStyle} value={stage} onChange={e=>setStage(e.target.value)}>{!stages.some(s=>s.label===stage)&&stage!=='Complete'&&<option value={stage}>{stage||'Unassigned'}</option>}{stages.map(s=><option key={s.key} value={s.label}>{kind==='lvcc'?s.label.replace('Packaging','Pack').replace('SAP Release','SAP'):s.label}</option>)}<option>Complete</option></select></label>
+        <label className="block text-sm font-semibold">Current stage<select aria-label="Current stage" className="block w-full rounded-lg p-3 mt-1" style={remInputStyle} value={stage} onChange={e=>{setStage(e.target.value);setProgress(p=>completePriorStages(kind,p,e.target.value));}}>{!stages.some(s=>s.label===stage)&&stage!=='Complete'&&<option value={stage}>{stage||'Unassigned'}</option>}{stages.map(s=><option key={s.key} value={s.label}>{kind==='lvcc'?s.label.replace('Packaging','Pack').replace('SAP Release','SAP'):s.label}</option>)}<option>Complete</option></select></label>
         <div className="grid sm:grid-cols-2 gap-3">{stages.map(s=><label key={s.key} className="block rounded-xl border border-slate-600 p-3"><span className="text-sm font-semibold">{s.label}</span><div className="flex items-center gap-2 mt-2"><input aria-label={`${s.label} percentage`} type="number" min={0} max={100} step={1} placeholder="Unreported" value={progress[s.key]??''} onChange={e=>setProgress(p=>({...p,[s.key]:e.target.value===''?null:Number(e.target.value)}))} className="w-24 p-2 rounded-lg" style={remInputStyle}/><span>%</span></div><input aria-label={`${s.label} progress slider`} className="w-full mt-3 accent-indigo-500" type="range" min={0} max={100} step={1} value={progress[s.key]??0} onChange={e=>setProgress(p=>({...p,[s.key]:Number(e.target.value)}))}/></label>)}</div>
-        <p className="text-xs text-slate-400">Blank means unreported. Choosing a stage does not change its percentage. Complete requires all stages at 100%.</p>
+        <p className="text-xs text-slate-400">Blank means unreported. Choosing a stage completes earlier tasks. The selected task keeps its recorded percentage. Complete requires all stages at 100%.</p>
         <label className="block text-sm font-semibold">Operator notes<textarea aria-label="Operator notes" className="w-full rounded-lg p-3 mt-1 min-h-24" style={remInputStyle} value={notes} maxLength={4000} onChange={e=>setNotes(e.target.value)}/></label>
       </fieldset>
       {detail.canWrite&&<button type="button" className="rounded-lg px-4 py-3 bg-indigo-600 text-white font-semibold disabled:opacity-40" disabled={busy||loading||!engineerId||(!changed&&!pending)} onClick={()=>void save()}>{busy?'Saving…':pending?'Retry same update':'Save progress'}</button>}

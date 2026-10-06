@@ -27,7 +27,7 @@ requireTokens(ui, "REM upload UI", [
   'parseAuthoritativeRemWorkbook',
   'Apply Authoritative REM Update',
   'useAction(api.remWorkbookActions.applyAuthoritativeWorkbookImport)',
-  'browserSafeRead<RemSummary>("rem_summary")',
+  'useRemCoreData',
   'Internal workbook structure is authoritative',
 ]);
 forbidTokens(ui, "REM upload UI", [
@@ -38,9 +38,9 @@ forbidTokens(ui, "REM upload UI", [
 ]);
 
 requireTokens(parser, "REM authoritative workbook parser", [
-  'match(/^wip productivity vitros wk',
-  'cells.includes("production order")',
-  'cells.includes("release/clean")',
+  'function wipHeader',
+  'some(wipHeader)',
+  'ambiguous worksheet role',
   '"tracker"',
   '"build plan"',
   '"staff"',

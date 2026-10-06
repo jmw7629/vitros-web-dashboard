@@ -1,7 +1,8 @@
+import { RemProgressSummary } from "../../components/vitros/RemProgressSummary";
 import { RemProgressDialog } from "../../components/vitros/RemProgressDialog";
 import { useMemo, useState } from "react";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
-import { WebCard, StatusBadge, ProgressBar, theme } from "../../components/vitros/SharedComponents";
+import { WebCard, StatusBadge, theme } from "../../components/vitros/SharedComponents";
 import { Search, X } from "lucide-react";
 
 export function Analyzers() {
@@ -72,8 +73,7 @@ export function Analyzers() {
                 {a.assignedTo && <span className="text-[10px]" style={{ color: theme.textMuted }}>→ {a.assignedTo}</span>}
               </div>
               <div className="flex items-center gap-2">
-                <div className="flex-1"><ProgressBar value={a.overallPct} maxValue={100} color="#6366f1" height={4} /></div>
-                <span className="text-[10px] font-bold" style={{ color: theme.textPrimary }}>{Math.round(a.overallPct)}%</span>
+                <RemProgressSummary kind="analyzer" progress={a.stageProgress} />
               </div>
             </button>
           ))}

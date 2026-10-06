@@ -9,10 +9,13 @@ export function MorningSnapshot() {
   const completed = data.analyzers.filter((analyzer) => analyzer.isComplete).length;
   const activeAnalyzers = data.analyzers.filter((analyzer) => !analyzer.isComplete);
   const active = activeAnalyzers.length;
-  const slaAttention = activeAnalyzers.filter((analyzer) => analyzer.slaDays > 0 && analyzer.daysInStage > analyzer.slaDays).length;
-  const averageProgress = active
-    ? Math.round(activeAnalyzers.reduce((sum, analyzer) => sum + analyzer.overallPct, 0) / active)
-    : 0;
+  const withSla = activeAnalyzers.filter(a => a.slaDays !== null && a.daysInStage !== null);
+  const slaRows = withSla.filter(a => a.slaDays! > 0 && a.daysInStage! > a.slaDays!);
+  const slaAttention = slaRows.length;
+  const withProgress = activeAnalyzers.filter(a => a.overallPct !== null);
+  const averageProgress = withProgress.length
+    ? `${Math.round(withProgress.reduce((sum, a) => sum + a.overallPct!, 0) / withProgress.length)}%`
+    : 'Unreported';
 
   const stages = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -48,8 +51,8 @@ export function MorningSnapshot() {
       <div className="grid grid-cols-2 gap-3">
         <DashCard onClick={() => inspect("ACTIVE WIP", activeAnalyzers)} label="ACTIVE WIP" value={active} subtitle="in progress" icon="🔧" color="#f59e0b" />
         <DashCard onClick={() => inspect("COMPLETED", data.analyzers.filter(a => a.isComplete))} label="COMPLETED" value={completed} subtitle="authoritative total" icon="✅" color={theme.statusOk} />
-        <DashCard onClick={() => inspect("AVG PROGRESS", activeAnalyzers)} label="AVG PROGRESS" value={`${averageProgress}%`} subtitle="active analyzers" icon="📈" color="#8b5cf6" />
-        <DashCard onClick={() => inspect("SLA ATTENTION", activeAnalyzers.filter(a => a.slaDays > 0 && a.daysInStage > a.slaDays))} label="SLA ATTENTION" value={slaAttention} subtitle="days in stage > SLA" icon="⚠️" color={slaAttention > 0 ? theme.statusOut : theme.statusOk} />
+        <DashCard onClick={() => inspect("AVG PROGRESS", activeAnalyzers)} label="AVG PROGRESS" value={averageProgress} subtitle={`${withProgress.length} of ${active} have full progress`} icon="📈" color="#8b5cf6" />
+        <DashCard onClick={() => inspect("SLA ATTENTION", slaRows)} label="SLA ATTENTION" value={withSla.length ? slaAttention : "Unreported"} subtitle={`${withSla.length} of ${active} have SLA data`} icon="⚠️" color={slaAttention > 0 ? theme.statusOut : theme.statusOk} />
       </div>
 
       <RemInfoCard title="Active by stage" data={activeAnalyzers} className="p-4">

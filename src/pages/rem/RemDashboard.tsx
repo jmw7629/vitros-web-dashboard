@@ -1,57 +1,19 @@
 import { useRemInspection, RemInfoCard } from "../../components/vitros/RemDataDialog";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useConfig } from "../../hooks/useConfig";
 import { WebCard, DashCard, ProgressBar, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
-import { browserSafeRead } from "../../lib/browserSafeRead";
 import type { RemProgressChartConfig } from "../../lib/configRegistry";
-
-type RemSummary = {
-  total: number;
-  completed: number;
-  active: number;
-  by_type: { type: string; total: number; completed: number }[];
-  by_stage: { stage: string; count: number }[];
-  lvcc_total: number;
-  lvcc_active: number;
-};
 
 export function RemDashboard() {
   const data = useRemCoreData();
   const { get } = useConfig();
   const remProgressConfig = get<RemProgressChartConfig>("charts.remProgress");
-  const [summary, setSummary] = useState<RemSummary | null>(null);
-  const [liveError, setLiveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const rows = await browserSafeRead<RemSummary>("rem_summary");
-        if (cancelled) return;
-        setSummary(rows[0] ?? null);
-        setLiveError(null);
-      } catch (error) {
-        if (cancelled) return;
-        setLiveError(error instanceof Error ? error.message : "REM live summary unavailable");
-      }
-    };
-    void load();
-    const interval = window.setInterval(() => void load(), 15_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
-
-  const fallbackTotal = data.analyzers.length;
-  const fallbackCompleted = data.analyzers.filter((analyzer) => analyzer.isComplete).length;
-  const total = summary?.total ?? fallbackTotal;
-  const completed = summary?.completed ?? fallbackCompleted;
-  const active = summary?.active ?? (fallbackTotal - fallbackCompleted);
+  const total = data.analyzers.length;
+  const completed = data.analyzers.filter(a => a.isComplete).length;
+  const active = total - completed;
 
   const byType = useMemo(() => {
-    if (summary) return summary.by_type.map((item) => [item.type, { total: item.total, completed: item.completed }] as const);
     const counts: Record<string, { total: number; completed: number }> = {};
     for (const analyzer of data.analyzers) {
       if (!counts[analyzer.analyzerType]) counts[analyzer.analyzerType] = { total: 0, completed: 0 };
@@ -59,21 +21,20 @@ export function RemDashboard() {
       if (analyzer.isComplete) counts[analyzer.analyzerType].completed += 1;
     }
     return Object.entries(counts).sort((a, b) => b[1].total - a[1].total);
-  }, [summary, data.analyzers]);
+  }, [data.analyzers]);
 
   const byStage = useMemo(() => {
-    if (summary) return summary.by_stage.map((item) => [item.stage, item.count] as const);
     const counts: Record<string, number> = {};
     data.analyzers.filter((analyzer) => !analyzer.isComplete).forEach((analyzer) => {
       const stage = analyzer.currentStage || "Unassigned";
       counts[stage] = (counts[stage] || 0) + 1;
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [summary, data.analyzers]);
+  }, [data.analyzers]);
 
-  const lvccTotal = summary?.lvcc_total ?? data.lvccItems.length;
-  const lvccActive = summary?.lvcc_active ?? data.lvccItems.filter((item) => !item.isComplete).length;
-  const unavailable = !!liveError && !!data.error;
+  const lvccTotal = data.lvccItems.length;
+  const lvccActive = data.lvccItems.filter((item) => !item.isComplete).length;
+  const unavailable = !!data.error;
 
   const progressColor = remProgressConfig.color || "#6366f1";
   const showProgress = remProgressConfig.visible !== false;
@@ -84,15 +45,15 @@ export function RemDashboard() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-bold" style={{ color: theme.textPrimary }}>REM Dashboard</h2>
-        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: unavailable ? theme.statusOut : liveError ? theme.textMuted : theme.statusOk }}>
-          {unavailable ? "Unavailable" : liveError ? "Authenticated Supabase" : summary ? "Live Supabase" : "Loading live data"}
+        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: unavailable ? theme.statusOut : theme.statusOk }}>
+          {unavailable ? "Unavailable" : data.isLoading ? "Loading live data" : "Live Supabase"}
         </span>
       </div>
 
       {unavailable && (
         <WebCard className="p-4">
           <div className="text-sm font-bold" style={{ color: theme.statusOut }}>REM dashboard unavailable</div>
-          <div className="mt-1 text-xs" style={{ color: theme.textSecondary }}>Both the least-privilege summary and authenticated authoritative REM read failed. No legacy Convex data was substituted.</div>
+          <div className="mt-1 text-xs" style={{ color: theme.textSecondary }}>Current REM records could not be read. Retry to load the latest source.</div>
           <button type="button" onClick={() => void data.refresh()} className="mt-3 px-3 py-1.5 rounded-lg text-xs font-bold" style={{ color: theme.textPrimary, border: `1px solid ${theme.cardBorder}` }}>Retry authoritative read</button>
         </WebCard>
       )}

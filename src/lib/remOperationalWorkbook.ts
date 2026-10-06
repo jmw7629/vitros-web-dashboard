@@ -50,7 +50,7 @@ const blank = (value: unknown) => value === null || value === undefined || Strin
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 const PRODUCTS: RemProduct[] = ["VITROS", "VISION", "LVCC_ELECTROMETER", "LVCC_IR_WASH"];
 const QUARTERS = ["Q1", "Q2", "Q3", "Q4"] as const;
-type LocatedSheet = { name: string; sheet: XLSX.WorkSheet; header: number; columns: Map<string, number>; rows: unknown[][] };
+type LocatedSheet = { name: string; sheet: XLSX.WorkSheet; header: number; columns: Map<string, number>; rows: unknown[][]; warnings?: string[] };
 
 function absoluteRows(sheet: XLSX.WorkSheet): unknown[][] {
   const end = XLSX.utils.decode_range(sheet["!ref"] ?? "A1").e;
@@ -74,15 +74,13 @@ function cellValue(sheet: XLSX.WorkSheet, name: string, row: number, col: number
   return cell.v;
 }
 
-function validateSheetCaches(sheet: XLSX.WorkSheet, name: string): void {
-  for (const address of Object.keys(sheet)) {
-    if (!/^[A-Z]+[1-9]\d*$/.test(address)) continue;
+function validateSheetCaches(sheet: XLSX.WorkSheet, name: string, warnings: string[]): void {
+  const unavailable = Object.keys(sheet).filter(address => {
+    if (!/^[A-Z]+[1-9]\d*$/.test(address)) return false;
     const cell = sheet[address] as XLSX.CellObject;
-    if (cell.t === "e" || (cell.f != null && (cell.v == null || cell.t === "z"))) {
-      const { r, c } = XLSX.utils.decode_cell(address);
-      cellValue(sheet, name, r, c);
-    }
-  }
+    return cell.t === "e" || (cell.f != null && (cell.v == null || cell.t === "z"));
+  });
+  if (unavailable.length) warnings.push(`${name}: ${unavailable.length} unavailable Excel values (${unavailable.slice(0, 8).join(", ")}). Unused values are ignored; optional fields remain unreported. Required identities and transaction quantities are validated separately.`);
 }
 
 function headerAt(sheet: XLSX.WorkSheet, row: number): Map<string, number> {
@@ -102,7 +100,7 @@ function locate(workbook: XLSX.WorkBook, expected: string, signature: string[], 
   for (const name of named.length ? named : workbook.SheetNames.filter((candidate) => !excludedSheets.has(candidate))) {
     if (excludedSheets.has(name)) throw new Error(`${expected}: worksheet already assigned to another operational role`);
     const sheet = workbook.Sheets[name];
-    for (let row = 0; row < Math.min(6, XLSX.utils.decode_range(sheet["!ref"] ?? "A1").e.r + 1); row++) {
+    for (let row = 0; row < Math.min(100, XLSX.utils.decode_range(sheet["!ref"] ?? "A1").e.r + 1); row++) {
       const columns = headerAt(sheet, row);
       if (signature.every((label) => columns.has(norm(label)))) candidates.push({ name, header: row, columns });
     }
@@ -115,25 +113,44 @@ function locate(workbook: XLSX.WorkBook, expected: string, signature: string[], 
   if (candidates.length !== 1) throw new Error(`Ambiguous header signature for ${expected}`);
   const found = candidates[0];
   const sheet = workbook.Sheets[found.name];
-  validateSheetCaches(sheet, found.name);
-  // Duplicate required labels must not silently select a first matching column.
+  validateSheetCaches(sheet, found.name, warnings);
+  // Repeated "Final Line" can mean operator initials or the quality result.
+  // Resolve by semantic neighboring headers, never by a fixed column number.
   for (const label of signature) {
     const end = XLSX.utils.decode_range(sheet["!ref"] ?? "A1").e.c;
-    let matches = 0;
-    for (let col = 0; col <= end; col++) if (norm(cellValue(sheet, found.name, found.header, col)) === norm(label)) matches++;
-    if (matches !== 1) throw new Error(`${found.name}: ambiguous ${label} header`);
+    const matches: number[] = [];
+    const headings = Array.from({length: end + 1}, (_, col) => norm(sheet[XLSX.utils.encode_cell({r: found.header, c: col})]?.v));
+    for (let col = 0; col <= end; col++) if (headings[col] === norm(label)) matches.push(col);
+    if (matches.length === 1) continue;
+    if (norm(label) === "final line") {
+      const quality = matches.filter(col => headings.slice(0, col).filter(Boolean).at(-1) === "build quality"
+        && headings.slice(col + 1).find(Boolean) === "release");
+      if (quality.length === 1) {
+        found.columns.set(norm(label), quality[0]);
+        warnings.push(`${found.name}: Final Line quality result selected between Build Quality and Release; operator column excluded.`);
+        continue;
+      }
+    }
+    throw new Error(`${found.name}: ambiguous ${label} header`);
   }
-  return { ...found, sheet, rows: absoluteRows(sheet) };
+  return { ...found, sheet, rows: absoluteRows(sheet), warnings };
+
 }
 
 function reader(found: LocatedSheet, row: number, numericText: Record<string, string>) {
-  const value = (label: string) => {
+  const value = (label: string, required = false) => {
     const col = found.columns.get(norm(label));
-    return col === undefined ? undefined : cellValue(found.sheet, found.name, row, col);
+    if (col === undefined) return undefined;
+    try { return cellValue(found.sheet, found.name, row, col); }
+    catch (error) {
+      if (required) throw error;
+      found.warnings?.push(`${found.name}!${XLSX.utils.encode_cell({r:row,c:col})} (${label}): Excel value unavailable; field left unreported.`);
+      return undefined;
+    }
   };
   const context = (label: string) => `${found.name}!${XLSX.utils.encode_cell({ r: row, c: found.columns.get(norm(label)) ?? 0 })} (${label})`;
   const text = (label: string, required = false) => {
-    const raw = value(label);
+    const raw = value(label, required);
     if (blank(raw)) {
       if (required) throw new Error(`${context(label)}: required value missing`);
       return undefined;
@@ -141,18 +158,20 @@ function reader(found: LocatedSheet, row: number, numericText: Record<string, st
     return String(raw).trim();
   };
   const identifier = (label: string) => {
-    const raw = value(label);
+    const raw = value(label, true);
     if (typeof raw === "number" && !Number.isSafeInteger(raw)) throw new Error(`${context(label)}: unsafe numeric identifier`);
     return text(label, true)!.toUpperCase();
   };
   const number = (label: string, field: string, required = false, nonnegative = false) => {
-    const raw = value(label);
+    const raw = value(label, required);
     if (blank(raw)) {
       if (required) throw new Error(`${context(label)}: required number missing`);
       return undefined;
     }
     if ((typeof raw !== "number" && typeof raw !== "string") || (typeof raw === "string" && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][+-]?\d+)?$/.test(raw.trim()))) {
-      throw new Error(`${context(label)}: malformed numeric value`);
+      if (required) throw new Error(`${context(label)}: malformed numeric value`);
+      found.warnings?.push(`${context(label)}: malformed number; field left unreported.`);
+      return undefined;
     }
     const result = Number(raw);
     if (!Number.isFinite(result) || (nonnegative && result < 0)) throw new Error(`${context(label)}: invalid numeric value`);
@@ -246,7 +265,7 @@ export function parseRemOperationalWorkbook(workbook: XLSX.WorkBook, planYear: n
       const numbers: Record<string, string> = {};
       const read = reader(found, row, numbers);
       if (blank(read.value("Batch"))) {
-        if (found.rows[row].some((value) => !blank(value))) throw new Error(`${found.name}!${row + 1}: field record has no batch`);
+        if (found.rows[row].some((value) => !blank(value))) result.warnings.push(`${found.name}!${row + 1}: no batch identity; row excluded from field records.`);
         continue;
       }
       const batch = read.identifier("Batch");
@@ -259,7 +278,10 @@ export function parseRemOperationalWorkbook(workbook: XLSX.WorkBook, planYear: n
         if (!blank(raw)) {
           data[rawField] = sourceValue(raw);
           if (norm(raw) === "tbd" || raw === 0) result.warnings.push(`${read.context(label)}: source date is ${String(raw)}; normalized date remains unavailable.`);
-          else data[field] = dateParts(raw, read.context(label)).day;
+          else {
+            try { data[field] = dateParts(raw, read.context(label)).day; }
+            catch { result.warnings.push(`${read.context(label)}: source is not a calendar date; original value retained, normalized date unavailable.`); }
+          }
         }
       }
       if (!blank(read.value("YYYY-MM"))) data.yearMonth = monthValue(read.value("YYYY-MM"), read.context("YYYY-MM"));
@@ -284,7 +306,7 @@ export function parseRemOperationalWorkbook(workbook: XLSX.WorkBook, planYear: n
   if (!lvccNames.length) result.warnings.push("LVCC DHR Reviews: sheet absent; this operational dataset was not imported.");
   else {
     const name = lvccNames[0]; const sheet = workbook.Sheets[name];
-    validateSheetCaches(sheet, name);
+    validateSheetCaches(sheet, name, result.warnings);
     const rows = absoluteRows(sheet);
     const isSubtotal = (row: number, sectionHeader: number): boolean => {
       if (!rows[row] || !blank(rows[row][0]) || !blank(rows[row][1])) return false;
@@ -312,6 +334,10 @@ export function parseRemOperationalWorkbook(workbook: XLSX.WorkBook, planYear: n
       }
       if (!partNumber || header < 0 || rows[row].every(blank)) continue;
       if (isSubtotal(row, header)) continue;
+      if (typeof first === "string" && !/^\d+$/.test(first.trim()) && rows[row].slice(1).every(blank)) {
+        result.warnings.push(`${name}!A${row + 1}: source note retained in import checks: ${first.slice(0, 300)}`);
+        continue;
+      }
       // The source has one standalone numeric marker immediately before its
       // formula subtotal. This is distinct from a review row missing its date.
       if (typeof first === "number" && Number.isInteger(first) && rows[row].slice(1).every(blank) && isSubtotal(row + 1, header)) {
@@ -411,7 +437,10 @@ export function parseRemOperationalWorkbook(workbook: XLSX.WorkBook, planYear: n
   if (summary) {
     const columns = new Map<RemProduct, number>();
     for (const [label, col] of summary.columns) { const canonical = product(label); if (canonical) { if (columns.has(canonical)) throw new Error(`${summary.name}: duplicate product heading`); columns.set(canonical, col); } }
-    const periodCol = 0; const quarterRows = new Map<string, number>(); let totalRow: number | undefined;
+    const periodCandidates = Array.from({length: XLSX.utils.decode_range(summary.sheet["!ref"] ?? "A1").e.c + 1}, (_, col) => col)
+      .filter(col => QUARTERS.every(q => summary.rows.slice(summary.header + 1).some(row => norm(row[col]) === q.toLowerCase())));
+    if (periodCandidates.length !== 1) throw new Error(`${summary.name}: ambiguous quarter labels`);
+    const periodCol = periodCandidates[0]; const quarterRows = new Map<string, number>(); let totalRow: number | undefined;
     for (let row = summary.header + 1; row < summary.rows.length; row++) {
       const label = String(cellValue(summary.sheet, summary.name, row, periodCol) ?? "").trim().toUpperCase();
       if (!label) continue;
@@ -426,7 +455,7 @@ export function parseRemOperationalWorkbook(workbook: XLSX.WorkBook, planYear: n
     if (tracker.length) {
       const name = tracker[0]; const sheet = workbook.Sheets[name];
       const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
-      for (let row = 0; row < Math.min(6, range.e.r + 1); row++) {
+      for (let row = 0; row < Math.min(100, range.e.r + 1); row++) {
         const starts: number[] = [];
         for (let col = 0; col <= range.e.c; col++) if (norm(cellValue(sheet, name, row, col)) === "product") starts.push(col);
         if (starts.length !== 4) continue;

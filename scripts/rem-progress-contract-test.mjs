@@ -14,3 +14,13 @@ validateProgress('lvcc',Object.fromEntries(Object.keys(p).map(k=>[k,100])),'Comp
 assert.equal(recordSnapshot('lvcc',{id:'x',progress_revision:0,build_pct:null}).progress.buildPct,null);
 assert.equal(boardStage('Pack',false,'lvcc'),'Packaging');assert.equal(boardStage('Unknown',false,'lvcc'),'Unknown');
 console.log('REM progress contract: range, nulls, exact keys, completion and legacy stage cases passed.');
+const {completePriorStages,reportedOverall,REM_STAGES}=context.exports;
+const unknown=Object.fromEntries(REM_STAGES.map(s=>[s.key,null]));
+const service=completePriorStages('analyzer',{...unknown,servicePct:25},'Service');
+assert.equal(service.procurementPct,100);assert.equal(service.cleaningPct,100);assert.equal(service.servicePct,25);
+assert.equal(service.finalLinePct,null);assert.equal(unknown.cleaningPct,null);
+assert.equal(reportedOverall('analyzer',service),null);
+assert.equal(reportedOverall('analyzer',Object.fromEntries(REM_STAGES.map(s=>[s.key,50]))),50);
+const packaging=completePriorStages('analyzer',unknown,'Packaging');
+assert.equal(packaging.releaseTestingPct,100);assert.equal(packaging.qaReleasePct,null);
+console.log('REM precedence and unknown overall regressions passed.');
