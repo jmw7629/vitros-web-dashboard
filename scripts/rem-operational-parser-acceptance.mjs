@@ -53,6 +53,19 @@ const lvccBook = () => book({ "LVCC DHR Reviews": [
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
 
+test("duplicate Final Line roles, unused lookup errors and deep shifted headers recover", () => {
+ const headers=[...fieldHeaders];const row=[...fieldRow];headers.splice(5,0,'Cell','Final Line');row.splice(5,0,'Bench','AB');
+ const fixture=book({'Field Status VITROS':[headers,row]});fixture.Sheets['Field Status VITROS'].F2={t:'e',v:42,f:'VLOOKUP(1,A:A,1,FALSE)'};
+ fixture.Sheets['Field Status VITROS']=offsetSheet(fixture.Sheets['Field Status VITROS'],15,2);
+ const result=parse(fixture);assert.equal(result.records[0].data.finalLine,17);assert(result.warnings.some(w=>w.includes('operator column excluded')));
+});
+test("placeholder field rows and LVCC notes do not fabricate units", () => {
+ const fixture=lvccBook();XLSX.utils.sheet_add_aoa(fixture.Sheets['LVCC DHR Reviews'],[['Missing review binders']],{origin:-1});
+ const result=parse(fixture);assert.equal(result.counts.lvcc_reviews,2);assert(result.warnings.some(w=>w.includes('Missing review binders')));
+ const fields=book({'Field Status VITROS':[fieldHeaders,fieldRow,['Planned order']]});assert.equal(parse(fields).counts.field_status,1);
+});
+
+
 test("absent operational sheets are disclosed without invented records", () => {
   const result = parse(book()); assert.equal(result.records.length, 0); assert.equal(result.warnings.length, 6);
 });
@@ -85,7 +98,7 @@ test("non-A1 field range retains its first record and absolute source coordinate
   assert.equal(result.records[0].data.finalLine, 17); assert.equal(result.records[0].data.installDate, "2026-01-23");
   assert(result.warnings.some((message) => message.includes("Field Status VITROS!M4")));
   fixture.Sheets["Field Status VITROS"].M4 = { t: "e", v: 23, f: "SUM(#REF!)", w: "#REF!" };
-  assert.throws(() => parse(fixture), /Field Status VITROS!M4.*cached Excel error/);
+  const recovered = parse(fixture); assert.equal(recovered.records[0].data.releaseFpyPct, undefined); assert(recovered.warnings.some(w=>w.includes("M4")));
 });
 test("non-A1 LVCC range preserves section rows and listed review cell addresses", () => {
   const fixture = lvccBook(); fixture.Sheets["LVCC DHR Reviews"] = offsetSheet(fixture.Sheets["LVCC DHR Reviews"], 2, 0);
@@ -112,22 +125,22 @@ test("duplicate natural identity rejects without first-match loss", () => {
   const fixture = certifiedBook(); fixture.Sheets["Certified Parts"].F3.v = 1;
   assert.throws(() => parse(fixture), /duplicate certified_parts natural key/);
 });
-test("formula cache errors and absent formula results fail", () => {
+test("optional formula cache errors recover with warnings", () => {
   const fixture = book({ "Field Status VITROS": [fieldHeaders, fieldRow] });
   fixture.Sheets["Field Status VITROS"].N2 = { t: "e", f: "1/0", v: 7 };
-  assert.throws(() => parse(fixture), /N2.*cached Excel error/);
+  assert(parse(fixture).warnings.some(w=>w.includes("N2")));
   fixture.Sheets["Field Status VITROS"].N2 = { t: "z", f: "A1" };
-  assert.throws(() => parse(fixture), /N2.*no cached value/);
+  assert(parse(fixture).warnings.some(w=>w.includes("N2")));
   const reviewFixture = lvccBook(); reviewFixture.Sheets["LVCC DHR Reviews"].C5 = { t: "e", v: 7, f: "SUM(C3:C4)" };
-  assert.throws(() => parse(reviewFixture), /C5.*cached Excel error/);
+  assert(parse(reviewFixture).warnings.some(w=>w.includes("C5")));
 });
-test("malformed numbers and impossible calendar dates fail", () => {
+test("optional malformed numbers and dates stay missing", () => {
   const fixture = book({ "Field Status VITROS": [fieldHeaders, fieldRow] });
   fixture.Sheets["Field Status VITROS"].L2 = { t: "s", v: "3oops" };
-  assert.throws(() => parse(fixture), /malformed numeric/);
+  assert.equal(parse(fixture).records[0].data.partsAtInstallUsd, undefined);
   fixture.Sheets["Field Status VITROS"].L2 = { t: "n", v: 0 };
   fixture.Sheets["Field Status VITROS"].O2 = { t: "s", v: "02/30/2026" };
-  assert.throws(() => parse(fixture), /invalid calendar date/);
+  assert.equal(parse(fixture).records[0].data.installDate, undefined);
 });
 test("LVCC source discrepancies and cells beyond numbered headers survive", () => {
   const result = parse(lvccBook()); assert.equal(result.counts.lvcc_reviews, 2);

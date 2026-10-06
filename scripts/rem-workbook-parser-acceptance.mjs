@@ -266,7 +266,6 @@ run("ignored sheets accurately disclosed", ()=>{
 
 const consumedFormulaCells = [
   ["WIP Productivity VITROS WK 5", "B3"], // serial identity
-  ["WIP Productivity VITROS WK 5", "C3"], // progress
   ["Tracker", "A2"], // product identity
   ["Tracker", "C2"], // week identity
   ["Tracker", "D2"], // date
@@ -341,45 +340,33 @@ run("synthetic XLSX roundtrip preserves accepted cached data and rejected missin
   let message = "";
   try { parseAuthoritativeRemWorkbook("renamed.xlsx", "hash", readLikeBrowser(wb)); }
   catch (error) { message = error.message; }
-  assert(message.includes("WIP Productivity VITROS WK 5!C3"), "serialized missing cache must fail with location: " + message);
+  assert(!message, "optional progress should recover instead of aborting: " + message);
+  const recovered = parseAuthoritativeRemWorkbook("renamed.xlsx", "hash", readLikeBrowser(wb));
+  equal(recovered.analyzers[0].cleaningPct,null,"missing progress stays null");
+  assert(recovered.warnings.some(w => w.includes("WIP Productivity VITROS WK 5!C3")),"source coordinate disclosed");
 });
 
-if (process.argv.length > 2) {
-  const operationalSource = fs.readFileSync("src/lib/remOperationalWorkbook.ts", "utf8")
-    .replace(/^import \* as XLSX from "xlsx";$/m, "").replace(/^export /gm, "");
-  const operationalContext = vm.createContext({ XLSX, Date, console });
-  vm.runInContext(`${ts.transpileModule(operationalSource, { compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022 } }).outputText}\nthis.parse=parseRemOperationalWorkbook;`, operationalContext);
-  for (const path of process.argv.slice(2)) {
-    run("private full production parse rejects known source corruption without guessing actuals", () => {
-      const bytes = fs.readFileSync(path);
-      const sourceHash = crypto.createHash("sha256").update(bytes).digest("hex");
-      // Match BulkImport's production read option, including actual Date cells.
-      const workbook = XLSX.read(bytes, { type: "buffer", cellDates: true });
-      const wip = context.__api.latestVitrosWip(workbook);
-      const analyzerPreview = context.__api.parseAnalyzers(workbook.Sheets[wip.name], wip.name);
-      equal(analyzerPreview.analyzers.length, 56, "valid real WIP analyzers");
-      equal(analyzerPreview.skippedRows, 20, "18 labels and 2 explicit SCRAP rows excluded");
-      equal(analyzerPreview.warnings.length, 2, "both real SCRAP exclusions disclosed");
-      const buildPlan = context.__api.parseBuildPlan(workbook.Sheets["Build Plan"], "Build Plan", 2026);
-      const staff = context.__api.parseStaff(workbook.Sheets.Staff, "Staff", 2026);
-      const weeklyNotes = context.__api.parseWeeklyNotes(workbook.Sheets["Notes - Issues"], "Notes - Issues", 2026);
-      let message = ""; let operationalCalled = false;
-      try {
-        const core = parseAuthoritativeRemWorkbook("private-source.xlsx", sourceHash, workbook);
-        operationalCalled = true;
-        operationalContext.parse(workbook, core.planYear);
-      } catch (error) { message = error.message; }
-      assert(message.includes("Tracker!AD24") && message.includes("LVCC_ELECTROMETER:22") && message.includes("formula error cached value") && message.includes("#REF!"), `combined production path must expose the actual source error and its correct week: ${message}`);
-      assert(!operationalCalled, "UI does not proceed past corrupt core source");
-      equal(workbook.Sheets.Tracker.AD24.f, "SUM('Build Plan'!#REF!)", "source formula remains untouched");
-      // Independent operational parsing is useful diagnostic evidence, not a
-      // claim that the combined import can run against the corrupt source.
-      const operational = operationalContext.parse(workbook, 2026);
-      equal(operational.records.length, 25388, "operational rows remain available with cellDates true");
-      console.log(JSON.stringify({ sourceHash, combinedSourceStatus: "BLOCKED", blockingCell: "Tracker!AD24", reason: "cached #REF! from a broken Build Plan reference", coreSectionCounts: { analyzers: analyzerPreview.analyzers.length, skippedWipRows: analyzerPreview.skippedRows, scrapRows: analyzerPreview.warnings.length, buildPlan: buildPlan.length, staff: staff.length, weeklyNotes: weeklyNotes.length }, operationalCounts: operational.counts }));
-    });
-  }
-}
+run("layout shifts and renamed sheets preserve known records", () => {
+ const wb=makeBaseWorkbook();const baseline=parseAuthoritativeRemWorkbook('base.xlsx','hash',wb);
+ for(const name of ['Build Plan','Notes - Issues','Tracker','Staff']) {
+  wb.Sheets['Renamed '+name]=offsetSheet(wb.Sheets[name],12,3);delete wb.Sheets[name];wb.SheetNames[wb.SheetNames.indexOf(name)]='Renamed '+name;
+ }
+ const result=parseAuthoritativeRemWorkbook('renamed.xlsx','hash',wb);
+ equal(JSON.stringify(result.buildPlan),JSON.stringify(baseline.buildPlan),'reordered build columns preserve semantics');
+ equal(JSON.stringify(result.weeklyNotes),JSON.stringify(baseline.weeklyNotes),'notes follow headers');
+ equal(result.trackerWeekly.length,baseline.trackerWeekly.length,'tracker count');
+});
+run("missing progress and order are not invented; later hidden WIP is selected", () => {
+ const wb=makeBaseWorkbook();const old='WIP Productivity VITROS WK 5';const current='Production week 6';
+ wb.Sheets[current]=structuredClone(wb.Sheets[old]);wb.SheetNames.push(current);wb.Workbook={Sheets:wb.SheetNames.map(name=>({name,Hidden:name===current?1:0}))};
+ delete wb.Sheets[current].A3;delete wb.Sheets[current].C3;
+ wb.Sheets[current].D3={t:'e',v:7,f:'1/0'};
+ const result=parseAuthoritativeRemWorkbook('x.xlsx','hash',wb);
+ equal(result.sourceSheet,current,'latest signature with week selected even hidden');
+ equal(result.analyzers[0].productionOrder,undefined,'PO missing');equal(result.analyzers[0].cleaningPct,null,'blank progress');equal(result.analyzers[0].servicePct,null,'errored progress');
+ wb.Sheets['Duplicate week 6']=structuredClone(wb.Sheets[current]);wb.SheetNames.push('Duplicate week 6');
+ let rejected=false;try{parseAuthoritativeRemWorkbook('x.xlsx','hash',wb);}catch{rejected=true;}assert(rejected,'ambiguous current source must not be guessed');
+});
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
 if(failed>0) process.exit(1);

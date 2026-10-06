@@ -52,7 +52,7 @@ requireText(sourceAction, /requireCapability\(ctx,\s*"rem\.read"\)/, "source rec
 rejectText(sourceRecords + sourceHook, /SUPABASE_SERVICE_ROLE_KEY|localStorage/, "browser source authority or persistent private record cache");
 
 requireText(bulkImport, /useRemPlanningData/, "authoritative planning/staff import status");
-requireText(bulkImport, /Promise\.all\(\[refreshSummary\(\), core\.refresh\(\), planning\.refresh\(\)\]\)/, "post-import authoritative refresh");
+requireText(bulkImport, /Promise\.all\(\[core\.refresh\(\), planning\.refresh\(\)\]\)/, "post-import authoritative refresh");
 rejectText(bulkImport, /data\.employees/, "unrelated legacy employee fallback");
 
 requireText(action, /requireCapability\(ctx,\s*"rem\.read"\)/, "server rem.read guard");

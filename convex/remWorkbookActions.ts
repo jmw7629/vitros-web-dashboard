@@ -10,11 +10,11 @@ const analyzerRow = v.object({
   serialNumber: v.string(),
   analyzerType: v.string(),
   productionOrder: v.optional(v.number()),
-  cleaningPct: v.number(),
-  servicePct: v.number(),
-  finalLinePct: v.number(),
-  releaseTestingPct: v.number(),
-  packagingPct: v.number(),
+  cleaningPct: v.union(v.number(), v.null()),
+  servicePct: v.union(v.number(), v.null()),
+  finalLinePct: v.union(v.number(), v.null()),
+  releaseTestingPct: v.union(v.number(), v.null()),
+  packagingPct: v.union(v.number(), v.null()),
 });
 
 const trackerRow = v.object({
@@ -106,8 +106,8 @@ function assertQuarter(quarter: string) {
   if (!/^Q[1-4]$/.test(quarter)) throw new Error("Invalid REM quarter");
 }
 
-function assertFiniteRange(value: number | undefined, min: number, max: number, label: string) {
-  if (value === undefined) return;
+function assertFiniteRange(value: number | null | undefined, min: number, max: number, label: string) {
+  if (value === undefined || value === null) return;
   if (!Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid ${label}`);
 }
 

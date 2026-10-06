@@ -1,23 +1,17 @@
 import { useAction } from "convex/react";
 import { CheckCircle2, FileSpreadsheet, RefreshCw, Upload, XCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { api } from "../../../convex/_generated/api";
 import { WebCard, theme } from "../../components/vitros/SharedComponents";
 import { useRemCoreData } from "../../hooks/useRemCoreData";
 import { useRemPlanningData } from "../../hooks/useRemPlanningData";
-import { browserSafeRead } from "../../lib/browserSafeRead";
 import { parseRemOperationalWorkbook } from "../../lib/remOperationalWorkbook";
 import { uploadRemOperationalRecords } from "../../lib/remOperationalUpload";
 import {
   parseAuthoritativeRemWorkbook,
   type AuthoritativeRemImportPreview,
 } from "../../lib/remWorkbookAuthoritative";
-
-type RemSummary = {
-  total: number;
-  lvcc_total: number;
-};
 
 type SectionResult = {
   rows?: number;
@@ -68,23 +62,9 @@ export function BulkImport() {
   const beginOperationalImport = useAction(api.remOperationalImportActions.beginOperationalImport);
   const stageOperationalImport = useAction(api.remOperationalImportActions.stageOperationalImport);
   const [preview, setPreview] = useState<CompleteRemPreview | null>(null);
-  const [summary, setSummary] = useState<RemSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
-
-  const refreshSummary = async () => {
-    try {
-      const rows = await browserSafeRead<RemSummary>("rem_summary");
-      setSummary(rows[0] ?? null);
-    } catch {
-      setSummary(null);
-    }
-  };
-
-  useEffect(() => {
-    void refreshSummary();
-  }, []);
 
   const handleFile = async (file: File) => {
     setBusy(true);
@@ -157,7 +137,7 @@ export function BulkImport() {
         throw new Error("The complete import receipt could not be verified. Keep this preview and retry to recover the same workbook transaction.");
       }
 
-      await Promise.all([refreshSummary(), core.refresh(), planning.refresh()]);
+      await Promise.all([core.refresh(), planning.refresh()]);
       setMessage({
         type: "ok",
         text: result.already_applied
@@ -260,18 +240,18 @@ export function BulkImport() {
             ))}
           </div>
           {preview.warnings.length + preview.operational.warnings.length > 0 && (
-            <div className="mb-4 rounded-lg border p-3 text-xs" style={{ borderColor: theme.cardBorder, color: theme.textSecondary }}>
-              <h4 className="mb-2 font-bold" style={{ color: theme.textPrimary }}>Workbook checks</h4>
-              <ul className="list-disc space-y-1 pl-4">
+            <details className="mb-4 rounded-lg border p-3 text-xs" style={{ borderColor: theme.cardBorder, color: theme.textSecondary }}>
+              <summary className="cursor-pointer font-bold" style={{ color: theme.textPrimary }}>Workbook checks ({preview.warnings.length + preview.operational.warnings.length}) — review missing values and source notes</summary>
+              <ul className="list-disc space-y-1 pl-4 mt-3 max-h-64 overflow-y-auto">
                 {[...preview.warnings, ...preview.operational.warnings].map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}
               </ul>
-            </div>
+            </details>
           )}
           <p className="text-[11px] mb-1" style={{ color: theme.textSecondary }}>
-            Apply is authenticated, idempotent and atomic. Canonical keys update workbook-owned values or add missing rows; unrelated REM data is preserved and workbook omissions never delete existing records.
+            Apply updates the current WIP from this workbook. Analyzers absent from the latest WIP leave current boards; their records and audit history are retained.
           </p>
           <p className="text-[11px] mb-3" style={{ color: theme.textSecondary }}>
-            Sheets listed as not imported do not contribute records. Missing rows and blank workbook fields preserve existing operational values. Summary targets and Tracker plans remain separate measures.
+            Missing analyzer progress and unsupported dates remain unreported. A recorded later stage completes preceding tasks. QA and SAP progress are not inferred from workbook completion. Summary targets and Tracker plans remain separate measures.
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPreview(null)} disabled={busy} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold border disabled:opacity-50" style={{ borderColor: theme.cardBorder, color: theme.textSecondary }}>
@@ -292,8 +272,8 @@ export function BulkImport() {
         {authoritativeError ? (
           <div className="text-xs" style={{ color: theme.statusOut }}>Authoritative REM counts could not be read. No legacy fallback was substituted.</div>
         ) : [
-          ["Analyzers", summary?.total ?? core.analyzers.length],
-          ["LVCC Items", summary?.lvcc_total ?? core.lvccItems.length],
+          ["Current-source analyzers", core.analyzers.length],
+          ["LVCC Items", core.lvccItems.length],
           ["Staff", planning.staff.length],
         ].map(([key, value]) => (
           <div key={String(key)} className="flex justify-between py-1.5 border-b last:border-0" style={{ borderColor: theme.cardBorder }}>

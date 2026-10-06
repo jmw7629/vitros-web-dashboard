@@ -8,7 +8,7 @@ import { build, normalizePath } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { chromium } from 'playwright';
-const root=process.cwd();const dir=fs.mkdtempSync(path.join(os.tmpdir(),'rem-progress-browser-'));
+const root=process.cwd();const dir=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'rem-progress-browser-'));
 fs.symlinkSync(path.join(root,'node_modules'),path.join(dir,'node_modules'),'junction');
 fs.writeFileSync(path.join(dir,'package.json'),'{"type":"module"}');
 fs.writeFileSync(path.join(dir,'index.html'),'<html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/entry.tsx"></script></body></html>');
@@ -32,7 +32,7 @@ const actions={getDetail:async()=>({record:{...record,revision,progress:{...prog
  },createLvcc:async(a)=>{saved.push(a);const r={_id:'lvcc-1',serialNumber:a.serialNumber,itemType:a.itemType,currentStage:'Build',isComplete:false,buildPct:0,testPct:0,packagingPct:0,qaReleasePct:0,sapReleasePct:0};lvcc=[r];return{record:{id:r._id,serialNumber:r.serialNumber}};}};
 export const api={remProgressActions:{getDetail:'getDetail',updateProgress:'updateProgress',listEngineers:'listEngineers',createLvcc:'createLvcc'}};
 export const useAction=(name)=>actions[name];
-export function useRemCoreData(){const[,refresh]=useState(0);return{analyzers:[{_id:'unit-1',serialNumber:'SYNTHETIC-5600',analyzerType:'5600',currentStage:record.currentStage,isComplete:false,overallPct:25,daysInStage:2,slaDays:30,...progress}],lvccItems:lvcc,weeklyNotes:[],isLoading:false,error:null,refresh:async()=>refresh(x=>x+1)}};
+export function useRemCoreData(){const[,refresh]=useState(0);return{analyzers:[{_id:'unit-1',serialNumber:'SYNTHETIC-5600',analyzerType:'5600',currentStage:record.currentStage,isComplete:false,overallPct:null,daysInStage:null,slaDays:null,stageProgress:progress,...progress}],lvccItems:lvcc,weeklyNotes:[],isLoading:false,error:null,refresh:async()=>refresh(x=>x+1)}};
 export function RemOperationalRecords(){return <p>Source review records</p>}
 `);
 await build({root:dir,configFile:false,logLevel:'warn',plugins:[{name:'mock-rem-boundaries',enforce:'pre',resolveId(source){if(source==='convex/react'||source.endsWith('/_generated/api')||source.endsWith('/hooks/useRemCoreData')||source.endsWith('/RemOperationalRecords')||source==='./RemOperationalRecords')return path.join(dir,'mock.tsx');}},react(),tailwind()],resolve:{alias:{'@':path.join(root,'src')}},build:{outDir:path.join(dir,'dist'),emptyOutDir:true}});
@@ -57,7 +57,7 @@ try{
   await modal.getByRole('button',{name:'Save progress',exact:true}).click();
   await modal.getByRole('button',{name:'Retry same update',exact:true}).click();
   await modal.getByRole('status').filter({hasText:'Saved by Test Engineer'}).waitFor();
-  const requests=await page.evaluate(()=>window.__remTest.saved);assert.equal(requests.length,2);assert.equal(requests[0].correlationId,requests[1].correlationId);assert.equal(requests[0].progress.servicePct,50);
+  const requests=await page.evaluate(()=>window.__remTest.saved);assert.equal(requests.length,2);assert.equal(requests[0].correlationId,requests[1].correlationId);assert.equal(requests[0].progress.servicePct,50);assert.equal(requests[0].progress.procurementPct,100);assert.equal(requests[0].progress.cleaningPct,100);
   assert.equal(await modal.getByRole('combobox',{name:'Engineer',exact:true}).inputValue(),'');
   await page.screenshot({path:path.join(artifacts,`progress-${width}.png`),fullPage:true});
   await page.keyboard.press('Escape');await page.getByRole('button',{name:'Kanban',exact:true}).click();

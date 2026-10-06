@@ -4,8 +4,8 @@ export const REM_STAGES = [
   { key: 'cleaningPct', column: 'cleaning_pct', label: 'Cleaning' },
   { key: 'servicePct', column: 'service_pct', label: 'Service' },
   { key: 'finalLinePct', column: 'final_line_pct', label: 'Final Line' },
-  { key: 'packagingPct', column: 'packaging_pct', label: 'Packaging' },
   { key: 'releaseTestingPct', column: 'release_testing_pct', label: 'Release Testing' },
+  { key: 'packagingPct', column: 'packaging_pct', label: 'Packaging' },
   { key: 'qaReleasePct', column: 'qa_release_pct', label: 'QA Release' },
   { key: 'sapReleasePct', column: 'sap_release_pct', label: 'SAP Release' },
 ];
@@ -18,6 +18,21 @@ export const LVCC_STAGES = [
 ];
 export const LVCC_TYPES = ['Electrometer', 'IR Wash — Pump', 'IR Wash — Module', 'IR Wash'] as const;
 export const progressStages = (kind: RemKind) => kind === 'analyzer' ? REM_STAGES : LVCC_STAGES;
+/** Moving into a known stage confirms the preceding tasks are complete. */
+export function completePriorStages(kind: RemKind, progress: Record<string, number | null>, stage: string) {
+  const stages = progressStages(kind);
+  const index = stages.findIndex(s => s.label === stage);
+  const result = { ...progress };
+  // Complete still requires explicit completion of every task.
+  for (let i = 0; i < index; i++) result[stages[i].key] = 100;
+  return result;
+}
+/** Missing task values cannot contribute a fabricated zero to an overall %. */
+export function reportedOverall(kind: RemKind, progress: Record<string, number | null | undefined>) {
+  const values = progressStages(kind).map(s => progress[s.key]);
+  return values.every((n): n is number => typeof n === 'number' && Number.isFinite(n))
+    ? Math.round(values.reduce((sum, n) => sum + n, 0) / values.length * 100) / 100 : null;
+}
 export function validateProgress(kind: RemKind, progress: Record<string, number | null>, stage: string) {
   const stages = progressStages(kind);
   if (Object.keys(progress).length !== stages.length || Object.keys(progress).some(k => !stages.some(s => s.key === k))) throw new Error('Every stage percentage must be included');
