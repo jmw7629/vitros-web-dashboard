@@ -39,7 +39,10 @@ jobs:
       - name: Employee action boundary behavior
         run: node scripts/employee-boundary-check.mjs
       - name: REM registration and product workflow actions
-        run: node scripts/rem-registration-action-test.mjs && node scripts/rem-progress-contract-test.mjs
+        run: |
+          node scripts/rem-registration-action-test.mjs
+          node scripts/rem-task-notes-action-test.mjs
+          node scripts/rem-task-note-read-test.mjs && node scripts/rem-progress-contract-test.mjs
       - name: REM parser behavior
         run: node scripts/rem-workbook-parser-acceptance.mjs
       - name: REM operational parser behavior
@@ -65,7 +68,9 @@ jobs:
       - name: Install Chromium for native IndexedDB verification
         run: npx playwright install --with-deps chromium --only-shell
       - name: REM product boards and registration browser behavior
-        run: node scripts/rem-progress-browser-check.mjs
+        run: |
+          node scripts/rem-progress-browser-check.mjs
+          node scripts/rem-task-notes-browser-check.mjs
       - name: Digital DHR native browser reload and lost-response recovery
         env:
           DHR_BROWSER_ARTIFACT_DIR: .verification/dhr-browser
@@ -195,9 +200,11 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261006165421_rem_workbook_accuracy.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261006173334_rem_import_receipt_versions.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261006174203_rem_analyzer_registration.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261006180916_rem_task_note_acknowledgment.sql
           psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f scripts/rem-progress-db-test.sql -c 'ROLLBACK'
           psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f scripts/rem-workbook-accuracy-db-test.sql -c 'ROLLBACK'
           psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f scripts/rem-registration-db-test.sql -c 'ROLLBACK'
+          psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f scripts/rem-task-notes-db-test.sql -c 'ROLLBACK'
 
 
   dhr-document-database:

@@ -1,15 +1,16 @@
 import { useAction } from 'convex/react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../convex/_generated/api';
 import { completePriorStages, progressStages, validateProgress, type RemKind } from '../../../convex/remProgressContract';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { theme } from './SharedComponents';
+import { RemTaskNotes } from './RemTaskNotes';
 
 export type ProgressRecord = {id:string;serialNumber:string;itemType:string;currentStage:string;revision:number;notes:string;progress:Record<string,number|null>;updatedAt:string|null;engineerName:string|null};
 type Detail = {record:ProgressRecord;engineers:{id:string;name:string;initials:string}[];canWrite:boolean;history:{id:string;engineerName:string;createdAt:string;stage:string;progress:Record<string,number|null>;notes:string}[]};
 export const remInputStyle = {backgroundColor:theme.cardBg,color:theme.textPrimary,border:`1px solid ${theme.cardBorder}`};
 const stamp = (s:string|null) => s ? new Date(s).toLocaleString() : 'No progress update yet';
-export function RemProgressDialog({kind,recordId,title,onClose,onSaved}:{kind:RemKind;recordId:string;title?:string;onClose:()=>void;onSaved?:()=>void}) {
+export function RemProgressDialog({kind,recordId,title,initialNoteStage,onClose,onSaved}:{kind:RemKind;recordId:string;title?:string;initialNoteStage?:string;onClose:()=>void;onSaved?:()=>void}) {
   const getDetail=useAction(api.remProgressActions.getDetail);
   const update=useAction(api.remProgressActions.updateProgress);
   const [detail,setDetail]=useState<Detail|null>(null);
@@ -19,13 +20,13 @@ export function RemProgressDialog({kind,recordId,title,onClose,onSaved}:{kind:Re
   const [pending,setPending]=useState<Parameters<typeof update>[0]|null>(null);
   const alive=useRef(true); const saving=useRef(false);
   const stages=progressStages(kind);
-  const load=async()=>{
+  const load=useCallback(async()=>{
     setLoading(true);setError('');
     try {const d=await getDetail({kind,recordId});if(!alive.current)return;setDetail(d);setProgress(d.record.progress);setStage(d.record.currentStage);setNotes(d.record.notes);setEngineerId('');}
     catch(e){if(alive.current)setError(e instanceof Error?e.message:'Unable to load progress');}
     finally{if(alive.current)setLoading(false);}
-  };
-  useEffect(()=>{alive.current=true;void load();return()=>{alive.current=false;};},[kind,recordId]);
+  },[kind,recordId,getDetail]);
+  useEffect(()=>{alive.current=true;void load();return()=>{alive.current=false;};},[load]);
   const save=async()=>{
     if(!detail||saving.current||!engineerId)return;
     saving.current=true;setBusy(true);setError('');setMessage('');
@@ -55,10 +56,11 @@ export function RemProgressDialog({kind,recordId,title,onClose,onSaved}:{kind:Re
         <label className="block text-sm font-semibold">Current stage<select aria-label="Current stage" className="block w-full rounded-lg p-3 mt-1" style={remInputStyle} value={stage} onChange={e=>{setStage(e.target.value);setProgress(p=>completePriorStages(kind,p,e.target.value));}}>{!stages.some(s=>s.label===stage)&&stage!=='Complete'&&<option value={stage}>{stage||'Unassigned'}</option>}{stages.map(s=><option key={s.key} value={s.label}>{kind==='lvcc'?s.label.replace('Packaging','Pack').replace('SAP Release','SAP'):s.label}</option>)}<option>Complete</option></select></label>
         <div className="grid sm:grid-cols-2 gap-3">{stages.map(s=><label key={s.key} className="block rounded-xl border border-slate-600 p-3"><span className="text-sm font-semibold">{s.label}</span><div className="flex items-center gap-2 mt-2"><input aria-label={`${s.label} percentage`} type="number" min={0} max={100} step={1} placeholder="Unreported" value={progress[s.key]??''} onChange={e=>setProgress(p=>({...p,[s.key]:e.target.value===''?null:Number(e.target.value)}))} className="w-24 p-2 rounded-lg" style={remInputStyle}/><span>%</span></div><input aria-label={`${s.label} progress slider`} className="w-full mt-3 accent-indigo-500" type="range" min={0} max={100} step={1} value={progress[s.key]??0} onChange={e=>setProgress(p=>({...p,[s.key]:Number(e.target.value)}))}/></label>)}</div>
         <p className="text-xs text-slate-400">Blank means unreported. Choosing a stage completes earlier tasks. The selected task keeps its recorded percentage. Complete requires all stages at 100%.</p>
-        <label className="block text-sm font-semibold">Operator notes<textarea aria-label="Operator notes" className="w-full rounded-lg p-3 mt-1 min-h-24" style={remInputStyle} value={notes} maxLength={4000} onChange={e=>setNotes(e.target.value)}/></label>
       </fieldset>
+      {detail.record.notes&&<div className="rounded-lg border border-slate-600 p-3"><div className="text-sm font-semibold mb-1">Operator notes</div><p className="text-sm whitespace-pre-wrap break-words">{detail.record.notes}</p></div>}
       {detail.canWrite&&<button type="button" className="rounded-lg px-4 py-3 bg-indigo-600 text-white font-semibold disabled:opacity-40" disabled={busy||loading||!engineerId||(!changed&&!pending)} onClick={()=>void save()}>{busy?'Saving…':pending?'Retry same update':'Save progress'}</button>}
       {!detail.canWrite&&<p>Read-only access. Your role cannot update REM progress.</p>}
+      <RemTaskNotes kind={kind} recordId={recordId} initialStage={initialNoteStage??detail.record.currentStage} onChanged={onSaved} />
       <section><h3 className="font-semibold mb-2">Update history <span className="text-xs text-slate-400">(latest 50)</span></h3>{detail.history.length===0?<p className="text-sm text-slate-400">No attributed progress updates yet.</p>:detail.history.map(event=><details key={event.id} className="border-t border-slate-600 py-3"><summary className="cursor-pointer text-sm">{event.engineerName} · {stamp(event.createdAt)} · {event.stage}</summary><dl className="grid grid-cols-2 gap-2 text-xs mt-2">{stages.map(s=><div key={s.key}><dt>{s.label}</dt><dd>{event.progress[s.key]===null?'Unreported':`${event.progress[s.key]}%`}</dd></div>)}</dl>{event.notes&&<p className="text-sm whitespace-pre-wrap mt-2">{event.notes}</p>}</details>)}</section>
       <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border border-slate-500 p-3">Close</button>
     </>}

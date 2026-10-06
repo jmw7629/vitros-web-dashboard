@@ -5,7 +5,9 @@ import { requireCapability } from "./authGuard";
 
 declare const process: { env: Record<string, string | undefined> };
 
+const pendingNotes = v.array(v.object({stage:v.string(),count:v.number()}));
 const analyzerRow = v.object({
+  pendingNotes,
   stageProgress: v.record(v.string(), v.union(v.number(), v.null())),
   progressUpdatedAt: v.union(v.string(), v.null()),
   progressEngineerName: v.union(v.string(), v.null()),
@@ -31,6 +33,7 @@ const analyzerRow = v.object({
 });
 
 const lvccRow = v.object({
+  pendingNotes,
   stageProgress: v.record(v.string(), v.union(v.number(), v.null())),
   progressUpdatedAt: v.union(v.string(), v.null()),
   progressEngineerName: v.union(v.string(), v.null()),
@@ -218,9 +221,23 @@ export const listCore = action({
       ),
     ]);
 
+    const summaryResponse = await fetch(`${url}/rest/v1/rpc/rem_task_note_summaries`, {
+      method: "POST", headers: {apikey:serviceKey,Authorization:`Bearer ${serviceKey}`,"Content-Type":"application/json"},
+      body: JSON.stringify({p_analyzer_ids:analyzerRows.map(raw=>String((raw as Record<string,unknown>).id)),p_lvcc_ids:lvccRows.map(raw=>String((raw as Record<string,unknown>).id))}),
+    });
+    if(!summaryResponse.ok)throw new Error("REM task note indicators are unavailable");
+    const summaries=await summaryResponse.json();
+    if(!Array.isArray(summaries))throw new Error("REM task note indicators are invalid");
+    const notesByRecord=new Map<string,{stage:string;count:number}[]>();
+    for(const summary of summaries){
+      if(!Array.isArray(summary.pendingNotes)||!summary.pendingNotes.every((n:Record<string,unknown>)=>typeof n.stage==="string"&&typeof n.count==="number"&&Number.isSafeInteger(n.count)&&n.count>0))throw new Error("REM task note indicators are invalid");
+      notesByRecord.set(`${summary.kind}:${summary.recordId}`,summary.pendingNotes);
+    }
+
     const analyzers = analyzerRows.map((raw) => {
       const row = raw as Record<string, unknown>;
       return {
+        pendingNotes: notesByRecord.get(`${row.analyzer_type === "VISION" ? "vision" : "analyzer"}:${row.id}`) ?? [],
         stageProgress: recordSnapshot(row.analyzer_type === "VISION" ? "vision" : "analyzer", row).progress,
         progressUpdatedAt: row.progress_updated_at == null ? null : String(row.progress_updated_at),
         progressEngineerName: row.progress_engineer_name == null ? null : String(row.progress_engineer_name),
@@ -251,6 +268,7 @@ export const listCore = action({
     const lvccItems = lvccRows.map((raw) => {
       const row = raw as Record<string, unknown>;
       return {
+        pendingNotes: notesByRecord.get(`lvcc:${row.id}`) ?? [],
         stageProgress: recordSnapshot("lvcc", row).progress,
         progressUpdatedAt: row.progress_updated_at == null ? null : String(row.progress_updated_at),
         progressEngineerName: row.progress_engineer_name == null ? null : String(row.progress_engineer_name),

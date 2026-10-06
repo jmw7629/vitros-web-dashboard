@@ -131,6 +131,7 @@ export interface AppSetting {
 }
 
 export interface REMAnalyzer {
+  pendingNotes?: { stage: string; count: number }[];
   stageProgress?: Record<string, number | null>;
   progressUpdatedAt?: string | null;
   progressEngineerName?: string | null;
@@ -159,6 +160,7 @@ export interface REMAnalyzer {
 }
 
 export interface LVCCItem {
+  pendingNotes?: { stage: string; count: number }[];
   stageProgress?: Record<string, number | null>;
   progressUpdatedAt?: string | null;
   progressEngineerName?: string | null;
