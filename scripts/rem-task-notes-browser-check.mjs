@@ -30,7 +30,7 @@ window.__remTest={saved,history,noteCalls,ackCalls,readNotes:()=>taskNotes};
 const directory=[{id:'engineer-1',name:'Test Engineer',initials:'TE'},{id:'engineer-2',name:'Acknowledging Engineer',initials:'AE'}];
 const actions={listTaskNotes:async()=>{if(window.__remTest.readFail)throw Error('Notes temporarily unavailable');return{notes:structuredClone(taskNotes),engineers:directory,canWrite:!window.__remTest.readOnly};},
 addTaskNote:async(a)=>{noteCalls.push(a);if(receipts.has(a.correlationId))return{...receipts.get(a.correlationId),duplicate:true};const note={id:'new-note',stage:a.stage,content:a.content,engineerName:directory.find(e=>e.id===a.engineerId).name,createdAt:'2026-10-06T13:00:00Z',acknowledgedAt:null,acknowledgedBy:null};taskNotes=[...taskNotes,note];const receipt={duplicate:false,note};receipts.set(a.correlationId,receipt);if(window.__remTest.failAdd){window.__remTest.failAdd=false;throw Error('Note response lost');}return receipt;},
-acknowledgeTaskNote:async(a)=>{ackCalls.push(a);if(receipts.has(a.correlationId))return{...receipts.get(a.correlationId),duplicate:true};const original=taskNotes.find(n=>n.id===a.noteId);if(original.acknowledgedAt)throw Error('Note already acknowledged');const note={...original,acknowledgedAt:'2026-10-06T14:00:00Z',acknowledgedBy:directory.find(e=>e.id===a.engineerId).name};taskNotes=taskNotes.map(n=>n.id===note.id?note:n);const receipt={duplicate:false,note};receipts.set(a.correlationId,receipt);if(window.__remTest.failAck){window.__remTest.failAck=false;taskNotes=[...taskNotes,{...note,id:'concurrent-note',content:'Newer concurrent task note',engineerName:'Test Engineer',acknowledgedAt:null,acknowledgedBy:null}];throw Error('Acknowledgment response lost');}return receipt;},
+acknowledgeTaskNote:async(a)=>{ackCalls.push(a);if(window.__remTest.inactiveAck){window.__remTest.inactiveAck=false;throw Error('Choose an active engineer');}if(receipts.has(a.correlationId))return{...receipts.get(a.correlationId),duplicate:true};const original=taskNotes.find(n=>n.id===a.noteId);if(original.acknowledgedAt)throw Error('Note already acknowledged');const note={...original,acknowledgedAt:'2026-10-06T14:00:00Z',acknowledgedBy:directory.find(e=>e.id===a.engineerId).name};taskNotes=taskNotes.map(n=>n.id===note.id?note:n);const receipt={duplicate:false,note};receipts.set(a.correlationId,receipt);if(window.__remTest.failAck){window.__remTest.failAck=false;taskNotes=[...taskNotes,{...note,id:'concurrent-note',content:'Newer concurrent task note',engineerName:'Test Engineer',acknowledgedAt:null,acknowledgedBy:null}];throw Error('Acknowledgment response lost');}return receipt;},
 getDetail:async(a)=>({record:a.recordId==='unit-1'?{...record,revision,progress:{...progress}}:{id:a.recordId,serialNumber:registered.find(r=>r._id===a.recordId)?.serialNumber??'SYNTHETIC-VISION',itemType:a.kind==='vision'?'VISION':'5600',currentStage:'Unassigned',revision:0,notes:'',progress:Object.fromEntries((a.kind==='vision'?visionKeys:stages).map(k=>[k,null])),updatedAt:'2026-10-06T17:00:00Z',engineerName:'Test Engineer'},engineers:directory,history:a.recordId==='unit-1'?[...history]:[],canWrite:true}),listEngineers:async()=>directory,updateProgress:async(a)=>{
  saved.push(a);if(window.__remTest.failOnce){window.__remTest.failOnce=false;throw Error('Network response lost; retry same update');}
  if(window.__remTest.conflict){throw Error('REM revision conflict');}
@@ -102,6 +102,14 @@ try{
   await page.getByRole('button',{name:'Tracker',exact:true}).click();
   await page.getByRole('button',{name:/^Cleaning/}).filter({hasText:'1 note'}).click();
   assert.equal(await modal.getByRole('combobox',{name:'Task',exact:true}).inputValue(),'Cleaning');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'1 note · Service',exact:true}).click();
+  await modal.getByRole('combobox',{name:'Acknowledging engineer',exact:true}).selectOption('engineer-1');
+  await page.evaluate(()=>window.__remTest.inactiveAck=true);
+  await modal.getByRole('listitem').filter({hasText:'Newer concurrent task note'}).getByRole('button',{name:'Acknowledge',exact:true}).click();
+  await modal.getByRole('alert').filter({hasText:'Choose an active engineer'}).waitFor();
+  assert.equal(await modal.getByRole('combobox',{name:'Acknowledging engineer',exact:true}).isDisabled(),false);
+  assert.equal(await modal.getByRole('combobox',{name:'Acknowledging engineer',exact:true}).inputValue(),'');
   await page.keyboard.press('Escape');
   await page.evaluate(()=>window.__remTest.readOnly=true);
   await page.getByRole('button',{name:'1 note · Cleaning',exact:true}).click();

@@ -84,7 +84,8 @@ export function RemTaskNotes({ kind, recordId, initialStage = '', onChanged }: {
     } catch (e) {
       if (!alive.current) return;
       const text = safeError(e, 'Unable to acknowledge task note');
-      if (/already acknowledged/i.test(text)) { setPendingAck(null); setError(`${text} Reload notes to see the latest state.`); }
+      if (/Choose an active engineer/i.test(text)) { setPendingAck(null); setAckEngineerId(''); setError(text); }
+      else if (/already acknowledged/i.test(text)) { setPendingAck(null); setError(`${text} Reload notes to see the latest state.`); }
       else setError(`${text} Retry the same acknowledgment.`);
     } finally { saving.current = false; if (alive.current) setBusy(false); }
   };
