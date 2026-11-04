@@ -47,6 +47,21 @@ VITE_SUPABASE_ANON_KEY=<anon key>
 - [ ] SAP staging records are created
 - [ ] OCR pipeline works through server-side AI gateway
 
+## Vercel preview deployments
+
+`vercel.json` runs `npm run build` for non-production targets; only Production
+runs `scripts/sync-convex-runtime.mjs` and `convex deploy`. A preview build
+therefore succeeds without any secrets, but the browser bundle only connects to
+a backend when `VITE_CONVEX_URL` is set for the **Preview** environment at build
+time. Without it every route renders the "temporarily unavailable" screen and the
+console logs `VITROS: VITE_CONVEX_URL was not set ...`. Point previews at a
+non-production Convex deployment where possible. `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` fall back to the public defaults in `vite.config.ts`.
+
+Production on Vercel additionally requires `CONVEX_DEPLOY_KEY`, `SUPABASE_URL`
+and `SUPABASE_SERVICE_ROLE_KEY` (optional `OPENCODE_ZEN_API_KEY`); the build
+fails closed if any required one is missing.
+
 ## Rollback
 
 1. Revert to previous deployment.
