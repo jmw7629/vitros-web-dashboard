@@ -14,6 +14,13 @@ import "./index.css";
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 
+if (!convex) {
+  // Operator diagnostic only: names the missing build-time variable, never a value.
+  console.error(
+    "VITROS: VITE_CONVEX_URL was not set when this build ran; the dashboard cannot reach its backend.",
+  );
+}
+
 function UnavailableState() {
   return (
     <div style={{
